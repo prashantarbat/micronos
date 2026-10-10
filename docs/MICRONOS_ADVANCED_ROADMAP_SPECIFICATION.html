@@ -1,0 +1,880 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark" data-mode="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Micron Firewall OS (MicronOS) — Advanced Capabilities & Next-Generation Roadmap Specification</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <style>
+    /* ============================================================
+       THEME PRESETS: 9 MicronOS Schemes (Dark + Light)
+       ============================================================ */
+    :root, [data-theme="dark"] {
+      --bg-primary: #070b14;
+      --bg-secondary: #0d1220;
+      --bg-tertiary: #111827;
+      --card-bg: rgba(17, 24, 39, 0.7);
+      --card-border: rgba(255, 255, 255, 0.08);
+      --card-border-bright: rgba(255, 255, 255, 0.14);
+      --text-main: #f1f5f9;
+      --text-muted: #94a3b8;
+      --accent-cyan: #00d4ff;
+      --accent-cyan-dim: rgba(0, 212, 255, 0.15);
+      --accent-deep: #0096c7;
+      --accent-purple: #7c3aed;
+      --accent-emerald: #10b981;
+      --accent-amber: #f59e0b;
+      --accent-rose: #ef4444;
+      --code-bg: #0d1220;
+      --sidebar-w: 320px;
+    }
+
+    [data-theme="midnight"] {
+      --bg-primary: #090712;
+      --bg-secondary: #110f1e;
+      --bg-tertiary: #16132a;
+      --card-bg: rgba(22, 19, 42, 0.75);
+      --card-border: rgba(139, 92, 246, 0.12);
+      --card-border-bright: rgba(139, 92, 246, 0.22);
+      --text-main: #ede9fe;
+      --text-muted: #a1a1b5;
+      --accent-cyan: #a78bfa;
+      --accent-cyan-dim: rgba(167, 139, 250, 0.15);
+      --accent-deep: #7c3aed;
+      --accent-purple: #c084fc;
+      --accent-emerald: #34d399;
+      --accent-amber: #fbbf24;
+      --accent-rose: #f87171;
+      --code-bg: #110f1e;
+    }
+
+    [data-theme="ocean"] {
+      --bg-primary: #030f14;
+      --bg-secondary: #071820;
+      --bg-tertiary: #0c202a;
+      --card-bg: rgba(12, 32, 42, 0.75);
+      --card-border: rgba(45, 212, 191, 0.12);
+      --card-border-bright: rgba(45, 212, 191, 0.22);
+      --text-main: #f0fdfa;
+      --text-muted: #99f6e4;
+      --accent-cyan: #2dd4bf;
+      --accent-cyan-dim: rgba(45, 212, 191, 0.15);
+      --accent-deep: #0f766e;
+      --accent-purple: #818cf8;
+      --accent-emerald: #34d399;
+      --accent-amber: #fbbf24;
+      --accent-rose: #f87171;
+      --code-bg: #071820;
+    }
+
+    [data-theme="forest"] {
+      --bg-primary: #050f08;
+      --bg-secondary: #0a170e;
+      --bg-tertiary: #0e2014;
+      --card-bg: rgba(14, 32, 20, 0.75);
+      --card-border: rgba(74, 222, 128, 0.12);
+      --card-border-bright: rgba(74, 222, 128, 0.22);
+      --text-main: #f0fdf4;
+      --text-muted: #bbf7d0;
+      --accent-cyan: #4ade80;
+      --accent-cyan-dim: rgba(74, 222, 128, 0.15);
+      --accent-deep: #15803d;
+      --accent-purple: #a78bfa;
+      --accent-emerald: #22c55e;
+      --accent-amber: #fbbf24;
+      --accent-rose: #f87171;
+      --code-bg: #0a170e;
+    }
+
+    [data-theme="slate"] {
+      --bg-primary: #0a0d12;
+      --bg-secondary: #111520;
+      --bg-tertiary: #161b28;
+      --card-bg: rgba(22, 27, 40, 0.75);
+      --card-border: rgba(100, 116, 139, 0.14);
+      --card-border-bright: rgba(100, 116, 139, 0.24);
+      --text-main: #e2e8f0;
+      --text-muted: #94a3b8;
+      --accent-cyan: #94a3b8;
+      --accent-cyan-dim: rgba(148, 163, 184, 0.15);
+      --accent-deep: #475569;
+      --accent-purple: #818cf8;
+      --accent-emerald: #34d399;
+      --accent-amber: #fbbf24;
+      --accent-rose: #f87171;
+      --code-bg: #111520;
+    }
+
+    /* Shared light mode base */
+    [data-mode="light"] {
+      --bg-primary: #f1f5f9;
+      --bg-secondary: #ffffff;
+      --bg-tertiary: #f8fafc;
+      --card-bg: #ffffff;
+      --card-border: rgba(0, 0, 0, 0.08);
+      --card-border-bright: rgba(0, 0, 0, 0.15);
+      --text-main: #0f172a;
+      --text-muted: #64748b;
+      --accent-cyan: #0284c7;
+      --accent-cyan-dim: rgba(2, 132, 199, 0.10);
+      --accent-deep: #0369a1;
+      --accent-purple: #7c3aed;
+      --accent-emerald: #059669;
+      --accent-amber: #d97706;
+      --accent-rose: #dc2626;
+      --code-bg: #f8fafc;
+    }
+
+    /* Solar Amber (warm cream) */
+    [data-theme="solar"] {
+      --bg-primary: #fdf7ee;
+      --bg-secondary: #ffffff;
+      --bg-tertiary: #fffaf3;
+      --card-bg: #ffffff;
+      --card-border: rgba(146, 94, 28, 0.14);
+      --card-border-bright: rgba(146, 94, 28, 0.25);
+      --text-main: #3b2410;
+      --text-muted: #7c5a34;
+      --accent-cyan: #ea580c;
+      --accent-cyan-dim: rgba(234, 88, 12, 0.12);
+      --accent-deep: #c2410c;
+      --accent-purple: #9333ea;
+      --accent-emerald: #0f766e;
+      --accent-amber: #b45309;
+      --accent-rose: #dc2626;
+      --code-bg: #fbf0e0;
+    }
+
+    /* Mint Breeze (cool teal) */
+    [data-theme="mint"] {
+      --bg-primary: #f0fdf9;
+      --bg-secondary: #ffffff;
+      --bg-tertiary: #f6fefb;
+      --card-bg: #ffffff;
+      --card-border: rgba(13, 120, 100, 0.14);
+      --card-border-bright: rgba(13, 120, 100, 0.25);
+      --text-main: #0b3b34;
+      --text-muted: #3f6f66;
+      --accent-cyan: #0d9488;
+      --accent-cyan-dim: rgba(13, 148, 136, 0.12);
+      --accent-deep: #0f766e;
+      --accent-purple: #7c3aed;
+      --accent-emerald: #047857;
+      --accent-amber: #b45309;
+      --accent-rose: #dc2626;
+      --code-bg: #e3f9f2;
+    }
+
+    /* Paper Ink (neutral paper) */
+    [data-theme="paper"] {
+      --bg-primary: #f7f7f8;
+      --bg-secondary: #ffffff;
+      --bg-tertiary: #fbfbfc;
+      --card-bg: #ffffff;
+      --card-border: rgba(15, 23, 42, 0.10);
+      --card-border-bright: rgba(15, 23, 42, 0.20);
+      --text-main: #0f172a;
+      --text-muted: #64748b;
+      --accent-cyan: #4f46e5;
+      --accent-cyan-dim: rgba(79, 70, 229, 0.10);
+      --accent-deep: #4338ca;
+      --accent-purple: #7c3aed;
+      --accent-emerald: #047857;
+      --accent-amber: #b45309;
+      --accent-rose: #dc2626;
+      --code-bg: #f0f0f3;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background-color: var(--bg-primary);
+      color: var(--text-main);
+      line-height: 1.65;
+      display: flex;
+      min-height: 100vh;
+      overflow-x: hidden;
+      transition: background-color 0.2s ease, color 0.2s ease;
+    }
+
+    /* Scrollbars */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--card-border-bright); border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--accent-cyan); }
+
+    /* ============================================================
+       FULLPAGE SIDEBAR NAVIGATION
+       ============================================================ */
+    aside.sidebar {
+      width: var(--sidebar-w);
+      background-color: var(--bg-secondary);
+      border-right: 1px solid var(--card-border);
+      position: fixed;
+      top: 0; bottom: 0; left: 0;
+      height: 100vh;
+      max-height: 100vh;
+      overflow: hidden;
+      padding: 1.25rem 1rem 1rem 1rem;
+      display: flex;
+      flex-direction: column;
+      z-index: 100;
+      box-shadow: 2px 0 12px rgba(0, 0, 0, 0.15);
+      transition: background-color 0.2s ease, border-color 0.2s ease;
+    }
+
+    .sidebar-top {
+      flex: 0 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .brand-box {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding-bottom: 0.85rem;
+      border-bottom: 1px solid var(--card-border);
+    }
+    .brand-logo {
+      width: 38px;
+      height: 38px;
+      background: linear-gradient(135deg, var(--accent-cyan), var(--accent-deep));
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 1.2rem;
+      color: #fff;
+      box-shadow: 0 4px 12px var(--accent-cyan-dim);
+    }
+    .brand-text h2 {
+      font-size: 1.02rem;
+      font-weight: 700;
+      color: var(--text-main);
+      letter-spacing: -0.02em;
+    }
+    .brand-text p {
+      font-size: 0.72rem;
+      color: var(--accent-cyan);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .doc-nav-links {
+      display: flex;
+      flex-direction: column;
+      gap: 0.3rem;
+      padding-bottom: 0.85rem;
+      border-bottom: 1px solid var(--card-border);
+    }
+    .doc-nav-links a {
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-decoration: none;
+      padding: 0.45rem 0.65rem;
+      border-radius: 7px;
+      transition: all 0.18s ease;
+      display: flex;
+      align-items: center;
+      gap: 0.55rem;
+    }
+    .doc-nav-links a:hover {
+      color: var(--text-main);
+      background: var(--bg-tertiary);
+    }
+    .doc-nav-links a.active {
+      color: var(--accent-cyan);
+      background: var(--accent-cyan-dim);
+      border-left: 3px solid var(--accent-cyan);
+      font-weight: 700;
+    }
+
+    .toc-header-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .toc-title {
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--accent-cyan);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .toc-search {
+      width: 100%;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--card-border-bright);
+      border-radius: 7px;
+      padding: 7px 10px;
+      font-size: 0.78rem;
+      color: var(--text-main);
+      outline: none;
+      font-family: inherit;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    .toc-search:focus {
+      border-color: var(--accent-cyan);
+      box-shadow: 0 0 0 3px var(--accent-cyan-dim);
+    }
+
+    /* Dedicated scrollable TOC list filling full viewport */
+    nav.toc-nav {
+      flex: 1 1 0;
+      min-height: 0;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+      padding-top: 0.4rem;
+      padding-right: 4px;
+      scrollbar-width: thin;
+    }
+    nav.toc-nav a {
+      font-size: 0.79rem;
+      color: var(--text-muted);
+      text-decoration: none;
+      padding: 0.4rem 0.6rem;
+      border-radius: 6px;
+      transition: all 0.15s ease;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: block;
+      line-height: 1.35;
+    }
+    nav.toc-nav a:hover {
+      color: var(--text-main);
+      background: var(--bg-tertiary);
+    }
+    nav.toc-nav a.active {
+      color: var(--accent-cyan);
+      background: var(--accent-cyan-dim);
+      font-weight: 600;
+    }
+    nav.toc-nav a.h3-link {
+      padding-left: 1.25rem;
+      font-size: 0.74rem;
+      opacity: 0.85;
+    }
+
+    /* Pinned Sidebar Footer (Theme Preset Switcher) */
+    .sidebar-foot {
+      flex: 0 0 auto;
+      padding-top: 0.75rem;
+      border-top: 1px solid var(--card-border);
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+    }
+    .theme-select-label {
+      font-size: 0.68rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+    }
+    .theme-select {
+      width: 100%;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--card-border-bright);
+      border-radius: 6px;
+      padding: 6px 10px;
+      font-size: 0.78rem;
+      color: var(--text-main);
+      outline: none;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .theme-select:focus {
+      border-color: var(--accent-cyan);
+    }
+
+    /* ============================================================
+       MAIN CONTENT
+       ============================================================ */
+    main.main-content {
+      margin-left: var(--sidebar-w);
+      flex: 1;
+      padding: 2.5rem 3.5rem 5rem 3.5rem;
+      max-width: 1200px;
+    }
+
+    .doc-header {
+      margin-bottom: 2.5rem;
+      padding-bottom: 1.5rem;
+      border-bottom: 1px solid var(--card-border);
+    }
+    .doc-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 0.25rem 0.75rem;
+      border-radius: 9999px;
+      background: var(--accent-cyan-dim);
+      color: var(--accent-cyan);
+      border: 1px solid var(--accent-cyan);
+      margin-bottom: 0.75rem;
+    }
+    .doc-header h1 {
+      font-size: 2.2rem;
+      font-weight: 800;
+      color: var(--text-main);
+      letter-spacing: -0.03em;
+      margin-bottom: 0.5rem;
+      line-height: 1.2;
+    }
+    .doc-header p {
+      font-size: 1.05rem;
+      color: var(--text-muted);
+    }
+
+    /* Markdown Styling */
+    #markdown-body {
+      color: var(--text-main);
+      font-size: 0.95rem;
+    }
+    #markdown-body h1, #markdown-body h2, #markdown-body h3, #markdown-body h4 {
+      color: var(--text-main);
+      font-weight: 700;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      letter-spacing: -0.02em;
+      scroll-margin-top: 2rem;
+    }
+    #markdown-body h2 {
+      font-size: 1.45rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 1px solid var(--card-border);
+      margin-top: 2.5rem;
+      color: var(--accent-cyan);
+    }
+    #markdown-body h3 {
+      font-size: 1.2rem;
+      color: var(--text-main);
+    }
+    #markdown-body h4 {
+      font-size: 1rem;
+      color: var(--text-muted);
+    }
+    #markdown-body p {
+      margin-bottom: 1rem;
+      line-height: 1.7;
+    }
+    #markdown-body ul, #markdown-body ol {
+      margin-bottom: 1.25rem;
+      padding-left: 1.5rem;
+    }
+    #markdown-body li {
+      margin-bottom: 0.4rem;
+      line-height: 1.6;
+    }
+    #markdown-body a {
+      color: var(--accent-cyan);
+      text-decoration: none;
+      font-weight: 500;
+    }
+    #markdown-body a:hover {
+      text-decoration: underline;
+    }
+
+    /* ============================================================
+       CODE BLOCKS: Adaptive Theme Presets (Light & Dark)
+       ============================================================ */
+    #markdown-body code {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.85em;
+      background: var(--code-bg);
+      color: var(--accent-cyan);
+      padding: 0.2em 0.45em;
+      border-radius: 5px;
+      border: 1px solid var(--card-border-bright);
+      font-weight: 600;
+    }
+    #markdown-body pre {
+      background: var(--code-bg);
+      border: 1px solid var(--card-border-bright);
+      border-radius: 10px;
+      padding: 1.25rem;
+      overflow-x: auto;
+      margin-bottom: 1.5rem;
+      position: relative;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    }
+    #markdown-body pre code {
+      background: transparent !important;
+      padding: 0 !important;
+      border: none !important;
+      color: var(--text-main) !important;
+      font-size: 0.85rem;
+      line-height: 1.65;
+    }
+
+    /* Theme-adaptive syntax highlighting tokens */
+    #markdown-body pre code.hljs { background: transparent !important; padding: 0 !important; }
+    .hljs-keyword, .hljs-selector-tag, .hljs-subst, .hljs-doctag { color: var(--accent-cyan) !important; font-weight: 600; }
+    .hljs-string, .hljs-title, .hljs-title.function_, .hljs-section, .hljs-attribute, .hljs-literal,
+    .hljs-template-tag, .hljs-template-variable, .hljs-type, .hljs-addition { color: var(--accent-emerald) !important; }
+    .hljs-comment, .hljs-quote, .hljs-deletion, .hljs-meta { color: var(--text-muted) !important; font-style: italic; }
+    .hljs-number, .hljs-regexp, .hljs-link { color: var(--accent-amber) !important; }
+    .hljs-variable, .hljs-params, .hljs-attr { color: var(--text-main) !important; }
+    .hljs-built_in, .hljs-builtin-name, .hljs-symbol, .hljs-bullet { color: var(--accent-purple) !important; font-weight: 600; }
+
+    /* Copy Button */
+    .code-copy-btn {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      background: var(--bg-secondary);
+      border: 1px solid var(--card-border-bright);
+      border-radius: 6px;
+      color: var(--text-muted);
+      font-size: 0.72rem;
+      padding: 4px 8px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      transition: all 0.15s ease;
+      font-family: inherit;
+    }
+    .code-copy-btn:hover {
+      background: var(--accent-cyan);
+      color: #fff;
+      border-color: var(--accent-cyan);
+    }
+
+    #markdown-body table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 1.75rem;
+      background: var(--card-bg);
+      border-radius: 10px;
+      overflow: hidden;
+      border: 1px solid var(--card-border);
+      font-size: 0.88rem;
+    }
+    #markdown-body th {
+      background: var(--bg-tertiary);
+      color: var(--text-main);
+      font-weight: 600;
+      text-align: left;
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid var(--card-border);
+    }
+    #markdown-body td {
+      padding: 0.65rem 1rem;
+      border-bottom: 1px solid var(--card-border);
+      color: var(--text-main);
+    }
+    #markdown-body tr:hover td {
+      background: var(--bg-tertiary);
+    }
+    #markdown-body blockquote {
+      border-left: 4px solid var(--accent-cyan);
+      background: var(--accent-cyan-dim);
+      padding: 0.85rem 1.25rem;
+      border-radius: 0 8px 8px 0;
+      margin-bottom: 1.25rem;
+      color: var(--text-main);
+    }
+    #markdown-body hr {
+      border: none;
+      height: 1px;
+      background: var(--card-border);
+      margin: 2.5rem 0;
+    }
+
+    @media (max-width: 900px) {
+      aside.sidebar { display: none; }
+      main.main-content { margin-left: 0; padding: 1.5rem; }
+    }
+  </style>
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="sidebar-top">
+      <div class="brand-box">
+        <div class="brand-logo">M</div>
+        <div class="brand-text">
+          <h2>MicronOS Docs</h2>
+          <p>Enterprise Firewall</p>
+        </div>
+      </div>
+
+      <div class="doc-nav-links">
+        <a href="index.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
+          </svg>
+          Docs Portal Hub
+        </a>
+
+        <a href="MICRON_FIREWALL_OS_ARCHITECTURE.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/>
+          </svg>
+          Architecture Blueprint
+        </a>
+        <a href="MICRONOS_MODULE_REFERENCE.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/>
+          </svg>
+          Module Reference
+        </a>
+        <a href="STEP_BY_STEP_IMPLEMENTATION_PLAN.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/>
+          </svg>
+          Implementation Plan
+        </a>
+        <a href="ISO_CREATION_AND_INSTALLER_GUIDE.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/>
+          </svg>
+          ISO &amp; Installer Guide
+        </a>
+        <a href="SSLVPN_ZTNA_CLIENTLESS_GATEWAY_SPECIFICATION.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+          </svg>
+          SSL-VPN &amp; ZTNA Spec
+        </a>
+        <a href="MICRONOS_UPDATE_AND_UPGRADE_SPECIFICATION.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+          </svg>
+          Update &amp; Upgrade Spec
+        </a>
+        <a href="MICRONOS_PLUGIN_AND_PACKAGE_MANAGER_SPECIFICATION.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
+          </svg>
+          Plugin &amp; Package Manager
+        </a>
+        <a href="MICRONOS_CONNECTOR_ABSTRACTION_SPECIFICATION.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13.828 10.172a4 4 0 010 5.656l-4 4a4 4 0 11-5.656-5.656l1-1m9.656-2.344a4 4 0 00-5.656-5.656l-4 4a4 4 0 105.656 5.656l1-1"/>
+          </svg>
+          Connector Abstraction Spec
+        </a>
+        <a href="MICRONOS_CONNECTOR_THREAT_MODEL.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+          </svg>
+          Connector Threat Model
+        </a>
+        <a href="HYPERV_WIN11_DEVELOPMENT_AND_AI_COORDINATION_GUIDE.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
+          </svg>
+          Hyper-V &amp; AI Dev Guide
+        </a>
+        <a href="POWER_LOSS_RESILIENCE_AND_RECOVERY_ENGINEERING_SPECIFICATION.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+          </svg>
+          Power Resilience &amp; LKGC Spec
+        </a>
+        <a href="MICRONOS_BONDING_AND_WIRELESS_GUIDE.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13.828 10.172a4 4 0 010 5.656l-3 3a4 4 0 01-5.656-5.656l1.5-1.5m7.156-7.156a4 4 0 00-5.656 0l-3 3a4 4 0 000 5.656l1.5 1.5"/>
+          </svg>
+          Bonding &amp; Wi-Fi Guide
+        </a>
+        <a href="MICRONOS_ADVANCED_ROADMAP_SPECIFICATION.html" class="active">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+          </svg>
+          Advanced Roadmap Spec
+        </a>
+        <a href="MICRONOS_VERSIONING_AND_RELEASE_LIFECYCLE_SPECIFICATION.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"/>
+          </svg>
+          Versioning &amp; Release Spec
+        </a>
+        <a href="http://micronos.test/dashboard" target="_blank" style="color:var(--accent-cyan); background:var(--accent-cyan-dim);">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+          </svg>
+          Launch Appliance GUI &rarr;
+        </a>
+      </div>
+
+      <div class="toc-header-wrap">
+        <div class="toc-title">
+          <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h7"/>
+          </svg>
+          Table of Contents
+        </div>
+        <input type="text" id="toc-search" class="toc-search" placeholder="Filter sections (e.g. snmp, siem, nat)..." oninput="filterToc(this.value)">
+      </div>
+    </div>
+
+    <nav class="toc-nav" id="toc-container">
+      <!-- Generated dynamically -->
+    </nav>
+
+    <div class="sidebar-foot">
+      <label for="themePresetSelect" class="theme-select-label">Theme Preset</label>
+      <select id="themePresetSelect" class="theme-select" onchange="setThemePreset(this.value)">
+        <optgroup label="Dark Themes">
+          <option value="dark">Dark Abyss</option>
+          <option value="midnight">Midnight</option>
+          <option value="ocean">Ocean Teal</option>
+          <option value="forest">Forest</option>
+          <option value="slate">Slate Grey</option>
+        </optgroup>
+        <optgroup label="Light Themes">
+          <option value="light">Light / Day</option>
+          <option value="solar">Solar Amber</option>
+          <option value="mint">Mint Breeze</option>
+          <option value="paper">Paper Ink</option>
+        </optgroup>
+      </select>
+    </div>
+  </aside>
+
+  <main class="main-content">
+    <div class="doc-header">
+      <span class="doc-badge">
+        <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+        </svg>
+        MicronOS Technical Manual
+      </span>
+      <h1>Micron Firewall OS (MicronOS) — Advanced Capabilities & Next-Generation Roadmap Specification</h1>
+      <p>Git-Backed Configuration Revisions, Layer 7 AppID via nDPI, SSL Deep Inspection, Dynamic SD-WAN, and Threat Feeds</p>
+    </div>
+
+    <article id="markdown-body"></article>
+  </main>
+
+  <script>
+    const rawMarkdown = "# Micron Firewall OS (Micron OS) — Advanced Capabilities & Next-Generation Roadmap Specification\n\n## 1. Executive Summary & Prioritized Roadmap\n\nThis engineering specification defines the architecture, data structures, daemon protocols, and implementation workflows for the top seven next-generation capabilities prioritized for **Micron OS**, establishing clear parity and competitive advantages over enterprise appliances such as FortiGate (FortiOS), pfSense Plus, and OPNsense Business.\n\n### Prioritized Development Pipeline\n\n| Priority | Subsystem & Feature | Primary Technologies | Target Layer | Status |\n| :---: | :--- | :--- | :--- | :---: |\n| **1** | **Automated Configuration Diff & Git-Backed Revision History** | `git`, `SQLite3`, Diff renderer | Control Plane & Web GUI | **Completed (v0.1.23)** |\n| **2** | **Application Identification & Layer 7 DPI (AppID via nDPI)** | `nDPI`, `nftables` marks, `micrond` | Data Plane & Netfilter | **Completed (v0.1.24)** |\n| **3** | **Full SSL/TLS Deep Packet Inspection (MITM CA Engine)** | OpenSSL CA, `Squid` SSL-Bump, ICAP | Data Plane & Proxies | **In Progress (Active)** |\n| **4** | **Application-Aware Dynamic SD-WAN (SLA Path Steering)** | Probing daemon, Jitter/Loss SLA, PBR | Routing & Linux Kernel | Planned |\n| **5** | **In-Browser Clientless Web Gateway (HTML5 RDP/SSH)** | WebSockets, Guacamole daemon, TOTP | Management Plane | Planned |\n| **6** | **Centralized Single Sign-On (SSO) via OIDC & SAML 2.0** | OAuth2 / OIDC, SAML 2.0, Entra ID | IAM & Control Plane | Planned |\n| **7** | **Automated Threat Intelligence Feed Ingest** | AbuseIPDB, Spamhaus, `nftables` sets | Netfilter & Feeds | Planned |\n| *Future* | *Centralized Cloud Fleet Controller (Micron Central)* | WebSockets, Mutual TLS, Fleet API | Management Plane | Future |\n| *Future* | *BGP EVPN & VXLAN Datacenter Overlay* | FRRouting, Linux VXLAN | Routing & Overlays | Future |\n| *Future* | *Captive Portal & Hotspot Voucher Engine* | `hostapd`, `nftables`, RADIUS | WLAN & Edge Access | Future |\n| *Future* | *Cross-VLAN mDNS Reflector & IGMP Proxy* | `avahi`, `igmpproxy` | Multicast & IoT | Future |\n| *Future* | *4G/5G Cellular LTE Modem Manager* | `ModemManager`, QMI/MBIM, `wwan0` | Hardware Layer | Future |\n\n---\n\n## 2. Priority 1: Automated Configuration Diff & Git-Backed Revision History (Status: Completed)\n\n### 2.1 Architectural Overview\nMicron OS features a complete, git-backed revision history subsystem.\n1. Local Git repository located at `WRITEPATH . 'config_repo'` (`/var/lib/micron/config.git` on Linux appliances).\n2. Automatic atomic commits on every confirmed configuration change across all subsystems (firewall rules, interfaces, routing, DNS, DHCP, VPN, bonding, wireless, DPI).\n3. Serialized normalized JSON configuration snapshot (`config.json`) representing the entire appliance database state.\n4. Web GUI **Revision History & Diff Viewer** (`/system/revisions`) featuring:\n   - Chronological audit timeline with committer username, timestamp, and message.\n   - Side-by-side and inline colorized unified diff highlighting additions and deletions.\n   - One-click rollback button that stages the selected historical commit and atomically restores database configuration tables.\n   - Manual checkpoint modal for pre-maintenance configuration snapshots.\n\n### 2.2 Semantic Versioning & Incremental Edits Integration\nEvery confirmed checkpoint and code modification increments the patch version of Micron OS:\n- **Format:** `MAJOR.MINOR.PATCH` (e.g. `2.4.56`, `0.1.23`, `2.2.11`).\n- **Minor (2nd Digit):**\n  - **Odd number (`1, 3, 5, ...`)** $\\rightarrow$ **Development Version** (e.g. `0.1.23`, `1.1.24`, `2.3.56`).\n  - **Even number (`0, 2, 4, ...`)** $\\rightarrow$ **Stable Version** (e.g. `0.2.0`, `2.2.11`, `2.4.12`).\n- **Patch (3rd Digit):** Incremental edits performed on the project (`.56`, `.12`, `.11`, `.24`, `.23`).\n- **Starting Baseline:** **`0.1.23`** (Development version).\n- **Official Naming Standard:** Strictly **\"Micron OS\"** (with space), not \"MicronOS\".\n- **Runtime Provider:** `App\\Libraries\\AppVersion` automatically increments the patch upon commit and binds the stability badge to the topbar, system information, login screen, and SIEM telemetry.\n\n---\n\n## 3. Priority 2: Application Identification & Layer 7 DPI (`nDPI`) (Status: Completed)\n\n### 3.1 Packet Classification Architecture\nModern traffic evasion techniques (dynamic ports, port 443 masquerading, WebSockets) render Layer 4 port-based filtering insufficient.\n1. The `nDPI` deep packet inspection engine is embedded via `micrond` and kernel netfilter connection tracking (`conntrack`).\n2. For each new flow, the initial 8–10 packets are evaluated against nDPI protocol heuristics.\n3. Once classified, a numeric protocol ID and netfilter hex mark is assigned to the conntrack session (e.g., `0x1001` for *YouTube*, `0x1061` for *Stratum Cryptomining*, `0x1031` for *BitTorrent*).\n4. `nftables` firewall rules match directly on `ct mark` within the `dpi_forward` chain with zero overhead on the remaining packets of the flow.\n\n### 3.2 Implemented Components\n- **Database Schema:** `dpi_categories`, `dpi_applications`, `dpi_policies`, `dpi_custom_signatures`, `dpi_settings` (migration `2026-10-10-000106_CreateAppIdAndDpiTables.php`).\n- **Compiler:** `App\\Libraries\\DpiCompiler` generating `/etc/ndpi/ndpi_rules.conf` and `nftables` Layer 7 filtering snippets.\n- **Daemon IPC Bridge:** `micrond` JSON-RPC methods `dpi.status`, `dpi.apply`, `dpi.live_flows`, and `dpi.stats`.\n- **Web GUI:** Controller `App\\Controllers\\AppId` and view `app/Views/appid/index.php` offering:\n  - Real-time live flow telemetry stream with auto-refresh via `MicronScheduler`.\n  - Ordered Application Control rulebase (Block, Allow, Shape/Rate-limit).\n  - Searchable application catalogue across 9 categories and 21+ protocols.\n  - User-defined regex and host signatures.\n  - Global engine tuning parameters (depth, conntrack table max, operating mode).\n\n---\n\n## 4. Priority 3: Full SSL/TLS Deep Packet Inspection (MITM CA Engine) (Status: Active)\n\n### 4.1 Root CA Generation & Automated Endpoint Trust\n- Micron OS provisions a dedicated internal Certificate Authority:\n  - Algorithm: RSA 4096-bit or ECDSA P-384.\n  - Automated deployment endpoints: `/webfilter/download-ca` (DER/PEM), Windows GPO export helper, and SCEP enrollment.\n- Stores CA key material in PKI keystore with encrypted private keys.\n\n### 4.2 Transparent Decryption & ICAP Antivirus Pipeline\n- Outbound port 443 connections to non-exempt domains are routed into the local SSL-Bump proxy engine (`Squid` 6+ or dedicated MITM worker).\n- Synthetic dynamic certificates matching destination Server Alternative Names (SANs) are generated on the fly using OpenSSL memory buffers.\n- Decrypted HTTP/1.1 and HTTP/2 payloads are streamed via ICAP to ClamAV (`c-icap`) and web category classifiers before re-encryption and transmission to the client.\n- Built-in strict bypass lists for privacy-sensitive and certificate-pinned categories (Banking & Financial Institutions, Healthcare, Government Portals).\n\n### 4.3 Database Schema & Configurations\n- **Tables:**\n  - `ssl_inspection_profiles`: Profile definitions (deep inspection vs certificate inspection, cipher suites, minimum TLS version).\n  - `ssl_bypass_domains`: Domain wildcard patterns and FQDNs exempted from MITM decryption.\n  - `ssl_ca_certificates`: Appliance root and intermediate CAs used for MITM signing.\n\n---\n\n## 5. Priority 4: Application-Aware Dynamic SD-WAN (SLA Path Steering) (Status: Planned)\n\n### 5.1 Real-Time SLA Metric Probing\nAn autonomous background daemon (`micron-sdwan-probe`) continuously monitors each active WAN uplink:\n- **Packet Loss (%)**: Measured over sliding 100-packet ICMP / UDP bursts.\n- **Round-Trip Time (RTT / Latency)**: Sub-millisecond tracking via probes to target anchors (e.g., `8.8.8.8`, `1.1.1.1`, enterprise gateways).\n- **Jitter (ms)**: RFC 3550 statistical variance between consecutive packet arrival intervals.\n\n### 5.2 Dynamic Policy-Based Routing (PBR) Engine\nSD-WAN Profiles define performance service-level agreements:\n```json\n{\n  \"profile\": \"VoIP_Collaboration\",\n  \"sla_thresholds\": { \"max_latency_ms\": 100, \"max_jitter_ms\": 15, \"max_packet_loss_pct\": 1.0 },\n  \"preferred_uplink\": \"wan1\",\n  \"secondary_uplink\": \"wan2_backup\",\n  \"assigned_traffic\": [\"Zoom\", \"Teams\", \"SIP\", \"RTP\"]\n}\n```\nIf `wan1` experiences sudden jitter spikes (>15ms), the routing engine dynamically updates `nftables` policy routing marks, steering subsequent flows across `wan2_backup` without dropping ongoing user sessions.\n\n---\n\n## 6. Priority 5: In-Browser Clientless Web Application & Desktop Gateway (Status: Planned)\n\n### 6.1 Architecture (Zero-Install HTML5 RDP/SSH Gateway)\n- Eliminates the need for remote employees to install IPsec or WireGuard client software on personal endpoints.\n- Remote operators log into the Micron OS Web Portal with username, password, and TOTP 2FA.\n- The portal exposes an authorized catalogue of internal desktops (**RDP**), servers (**SSH**), and virtual consoles (**VNC**).\n- Connections are mediated through a secure WebSocket tunnel translating graphics primitives to standard HTML5 Canvas at 60 FPS, with clipboard synchronization, audio streaming, and session recording for security audits.\n\n---\n\n## 7. Priority 6: Centralized Single Sign-On (SSO) with OIDC & SAML 2.0 (Status: Planned)\n\n### 7.1 Identity Provider (IdP) Integrations\n- Supports **OpenID Connect (OIDC)** and **SAML 2.0** protocols for enterprise directory synchronization:\n  - Microsoft Entra ID (Azure Active Directory)\n  - Okta Identity Cloud\n  - Google Workspace\n  - Keycloak / Authentik on-premises\n- **Role Mapping Engine:** Maps IdP SAML attributes or OIDC group claims to Micron OS granular permissions (e.g. `Entra:SecOps-Network` → `interfaces.*`, `firewall.*`; `Entra:Helpdesk` → `diagnostics.*`, `dashboard.view`).\n- Automated Just-In-Time (JIT) administrative user provisioning and session token revocation.\n\n---\n\n## 8. Priority 7: Automated Threat Intelligence Feed Ingest (Status: Planned)\n\n### 8.1 Autonomous Feed Connectors\n- Scheduled hourly connectors targeting leading cyber intelligence sources:\n  - **AbuseIPDB**: High-confidence aggressive scanners and brute-forcers.\n  - **Spamhaus DROP / EDROP**: Don't Route Or Peer hijacked IP subnets.\n  - **AlienVault OTX & Emerging Threats**: Botnet command-and-control (C2) IPs.\n- Processing pipeline:\n  1. HTTPS retrieval with ETag conditional download.\n  2. Strict RFC 1918 / RFC 6598 private address filtering (guards against self-denial).\n  3. CIDR prefix consolidation and deduplication.\n  4. Direct bulk atomic swap into kernel `nftables set threat_intel_blocklist { type ipv4_addr; flags interval; }`.\n  5. Inbound and outbound packets matching this set are dropped in the netfilter `prerouting` chain at wire speed with zero userspace CPU penalty.\n\n---\n\n## 9. Implementation Roadmap & Execution Log\n\n| Date | Phase | Milestone | Outcome |\n| :---: | :---: | :--- | :--- |\n| **2026-10-10** | **Priority 1** | Automated Configuration Diff & Git-Backed Revision History | Complete: Git sync, unified diff visualizer, instant rollback, automated version bump. |\n| **2026-10-10** | **Priority 2** | Application Identification & Layer 7 DPI (AppID via nDPI) | Complete: nDPI compiler, nftables ct mark integration, live flow telemetry, catalogue and policy rulebase. |\n| **2026-10-10** | **Priority 3** | Full SSL/TLS Deep Packet Inspection (MITM CA Engine) | Active: CA keystore integration, dynamic certificate forging, SSL bypass list. |\n| **Future** | **Priorities 4–7** | SD-WAN SLA Steering, HTML5 Gateway, SSO (OIDC/SAML), Threat Intel Feeds | Documented in full; queued for sequential implementation. |\n";
+    
+    // Theme Presets Management
+    const LIGHT_THEMES = ['light', 'solar', 'mint', 'paper'];
+    function setThemePreset(theme) {
+      document.documentElement.dataset.theme = theme;
+      document.documentElement.dataset.mode = LIGHT_THEMES.includes(theme) ? 'light' : 'dark';
+      try {
+        localStorage.setItem('micron_docs_theme', theme);
+      } catch (e) {}
+      const sel = document.getElementById('themePresetSelect');
+      if (sel) sel.value = theme;
+    }
+
+    try {
+      const savedTheme = localStorage.getItem('micron_docs_theme') || 'dark';
+      setThemePreset(savedTheme);
+    } catch (e) {
+      setThemePreset('dark');
+    }
+
+    // Configure marked with highlight.js
+    marked.setOptions({
+      highlight: function(code, lang) {
+        if (lang && hljs.getLanguage(lang)) {
+          return hljs.highlight(code, { language: lang }).value;
+        }
+        return hljs.highlightAuto(code).value;
+      },
+      breaks: false,
+      gfm: true
+    });
+
+    const rendered = marked.parse(rawMarkdown);
+    document.getElementById('markdown-body').innerHTML = rendered;
+
+    // Generate Dynamic TOC with IDs
+    const headings = document.getElementById('markdown-body').querySelectorAll('h2, h3');
+    const tocContainer = document.getElementById('toc-container');
+    
+    headings.forEach(heading => {
+      const text = heading.textContent;
+      const base = text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+      let slug = base;
+      for (let n = 2; document.getElementById(slug); n++) {
+        slug = base + '-' + n;
+      }
+      heading.id = slug;
+      
+      const link = document.createElement('a');
+      link.href = '#' + slug;
+      link.textContent = text;
+      link.dataset.title = text.toLowerCase();
+      if (heading.tagName.toLowerCase() === 'h3') {
+        link.classList.add('h3-link');
+      }
+      tocContainer.appendChild(link);
+    });
+
+    // Add Copy Buttons to Pre blocks
+    document.querySelectorAll('#markdown-body pre').forEach(pre => {
+      const copyBtn = document.createElement('button');
+      copyBtn.className = 'code-copy-btn';
+      copyBtn.innerHTML = '<svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg> Copy';
+      copyBtn.onclick = () => {
+        const codeText = pre.querySelector('code')?.innerText || pre.innerText;
+        navigator.clipboard.writeText(codeText);
+        copyBtn.innerHTML = '✔ Copied!';
+        setTimeout(() => {
+          copyBtn.innerHTML = '<svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg> Copy';
+        }, 2000);
+      };
+      pre.appendChild(copyBtn);
+    });
+
+    // TOC Filter
+    function filterToc(query) {
+      query = (query || '').toLowerCase().trim();
+      document.querySelectorAll('#toc-container a').forEach(a => {
+        if (!query || a.dataset.title.includes(query)) {
+          a.style.display = 'block';
+        } else {
+          a.style.display = 'none';
+        }
+      });
+    }
+
+    // Scrollspy for TOC highlight
+    const tocLinks = Array.from(tocContainer.querySelectorAll('a'));
+    function syncTocActive() {
+      const scrollPos = window.scrollY + 120;
+      let activeHeading = null;
+      headings.forEach(h => {
+        if (h.offsetTop <= scrollPos) {
+          activeHeading = h;
+        }
+      });
+      if (activeHeading) {
+        tocLinks.forEach(link => {
+          link.classList.toggle('active', link.getAttribute('href') === '#' + activeHeading.id);
+        });
+      }
+    }
+    window.addEventListener('scroll', syncTocActive, { passive: true });
+    syncTocActive();
+  </script>
+</body>
+</html>

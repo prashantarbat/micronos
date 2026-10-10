@@ -1,0 +1,39 @@
+#!/bin/bash
+# ==============================================================================
+# MicronOS Debian 13 (Trixie) Live-Build Auto-Configuration Script
+# ==============================================================================
+set -e
+
+# ------------------------------------------------------------------------------
+# Stage the appliance overlay before the configuration is snapshotted.
+# ------------------------------------------------------------------------------
+# live-build copies config/includes.chroot/ onto the image, so this is what puts
+# the Terminal CLI (and its shell completion) into the appliance. Staging it from
+# bin/microctl on every build keeps one source of truth instead of a second copy
+# that drifts. A failure here aborts the build rather than producing an image
+# with no console CLI.
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+if [ -f "${here}/stage-overlay.sh" ] && [ -f "${here}/../../bin/microctl" ]; then
+    bash "${here}/stage-overlay.sh"
+fi
+
+lb config noauto \
+    --distribution trixie \
+    --architectures amd64 \
+    --archive-areas "main contrib non-free non-free-firmware" \
+    --linux-flavours amd64 \
+    --binary-images iso-hybrid \
+    --bootloaders "grub-efi syslinux" \
+    --iso-application "Micron Firewall OS" \
+    --iso-preparer "MicronOS Engineering Team" \
+    --iso-publisher "MicronOS Security" \
+    --iso-volume "MICRONOS_1_0_AMD64" \
+    --memtest none \
+    --win32-loader false \
+    --security true \
+    --updates true \
+    --apt-indices true \
+    --apt-recommends false \
+    --bootappend-live "boot=live components quiet splash username=ministrator user-fullname=Ministrator" \
+    --checksums sha256 \
+    "${@}"

@@ -1,0 +1,37 @@
+{
+    "schema": 1,
+    "id": "darkstat",
+    "name": "darkstat Traffic Statistics",
+    "version": "1.0.0",
+    "class": "B",
+    "vendor": "Micron Network Systems",
+    "description": "Per-interface traffic analyser with a small built-in web UI and graphs. Read-only promiscuous capture; no changes to the forwarding path.",
+    "requires": {
+        "packages": ["darkstat"],
+        "repos": [],
+        "kernel_modules": [],
+        "binaries": ["/usr/sbin/darkstat"]
+    },
+    "provides": {
+        "services": ["darkstat"],
+        "menu": [
+            { "path": "/plugins/darkstat", "label": "darkstat", "permission": "plugins.view" }
+        ],
+        "status_source": "rpc:plugin.status"
+    },
+    "capabilities": [
+        "system.service:darkstat",
+        "net.raw",
+        "root.rpc:plugin.status",
+        "root.rpc:plugin.darkstat.apply",
+        "root.rpc:plugin.darkstat.status",
+        "fs.write:/etc/systemd/system/darkstat.service.d/micron.conf",
+        "fs.write:/var/lib/micron/plugins/darkstat"
+    ],
+    "lifecycle": [
+        { "step": "install", "action": "apt.install", "packages": ["darkstat"] },
+        { "step": "enable", "action": "system.enable", "unit": "darkstat" },
+        { "step": "start", "action": "system.start", "unit": "darkstat" },
+        { "step": "uninstall", "action": "apt.remove", "packages": ["darkstat"] }
+    ]
+}

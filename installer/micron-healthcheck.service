@@ -1,0 +1,26 @@
+[Unit]
+Description=MicronOS A/B Boot Slot Health Check
+Documentation=https://github.com/micronos/micronos
+# Deliberately part of early boot: the slot must be proven (or abandoned) before
+# the appliance is considered up. No DefaultDependencies so ordering below is
+# honoured rather than being pulled to the end of boot.
+DefaultDependencies=no
+After=local-fs.target network-online.target
+After=apache2.service php8.4-fpm.service php-fpm.service php8.3-fpm.service micrond.service
+Wants=network-online.target
+ConditionPathExists=/usr/local/micron/installer/micron-slot
+
+[Service]
+Type=oneshot
+RemainAfterExit=no
+Environment=MICRON_HEALTHCHECK_REBOOT=1
+ExecStart=/usr/local/micron/installer/micron-healthcheck
+# A failing check records the fallback itself and may reboot the appliance, so
+# its exit status is informational rather than a unit failure.
+SuccessExitStatus=0 1
+TimeoutStartSec=120
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

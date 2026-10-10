@@ -1,0 +1,206 @@
+#!/bin/bash
+# ==============================================================================
+# MicronOS — A/B Boot Slot Health Check
+# ==============================================================================
+# Runs once per boot, after the management and data planes have had a chance to
+# come up, and is the ONLY thing permitted to mark a boot slot good.
+#
+# Why it exists: GRUB's slot selector prefers a slot that previous boots proved
+# healthy. A slot that boots but whose services never converge (or that severs
+# management connectivity) must never be promoted — otherwise the appliance
+# silently adopts a broken image and the operator loses remote access.
+#
+# Behaviour:
+#   * no failures            → mark the running slot good and exit 0
+#   * failures, attempts left → count the failure and reboot to retry the slot
+#   * attempts exhausted      → clear the slot's good mark (so the selector moves
+#                               to the other slot) and reboot once into it
+#
+# Configuration (environment, all optional):
+#   MICRON_SLOT_HELPER       path to micron-slot          (default below)
+#   MICRON_MAX_FAILS         attempts before abandoning   (default 3)
+#   MICRON_HEALTHCHECK_REBOOT  1|0 reboot on failure      (default 1)
+#   MICRON_HEALTHCHECK_MODE     normal|dry-run            (default normal)
+#   MICRON_HEALTHCHECK_FORCE   ok|fail — lab test seam, skips the probes
+#   MICRON_HEALTHCHECK_REQUIRE comma list of probes that must pass
+#                              (default: management,ipc,dataplane,persistence)
+# ==============================================================================
+
+SLOT_HELPER="${MICRON_SLOT_HELPER:-/usr/local/micron/installer/micron-slot}"
+MAX_FAILS="${MICRON_MAX_FAILS:-3}"
+ALLOW_REBOOT="${MICRON_HEALTHCHECK_REBOOT:-1}"
+MODE="${MICRON_HEALTHCHECK_MODE:-normal}"
+FORCE="${MICRON_HEALTHCHECK_FORCE:-}"
+REQUIRE="${MICRON_HEALTHCHECK_REQUIRE:-management,ipc,dataplane,persistence}"
+
+# Deliberately no `set -e`: a failed probe has to be recorded and reasoned about,
+# not turned into an abort that leaves the slot in an undefined state.
+set -uo pipefail
+
+FAILS=()
+NOTES=()
+
+log() { echo "micron-healthcheck: $*"; }
+
+fail() {
+    FAILS+=("$1")
+    log "FAIL  $1"
+}
+
+pass() {
+    log "ok    $1"
+}
+
+is_required() {
+    case ",${REQUIRE}," in *",$1,"*) return 0 ;; esac
+    return 1
+}
+
+# ── Probes ───────────────────────────────────────────────────────────────────
+# Each probe is intentionally tolerant of components that are not installed: a
+# minimal appliance may legitimately run without, say, Squid. Only probes named
+# in MICRON_HEALTHCHECK_REQUIRE can fail the boot.
+
+unit_active() {
+    systemctl is-active --quiet "$1" 2>/dev/null
+}
+
+unit_present() {
+    systemctl list-unit-files "$1" >/dev/null 2>&1
+}
+
+probe_management() {
+    local ok=1
+    if unit_present 'apache2.service'; then
+        unit_active apache2 || ok=0
+        if unit_present 'php8.4-fpm.service'; then
+            unit_active php8.4-fpm || ok=0
+        elif unit_present 'php-fpm.service'; then
+            unit_active php-fpm || ok=0
+        elif unit_present 'php8.3-fpm.service'; then
+            unit_active php8.3-fpm || ok=0
+        fi
+    else
+        NOTES+=('management plane units not installed')
+    fi
+    [ "$ok" -eq 1 ] && pass 'management plane is active' || fail 'management plane (apache2/php-fpm) not active'
+    return $((1 - ok))
+}
+
+probe_ipc() {
+    local ok=1
+    [ -S /run/micron/micrond.sock ] || ok=0
+    if unit_present 'micrond.service'; then
+        unit_active micrond || ok=0
+    fi
+    [ "$ok" -eq 1 ] && pass 'micrond IPC channel is up' || fail 'micrond IPC channel (/run/micron/micrond.sock) is not up'
+    return $((1 - ok))
+}
+
+probe_dataplane() {
+    local ok=1
+    if command -v nft >/dev/null 2>&1; then
+        # An empty table list means the compiled ruleset never loaded, which is
+        # exactly the kind of silent failure a reboot should surface.
+        if [ -z "$(nft list tables 2>/dev/null)" ]; then ok=0; fi
+    else
+        NOTES+=('nft not installed')
+    fi
+    [ "$ok" -eq 1 ] && pass 'packet filter ruleset is loaded' || fail 'no nftables ruleset loaded'
+    return $((1 - ok))
+}
+
+probe_persistence() {
+    local ok=1
+    # The data layer carries the configuration database; losing it means the
+    # appliance would come up with default settings.
+    if [ -d /var/lib/micron ]; then
+        mountpoint -q /var/lib/micron || ok=0
+    else
+        NOTES+=('/var/lib/micron absent (pre-Phase-0 install?)')
+    fi
+    [ "$ok" -eq 1 ] && pass 'persistent data layer is mounted' || fail '/var/lib/micron is not a mounted filesystem'
+    return $((1 - ok))
+}
+
+# ── Decision ─────────────────────────────────────────────────────────────────
+
+apply_result() {
+    local slot count
+    slot=$("$SLOT_HELPER" active)
+
+    if [ "${#FAILS[@]}" -eq 0 ]; then
+        "$SLOT_HELPER" mark-ok "$slot" >/dev/null
+        log "slot ${slot}: healthy — marked good"
+        return 0
+    fi
+
+    count=$("$SLOT_HELPER" mark-failed "$slot" | tail -1)
+    log "slot ${slot}: ${#FAILS[@]} failed probe(s), attempt ${count}/${MAX_FAILS}"
+
+    if [ "$ALLOW_REBOOT" != '1' ]; then
+        log "reboot suppressed (MICRON_HEALTHCHECK_REBOOT=${ALLOW_REBOOT})"
+        return 1
+    fi
+
+    if [ "$count" -ge "$MAX_FAILS" ]; then
+        # The slot is abandoned: mark-failed already cleared its good mark, so the
+        # selector moves to the other slot on the next boot. Reboot only once more
+        # so a permanently unbootable appliance cannot loop forever.
+        if [ "$count" -eq "$MAX_FAILS" ]; then
+            log "slot ${slot}: attempts exhausted — handing over to the boot selector"
+            sync
+            reboot
+        fi
+        log "slot ${slot}: already handed over; not rebooting again (operator action required)"
+        return 1
+    fi
+
+    log "slot ${slot}: rebooting to retry"
+    sync
+    reboot
+}
+
+main() {
+    # In live boot (ISO installer environment), skip slot health checks.
+    if [ -d /run/live ] || grep -q 'boot=live' /proc/cmdline 2>/dev/null; then
+        log "live installer environment detected; skipping boot slot health check"
+        return 0
+    fi
+
+    local name probe rc
+    log "checking slot '$("$SLOT_HELPER" active)' (mode=${MODE}${FORCE:+, force=${FORCE}})"
+
+    if [ "$FORCE" = 'ok' ]; then
+        pass 'forced ok (test seam)'
+        if [ "$MODE" = 'dry-run' ]; then log 'dry-run: not writing'; return 0; fi
+        apply_result
+        return $?
+    fi
+
+    if [ "$FORCE" = 'fail' ]; then
+        fail 'forced failure (test seam)'
+        if [ "$MODE" = 'dry-run' ]; then log 'dry-run: not writing'; return 1; fi
+        apply_result
+        return $?
+    fi
+
+    for name in management ipc dataplane persistence; do
+        is_required "$name" || continue
+        "probe_${name}"
+    done
+
+    for name in "${NOTES[@]:-}"; do
+        [ -n "$name" ] && log "note  ${name}"
+    done
+
+    if [ "$MODE" = 'dry-run' ]; then
+        log "dry-run: ${#FAILS[@]} failed probe(s); not writing slot state"
+        [ "${#FAILS[@]}" -eq 0 ]
+        return $?
+    fi
+
+    apply_result
+}
+
+main "$@"

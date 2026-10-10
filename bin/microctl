@@ -1,0 +1,187 @@
+#!/usr/bin/env php
+<?php
+/**
+ * MicronOS Emergency Terminal CLI Utility (microctl)
+ * ===============================================
+ * Provides local console (VGA / Serial COM) diagnostics, management,
+ * and recovery without requiring access to the Web GUI.
+ */
+
+if (php_sapi_name() !== 'cli') {
+    exit("This tool must be run from the command line.\n");
+}
+
+/**
+ * Resolve the application root: the directory that holds `spark` and
+ * `vendor/autoload.php`.
+ *
+ * The appliance installs this script onto PATH at /usr/local/bin while the
+ * application it drives lives at /usr/local/micron, so the checkout-relative
+ * `dirname(__DIR__)` is only one of the places it is run from. MICRON_ROOT
+ * overrides every candidate for unusual deployments.
+ */
+function micron_root(string $scriptDir): string
+{
+    $fallback = dirname($scriptDir);
+
+    foreach ([getenv('MICRON_ROOT'), $fallback, '/usr/local/micron'] as $candidate) {
+        if (! is_string($candidate) || $candidate === '') {
+            continue;
+        }
+
+        $candidate = rtrim($candidate, "/\\");
+
+        if (is_file($candidate . '/spark') && is_file($candidate . '/vendor/autoload.php')) {
+            return $candidate;
+        }
+    }
+
+    // Nothing matched: keep the historical layout so the `require` below reports
+    // the missing application rather than silently driving something else.
+    return $fallback;
+}
+
+$root = micron_root(__DIR__);
+require $root . '/vendor/autoload.php';
+
+// Setup basic environment
+$args = array_slice($argv, 1);
+$cmd = $args[0] ?? 'help';
+
+/**
+ * Run a Spark command with the operator's own arguments and return its exit status.
+ *
+ * Delegated through an argv array rather than a shell string: the console
+ * forwards operator input (including a backup passphrase), and an argv array
+ * both preserves characters a shell would mangle (`!`, `%`) and removes any
+ * command-injection surface from the forwarded arguments.
+ */
+/**
+ * Report a usage error on stderr and exit non-zero.
+ *
+ * A mistyped command must not look like a success: `microctl backup verify
+ * --strict` is meant to gate a cron job, and a command that exits 0 while doing
+ * nothing turns that gate off silently instead of failing loudly.
+ *
+ * It terminates rather than returning a status, so a caller cannot forget to
+ * propagate one and let the mistyped command fall through into the next case.
+ */
+function micron_fail_usage(string $usage): never
+{
+    fwrite(STDERR, "Usage: {$usage}\n");
+
+    exit(1);
+}
+
+function micron_spark(string $root, array $arguments): int
+{
+    $process = proc_open(array_merge(['php', $root . '/spark'], $arguments), [1 => STDOUT, 2 => STDERR], $pipes);
+
+    if (! is_resource($process)) {
+        echo "[ERROR] Could not launch the application console (php spark).\n";
+
+        return 1;
+    }
+
+    return (int) proc_close($process);
+}
+
+switch ($cmd) {
+    case 'status':
+        echo "=== MicronOS Appliance Status ===\n";
+        $dbPath = $root . '/writable/micron_config.db';
+        if (file_exists($dbPath)) {
+            $db = new \SQLite3($dbPath);
+            $res = $db->query("SELECT name, physical_device, ip_assignment_type, ipv4_address FROM interfaces");
+            echo "Network Interfaces:\n";
+            while ($row = $res->fetchArray(SQLITE3_ASSOC)) {
+                echo sprintf("  - %-6s [%s]: %s (%s)\n", $row['name'], $row['physical_device'], $row['ipv4_address'] ?: 'DHCP/Unassigned', $row['ip_assignment_type']);
+            }
+        }
+        $ipc = new \App\Libraries\IpcClient();
+        $info = $ipc->getSystemInfo();
+        echo sprintf("Hostname: %s | Kernel: %s | Uptime: %ds\n", $info['hostname'] ?? 'micronos', $info['kernel'] ?? 'Linux', $info['uptime_sec'] ?? 0);
+        break;
+
+    case 'interface':
+        $sub = $args[1] ?? '';
+        if ($sub === 'set-lan') {
+            $cidr = $args[2] ?? '192.168.1.1/24';
+            [$ip, $mask] = explode('/', $cidr . '/24');
+            $dbPath = $root . '/writable/micron_config.db';
+            $db = new \SQLite3($dbPath);
+            $stmt = $db->prepare("UPDATE interfaces SET ipv4_address = :ip, ipv4_netmask = :mask WHERE id = 'lan'");
+            $stmt->bindValue(':ip', $ip, SQLITE3_TEXT);
+            $stmt->bindValue(':mask', (int)$mask, SQLITE3_INTEGER);
+            $stmt->execute();
+            echo "[OK] LAN IP reconfigured to {$ip}/{$mask}\n";
+        } else {
+            micron_fail_usage('microctl interface set-lan <ip/cidr>');
+        }
+        break;
+
+    case 'firewall':
+        $sub = $args[1] ?? '';
+        if ($sub === 'reset') {
+            echo "[OK] Restoring default permissive management rules...\n";
+            exit(micron_spark($root, ['micron:verify']));
+        }
+        micron_fail_usage('microctl firewall reset');
+
+    case 'backup':
+        $sub = $args[1] ?? '';
+        if ($sub === 'create') {
+            echo "[OK] Creating a configuration snapshot...\n";
+            exit(micron_spark($root, array_merge(['backup:create'], array_slice($args, 2))));
+        }
+        if ($sub === 'restore') {
+            if (! isset($args[2]) || trim((string) $args[2]) === '') {
+                micron_fail_usage('microctl backup restore <path> [--passphrase <passphrase>]');
+            }
+            echo "[OK] Restoring a configuration snapshot...\n";
+            exit(micron_spark($root, array_merge(['backup:restore'], array_slice($args, 2))));
+        }
+        if ($sub === 'verify') {
+            exit(micron_spark($root, array_merge(['backup:verify'], array_slice($args, 2))));
+        }
+        micron_fail_usage('microctl backup <create|restore|verify> [arguments]');
+
+    case 'config':
+        $sub = $args[1] ?? '';
+        if ($sub === 'rollback') {
+            echo "[OK] Reloading the last verified configuration snapshot...\n";
+            exit(micron_spark($root, ['config:rollback']));
+        }
+        micron_fail_usage('microctl config rollback');
+
+    case 'admin':
+        $sub = $args[1] ?? '';
+        if ($sub === 'reset-password') {
+            $newPw = $args[2] ?? 'M1Cr0N';
+            exit(micron_spark($root, ['user:reset-admin', $newPw]));
+        }
+        micron_fail_usage('microctl admin reset-password [new_password]');
+
+    case 'help':
+    default:
+        echo <<<HELP
+MicronOS Console Management Utility (microctl)
+Usage: microctl <command> [arguments]
+
+Commands:
+  status                     Display interfaces, system load, and kernel state
+  interface set-lan <cidr>   Reconfigure management LAN IP (e.g. 192.168.1.1/24)
+  firewall reset             Restore default permissive management firewall rules
+  backup create [--encrypt]  Snapshot the configuration (with --passphrase it is
+    --passphrase <pw>          encrypted; --out <path> writes it elsewhere)
+  backup restore <path>      Restore a configuration snapshot from the console
+    [--passphrase <pw>] [--replace-key] [--nic-map <src:dst,...>]
+  backup verify              Check every registered archive against its recorded
+    [--passphrase <pw>]        SHA-256; --strict also fails on unverified ones
+  config rollback            Reload the last verified configuration snapshot
+  admin reset-password [pw]  Reset break-glass admin password and clear 2FA
+  help                       Show this help message
+
+HELP;
+        break;
+}

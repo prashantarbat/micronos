@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Micron Firewall OS (MicronOS) — Technical Documentation Hub</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root, [data-theme="dark"] {
+      --bg-primary: #070b14;
+      --bg-secondary: #0d1220;
+      --bg-tertiary: #111827;
+      --card-bg: rgba(17, 24, 39, 0.7);
+      --card-border: rgba(255, 255, 255, 0.08);
+      --text-main: #f1f5f9;
+      --text-muted: #94a3b8;
+      --accent-cyan: #00d4ff;
+      --accent-blue: #3b82f6;
+      --accent-indigo: #6366f1;
+      --accent-emerald: #10b981;
+      --accent-amber: #f59e0b;
+      --accent-purple: #7c3aed;
+      --accent-rose: #ef4444;
+      --code-bg: #030712;
+    }
+
+    [data-theme="midnight"] {
+      --bg-primary: #090712;
+      --bg-secondary: #110f1e;
+      --bg-tertiary: #16132a;
+      --card-bg: rgba(22, 19, 42, 0.75);
+      --card-border: rgba(139, 92, 246, 0.12);
+      --text-main: #ede9fe;
+      --text-muted: #a1a1b5;
+      --accent-cyan: #a78bfa;
+      --accent-blue: #818cf8;
+      --accent-indigo: #7c3aed;
+      --accent-emerald: #34d399;
+      --accent-amber: #fbbf24;
+      --accent-purple: #c084fc;
+      --accent-rose: #f87171;
+      --code-bg: #090712;
+    }
+
+    [data-theme="ocean"] {
+      --bg-primary: #030f14;
+      --bg-secondary: #071820;
+      --bg-tertiary: #0c202a;
+      --card-bg: rgba(12, 32, 42, 0.75);
+      --card-border: rgba(45, 212, 191, 0.12);
+      --text-main: #f0fdfa;
+      --text-muted: #99f6e4;
+      --accent-cyan: #2dd4bf;
+      --accent-blue: #38bdf8;
+      --accent-indigo: #0f766e;
+      --accent-emerald: #34d399;
+      --accent-amber: #fbbf24;
+      --accent-purple: #818cf8;
+      --accent-rose: #f87171;
+      --code-bg: #030f14;
+    }
+
+    [data-theme="forest"] {
+      --bg-primary: #050f08;
+      --bg-secondary: #0a170e;
+      --bg-tertiary: #0e2014;
+      --card-bg: rgba(14, 32, 20, 0.75);
+      --card-border: rgba(74, 222, 128, 0.12);
+      --text-main: #f0fdf4;
+      --text-muted: #bbf7d0;
+      --accent-cyan: #4ade80;
+      --accent-blue: #38bdf8;
+      --accent-indigo: #15803d;
+      --accent-emerald: #22c55e;
+      --accent-amber: #fbbf24;
+      --accent-purple: #a78bfa;
+      --accent-rose: #f87171;
+      --code-bg: #050f08;
+    }
+
+    [data-theme="slate"] {
+      --bg-primary: #0a0d12;
+      --bg-secondary: #111520;
+      --bg-tertiary: #161b28;
+      --card-bg: rgba(22, 27, 40, 0.75);
+      --card-border: rgba(100, 116, 139, 0.14);
+      --text-main: #e2e8f0;
+      --text-muted: #94a3b8;
+      --accent-cyan: #94a3b8;
+      --accent-blue: #38bdf8;
+      --accent-indigo: #475569;
+      --accent-emerald: #34d399;
+      --accent-amber: #fbbf24;
+      --accent-purple: #818cf8;
+      --accent-rose: #f87171;
+      --code-bg: #0a0d12;
+    }
+
+    [data-mode="light"] {
+      --bg-primary: #f1f5f9;
+      --bg-secondary: #ffffff;
+      --bg-tertiary: #f8fafc;
+      --card-bg: #ffffff;
+      --card-border: rgba(0, 0, 0, 0.08);
+      --text-main: #0f172a;
+      --text-muted: #64748b;
+      --accent-cyan: #0284c7;
+      --accent-blue: #0284c7;
+      --accent-indigo: #0369a1;
+      --accent-emerald: #059669;
+      --accent-amber: #d97706;
+      --accent-purple: #7c3aed;
+      --accent-rose: #dc2626;
+      --code-bg: #f8fafc;
+    }
+
+    [data-theme="solar"] {
+      --bg-primary: #fdf7ee;
+      --bg-secondary: #ffffff;
+      --bg-tertiary: #fffaf3;
+      --card-bg: #ffffff;
+      --card-border: rgba(146, 94, 28, 0.14);
+      --text-main: #3b2410;
+      --text-muted: #7c5a34;
+      --accent-cyan: #ea580c;
+      --accent-blue: #c2410c;
+      --accent-indigo: #ea580c;
+      --accent-emerald: #0f766e;
+      --accent-amber: #b45309;
+      --accent-purple: #9333ea;
+      --accent-rose: #dc2626;
+      --code-bg: #fbf0e0;
+    }
+
+    [data-theme="mint"] {
+      --bg-primary: #f0fdf9;
+      --bg-secondary: #ffffff;
+      --bg-tertiary: #f6fefb;
+      --card-bg: #ffffff;
+      --card-border: rgba(13, 120, 100, 0.14);
+      --text-main: #0b3b34;
+      --text-muted: #3f6f66;
+      --accent-cyan: #0d9488;
+      --accent-blue: #0f766e;
+      --accent-indigo: #0d9488;
+      --accent-emerald: #047857;
+      --accent-amber: #b45309;
+      --accent-purple: #7c3aed;
+      --accent-rose: #dc2626;
+      --code-bg: #e3f9f2;
+    }
+
+    [data-theme="paper"] {
+      --bg-primary: #f7f7f8;
+      --bg-secondary: #ffffff;
+      --bg-tertiary: #fbfbfc;
+      --card-bg: #ffffff;
+      --card-border: rgba(15, 23, 42, 0.10);
+      --text-main: #0f172a;
+      --text-muted: #64748b;
+      --accent-cyan: #4f46e5;
+      --accent-blue: #4338ca;
+      --accent-indigo: #4f46e5;
+      --accent-emerald: #047857;
+      --accent-amber: #b45309;
+      --accent-purple: #7c3aed;
+      --accent-rose: #dc2626;
+      --code-bg: #f0f0f3;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      background-color: var(--bg-primary);
+      color: var(--text-main);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem 1.5rem;
+    }
+    .container {
+      width: 100%;
+      max-width: 1180px;
+    }
+    .header {
+      text-align: center;
+      margin-bottom: 3.5rem;
+    }
+    .brand-logo-wrap {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      margin-bottom: 1.25rem;
+    }
+    .logo-box {
+      width: 52px;
+      height: 52px;
+      background: linear-gradient(135deg, var(--accent-cyan), var(--accent-indigo));
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.6rem;
+      font-weight: 800;
+      color: #fff;
+      box-shadow: 0 10px 25px rgba(6, 182, 212, 0.4);
+    }
+    h1 {
+      font-size: 2.6rem;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      margin-bottom: 0.75rem;
+      color: #fff;
+    }
+    p.subtitle {
+      font-size: 1.15rem;
+      color: var(--text-muted);
+      max-width: 720px;
+      margin: 0 auto;
+      line-height: 1.6;
+    }
+    .docs-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
+      gap: 1.5rem;
+      margin-bottom: 3rem;
+    }
+    .doc-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 2rem;
+      transition: all 0.3s ease;
+      text-decoration: none;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      overflow: hidden;
+    }
+    .doc-card:hover {
+      transform: translateY(-5px);
+      border-color: rgba(6, 182, 212, 0.4);
+      box-shadow: 0 15px 35px rgba(0, 0, 0, 0.4);
+    }
+    .doc-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0; height: 4px;
+      background: linear-gradient(90deg, var(--accent-cyan), var(--accent-indigo));
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+    .doc-card:hover::before {
+      opacity: 1;
+    }
+    .badge {
+      align-self: flex-start;
+      padding: 0.25rem 0.75rem;
+      border-radius: 9999px;
+      font-size: 0.72rem;
+      font-weight: 700;
+      margin-bottom: 1rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .badge-arch { background: rgba(6, 182, 212, 0.15); color: var(--accent-cyan); border: 1px solid rgba(6, 182, 212, 0.3); }
+    .badge-plan { background: rgba(168, 85, 247, 0.15); color: var(--accent-purple); border: 1px solid rgba(168, 85, 247, 0.3); }
+    .badge-iso  { background: rgba(16, 185, 129, 0.15); color: var(--accent-emerald); border: 1px solid rgba(16, 185, 129, 0.3); }
+    .badge-logs { background: rgba(245, 158, 11, 0.15); color: var(--accent-amber); border: 1px solid rgba(245, 158, 11, 0.3); }
+
+    .doc-icon-wrap {
+      width: 42px;
+      height: 42px;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--card-border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 1rem;
+    }
+    .doc-title {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 0.65rem;
+    }
+    .doc-desc {
+      color: var(--text-muted);
+      font-size: 0.88rem;
+      line-height: 1.55;
+      margin-bottom: 1.5rem;
+      flex-grow: 1;
+    }
+    .doc-link {
+      color: var(--accent-cyan);
+      font-weight: 600;
+      font-size: 0.9rem;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    /* Live Telemetry Preview Card */
+    .telemetry-card {
+      background: #090d16;
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 1.5rem;
+      margin-bottom: 2.5rem;
+    }
+    .telemetry-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    .telemetry-title {
+      font-size: 0.95rem;
+      font-weight: 700;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .telemetry-terminal {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.78rem;
+      color: #cbd5e1;
+      line-height: 1.6;
+      background: #030712;
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 8px;
+      padding: 14px;
+      overflow-x: auto;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:2rem; width:100%; border-bottom:1px solid var(--card-border); padding-bottom:1rem; flex-wrap:wrap; gap:10px;">
+      <span style="font-size:0.75rem; font-weight:700; text-transform:uppercase; letter-spacing:0.08em; color:var(--accent-cyan); display:flex; align-items:center; gap:6px;">
+        <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/></svg>
+        Documentation Portal
+      </span>
+      <div style="display:flex; align-items:center; gap:8px;">
+        <label for="themePresetSelect" style="font-size:0.72rem; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted);">Theme:</label>
+        <select id="themePresetSelect" onchange="setThemePreset(this.value)" style="background:var(--bg-secondary); color:var(--text-main); border:1px solid var(--card-border); border-radius:6px; padding:5px 9px; font-size:0.78rem; outline:none; cursor:pointer;">
+          <optgroup label="Dark Themes">
+            <option value="dark">Dark Abyss</option>
+            <option value="midnight">Midnight</option>
+            <option value="ocean">Ocean Teal</option>
+            <option value="forest">Forest</option>
+            <option value="slate">Slate Grey</option>
+          </optgroup>
+          <optgroup label="Light Themes">
+            <option value="light">Light / Day</option>
+            <option value="solar">Solar Amber</option>
+            <option value="mint">Mint Breeze</option>
+            <option value="paper">Paper Ink</option>
+          </optgroup>
+        </select>
+      </div>
+    </div>
+
+    <div class="header">
+      <div class="brand-logo-wrap">
+        <div class="logo-box">M</div>
+        <img src="../public/logos/logo_wh.png" alt="Micron Infosec &amp; IT Solutions LLP" style="max-width:340px; height:auto; filter:drop-shadow(0 4px 16px rgba(6,182,212,0.3));" />
+      </div>
+      <p class="subtitle">Enterprise Linux Network Security Appliance, Dynamic Routing, Net-SNMP Telemetry &amp; SIEM Event Platform</p>
+    </div>
+
+    <div class="docs-grid">
+      <!-- 1. Architecture Blueprint -->
+      <a href="MICRON_FIREWALL_OS_ARCHITECTURE.html" class="doc-card">
+        <div class="badge badge-arch">
+          <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+          System Architecture
+        </div>
+        <div class="doc-icon-wrap" style="color:var(--accent-cyan);">
+          <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/>
+          </svg>
+        </div>
+        <div class="doc-title">Architecture Specification</div>
+        <div class="doc-desc">
+          Full 26-section engineering blueprint covering the Linux kernel data plane, Active Directory &amp; LDAP directory federation, RADIUS RFC 2865/2866 authentication &amp; accounting, external group-to-role mappings, Web Proxy WPAD/PAC auto-discovery, Net-SNMP v1/v2c/v3 agent, SIEM remote log forwarding (CEF/LEEF/JSON), 4-tier NAT, the Internet Service Database, Services watchdog, and the transactional rollback engine.
+        </div>
+        <div class="doc-link">Read Architecture Spec &rarr;</div>
+      </a>
+
+      <!-- 2. Module Reference & Developer Guide -->
+      <a href="MICRONOS_MODULE_REFERENCE.html" class="doc-card">
+        <div class="badge" style="background:rgba(16,185,129,0.12); color:#10b981; border:1px solid rgba(16,185,129,0.3);">
+          <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/></svg>
+          Developer Reference
+        </div>
+        <div class="doc-icon-wrap" style="color:#10b981;">
+          <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/>
+          </svg>
+        </div>
+        <div class="doc-title">Module Reference &amp; Developer Guide</div>
+        <div class="doc-desc">
+          Complete subsystem reference covering all 35 controllers, 31 compiler and utility libraries, 75 database migrations, IPC/RPC command table, CLI spark commands, and the full PHPUnit test suite. Includes per-controller route listings, DB tables, key endpoints, data-plane compilation flows, the per-page daemon service controls, object hover tooltips, the RIP/IS-IS/OSPF policy routing surfaces, and the C-ICAP/ClamAV antivirus inspection pipeline.
+        </div>
+        <div class="doc-link">Read Module Reference &rarr;</div>
+      </a>
+
+      <!-- 3. Step-by-Step Implementation Plan -->
+      <a href="STEP_BY_STEP_IMPLEMENTATION_PLAN.html" class="doc-card">
+        <div class="badge badge-plan">
+          <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg>
+          Actionable Roadmap
+        </div>
+        <div class="doc-icon-wrap" style="color:var(--accent-purple);">
+          <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/>
+          </svg>
+        </div>
+        <div class="doc-title">Step-by-Step Execution Plan</div>
+        <div class="doc-desc">
+          Complete bottom-up milestone guide: local CodeIgniter 4 scaffolding in Laragon, SQLite migrations, JSON-RPC IPC bridge, nftables compiler, Squid proxy &amp; WPAD/PAC setup, Kea DHCP, enterprise LDAP &amp; RADIUS identity federation, group mappings, WAN access (PPPoE/RADIUS/EAP-TLS), and virtual lab verification.
+        </div>
+        <div class="doc-link">Read Execution Plan &rarr;</div>
+      </a>
+
+      <!-- 5. ISO Builder Guide -->
+      <a href="ISO_CREATION_AND_INSTALLER_GUIDE.html" class="doc-card">
+        <div class="badge badge-iso">
+          <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>
+          ISO Builder &amp; Installer
+        </div>
+        <div class="doc-icon-wrap" style="color:var(--accent-emerald);">
+          <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/>
+          </svg>
+        </div>
+        <div class="doc-title">Appliance ISO Creation Guide</div>
+        <div class="doc-desc">
+          Step-by-step engineering guide for compiling hybrid BIOS/UEFI installation ISOs using Debian live-build, Ncurses dialog terminal installer, A/B dual partitioning, and automated QEMU/Proxmox deployment.
+        </div>
+        <div class="doc-link">Read ISO Build Guide &rarr;</div>
+      </a>
+
+      <!-- 6. Real-Time Telemetry & Log Architecture -->
+      <a href="MICRON_FIREWALL_OS_ARCHITECTURE.html#24-snmp-agent-enterprise-network-monitoring-v1-v2c-v3" class="doc-card">
+        <div class="badge badge-logs">
+          <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h7"/></svg>
+          SNMP &amp; SIEM Logs
+        </div>
+        <div class="doc-icon-wrap" style="color:var(--accent-amber);">
+          <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/>
+          </svg>
+        </div>
+        <div class="doc-title">SIEM &amp; SNMP Telemetry</div>
+        <div class="doc-desc">
+          Inspection guide for CEF, LEEF, and JSON ECS event shipping over TLS mTLS, MIB walk outputs (IF-MIB, Host Resources), and real-time cron execution streams.
+        </div>
+        <div class="doc-link">Inspect Telemetry Spec &rarr;</div>
+      </a>
+
+      <!-- 7. SSL-VPN & ZTNA Specification -->
+      <a href="SSLVPN_ZTNA_CLIENTLESS_GATEWAY_SPECIFICATION.html" class="doc-card">
+        <div class="badge" style="background:rgba(239, 68, 68, 0.15); color:var(--accent-rose); border:1px solid rgba(239, 68, 68, 0.3);">
+          <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+          Future Architecture &bull; v2.0
+        </div>
+        <div class="doc-icon-wrap" style="color:var(--accent-rose);">
+          <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+          </svg>
+        </div>
+        <div class="doc-title">SSL-VPN &amp; ZTNA Clientless Gateway</div>
+        <div class="doc-desc">
+          Upcoming version engineering blueprint for Clientless Web Application Reverse Proxying, HTML5 in-browser RDP/SSH/VNC gateways via Apache Guacamole (<code>guacd</code>), and Zero Trust per-application micro-segmentation.
+        </div>
+        <div class="doc-link">Read ZTNA Specification &rarr;</div>
+      </a>
+
+      <!-- 8. Update & Upgrade Mechanism Specification -->
+      <a href="MICRONOS_UPDATE_AND_UPGRADE_SPECIFICATION.html" class="doc-card">
+        <div class="badge" style="background:rgba(56,189,248,0.12); color:#38bdf8; border:1px solid rgba(56,189,248,0.3);">
+          <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+          Lifecycle &amp; Updates
+        </div>
+        <div class="doc-icon-wrap" style="color:#38bdf8;">
+          <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+          </svg>
+        </div>
+        <div class="doc-title">Update &amp; Upgrade Mechanism</div>
+        <div class="doc-desc">
+          Design specification for the three-plane lifecycle: signed content feeds, management-plane application releases via atomic symlink activation with <code>BackupCreate</code>/<code>VerifySystem</code> gating, and RAUC A/B platform image bundles with GRUB <code>bootchooser</code> fallback. Includes the trust model, schema-compatibility gates, failure-recovery matrix, and a phased roadmap &mdash; plus corrections to the documented-but-unbuilt A/B scheme.
+        </div>
+        <div class="doc-link">Read Update Specification &rarr;</div>
+      </a>
+
+      <!-- 9. Plugin & Package Manager Specification -->
+      <a href="MICRONOS_PLUGIN_AND_PACKAGE_MANAGER_SPECIFICATION.html" class="doc-card">
+        <div class="badge" style="background:rgba(245,158,11,0.15); color:var(--accent-amber); border:1px solid rgba(245,158,11,0.3);">
+          <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+          Extension Surface &bull; Plugins &amp; Packages
+        </div>
+        <div class="doc-icon-wrap" style="color:var(--accent-amber);">
+          <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
+          </svg>
+        </div>
+        <div class="doc-title">Plugin &amp; Package Manager</div>
+        <div class="doc-desc">
+          OPNsense-/pfSense-class extension design: signed <code>.mplug</code> bundles, a curated and pinned package manager, per-plugin capability grants enforced by <code>micrond</code>, transactional install/upgrade with rollback, and a catalogue covering ZeroTier, NetBird, Lightsquid, iperf3, darkstat and LLDP.
+        </div>
+        <div class="doc-link">Read Plugin Specification &rarr;</div>
+      </a>
+
+      <!-- 10. Connector Abstraction Specification -->
+      <a href="MICRONOS_CONNECTOR_ABSTRACTION_SPECIFICATION.html" class="doc-card">
+        <div class="badge" style="background:rgba(16,185,129,0.15); color:var(--accent-emerald); border:1px solid rgba(16,185,129,0.3);">
+          <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13.828 10.172a4 4 0 010 5.656l-4 4a4 4 0 11-5.656-5.656l1-1m9.656-2.344a4 4 0 00-5.656-5.656l-4 4a4 4 0 105.656 5.656l1-1"/></svg>
+          Data-Plane Extension Class
+        </div>
+        <div class="doc-icon-wrap" style="color:var(--accent-emerald);">
+          <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13.828 10.172a4 4 0 010 5.656l-4 4a4 4 0 11-5.656-5.656l1-1m9.656-2.344a4 4 0 00-5.656-5.656l-4 4a4 4 0 105.656 5.656l1-1"/>
+          </svg>
+        </div>
+        <div class="doc-title">Connector Abstraction</div>
+        <div class="doc-desc">
+          The declarative feed-adapter class: a closed manifest grammar, an AES-256-GCM encrypted secret store behind a master key, a scheduled single-flight sync engine, and target application into DNS blocklists (Unbound), firewall address groups (nftables) and PKI material. Covers the class-A engine that is implemented today, the closed enums that keep manifest data from selecting an RPC, and the phased roadmap.
+        </div>
+        <div class="doc-link">Read Connector Specification &rarr;</div>
+      </a>
+
+      <!-- 11. Connector Abstraction Threat Model -->
+      <a href="MICRONOS_CONNECTOR_THREAT_MODEL.html" class="doc-card">
+        <div class="badge" style="background:rgba(239,68,68,0.15); color:var(--accent-rose); border:1px solid rgba(239,68,68,0.3);">
+          <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+          Adversarial Analysis
+        </div>
+        <div class="doc-icon-wrap" style="color:var(--accent-rose);">
+          <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+          </svg>
+        </div>
+        <div class="doc-title">Connector Threat Model</div>
+        <div class="doc-desc">
+          Companion analysis to the Connector Specification: assets and trust boundaries, master-key bootstrap and backup, SSRF boundaries on operator-supplied feed URLs, credential handling, and the blast radius of a compromised connector &mdash; with numbered findings (F1&ndash;F6) raised as requirements. Three of them &mdash; the systemd unit allowlist, the fetch egress guard and the backup key policy &mdash; are implemented.
+        </div>
+        <div class="doc-link">Read Threat Model &rarr;</div>
+      </a>
+
+      <!-- 12. Hyper-V & Windows 11 AI Development Guide -->
+      <a href="HYPERV_WIN11_DEVELOPMENT_AND_AI_COORDINATION_GUIDE.html" class="doc-card">
+        <div class="badge" style="background:rgba(59,130,246,0.15); color:var(--accent-blue); border:1px solid rgba(59,130,246,0.3);">
+          <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+          Hyper-V &bull; Windows 11 &bull; AI Workflow
+        </div>
+        <div class="doc-icon-wrap" style="color:var(--accent-blue);">
+          <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
+          </svg>
+        </div>
+        <div class="doc-title">Hyper-V &amp; Windows 11 AI Dev Guide</div>
+        <div class="doc-desc">
+          Complete engineering reference for local appliance virtualization on Windows 11 Pro without Proxmox VE: dual-NIC virtual switches (WAN/LAN), Generation 2 UEFI setup, three-tier feedback loops, instant GUI &amp; <code>micrond</code> live hot-syncing over SSH/SCP, PowerShell Direct over VMBus, and automated end-to-end testing with the Antigravity browser agent.
+        </div>
+        <div class="doc-link">Read Hyper-V &amp; AI Dev Guide &rarr;</div>
+      </a>
+
+      <!-- 13. Power-Loss Resilience & Recovery Engineering Specification -->
+      <a href="POWER_LOSS_RESILIENCE_AND_RECOVERY_ENGINEERING_SPECIFICATION.html" class="doc-card">
+        <div class="badge" style="background:rgba(234,179,8,0.15); color:var(--accent-amber); border:1px solid rgba(234,179,8,0.3);">
+          <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+          Durability &bull; Recovery Engineering
+        </div>
+        <div class="doc-icon-wrap" style="color:var(--accent-amber);">
+          <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+          </svg>
+        </div>
+        <div class="doc-title">Power Resilience &amp; LKGC Spec</div>
+        <div class="doc-desc">
+          Complete engineering specification for power-loss survivability: ground-truth codebase audit, root isolation (&lt;30 MB RAM footprint), SQLite WAL transactional durability, atomic POSIX file writes, pre-boot keyboard-intercepted LKGC recovery in GRUB (Esc/Shift), hardware storage selection, and automated failover.
+        </div>
+        <div class="doc-link">Read Resilience &amp; Recovery Spec &rarr;</div>
+      </a>
+    </div>
+
+    <!-- Live Telemetry Sample Snippet -->
+    <div class="telemetry-card">
+      <div class="telemetry-header">
+        <div class="telemetry-title">
+          <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="color:var(--accent-cyan);">
+            <polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>
+          </svg>
+          Live Telemetry Sample &bull; Standardized SIEM &amp; SNMP Payloads
+        </div>
+        <span style="font-size:0.75rem; color:var(--accent-emerald); font-weight:700;">● Active Architecture Verified</span>
+      </div>
+      <pre class="telemetry-terminal"><code># 1. CEF Log Record (ArcSight / Microsoft Sentinel / Rapid7)
+CEF:0|MicronOS|SecurityAppliance|24.1|FIREWALL:PASS|Default Allow LAN outbound|3|src=192.168.1.100 dst=1.1.1.1 spt=54820 dpt=53 proto=UDP act=pass app=DNS msg=MicronOS Firewall Rule
+
+# 2. LEEF 2.0 Record (IBM QRadar SIEM DSM Auto-Parsing)
+LEEF:2.0|MicronOS|SecurityAppliance|24.1|FIREWALL_PASS|src=192.168.1.100	dst=1.1.1.1	spt=54820	dpt=53	proto=UDP	act=pass	devTime=2026-10-02T19:30:00Z
+
+# 3. SNMPv2c / v3 MIB Response (.1.3.6.1.2.1.1 sysDescr &amp; sysUpTime)
+SNMPv2-MIB::sysDescr.0 = STRING: MicronOS Enterprise Firewall 24.1 (Linux 6.6.21-micron-amd64)
+SNMPv2-MIB::sysUpTimeInstance = Timeticks: (12489200) 14 days, 10:55:20.00
+SNMPv2-MIB::sysContact.0 = STRING: noc@micronos.network</code></pre>
+    </div>
+
+    <!-- GUI Launcher Callout -->
+    <div style="background: rgba(31, 41, 55, 0.7); border: 1px solid rgba(6, 182, 212, 0.3); border-radius: 12px; padding: 1.25rem; margin-bottom: 2.5rem; display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 1rem;">
+      <div>
+        <div style="font-weight: 700; color: #fff; font-size: 1.05rem; display:flex; align-items:center; gap:8px;">
+          <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="color:var(--accent-cyan);">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+          </svg>
+          Local Web GUI Appliance Active
+        </div>
+        <div style="color: var(--text-muted); font-size: 0.85rem; margin-top: 0.25rem;">
+          Default Superadmin: <code style="color: #38bdf8; background: #030712; padding: 2px 6px; border-radius: 4px;">Ministrator</code> / Password: <code style="color: #38bdf8; background: #030712; padding: 2px 6px; border-radius: 4px;">M1Cr0N</code> &bull; Unified Web &amp; CLI Credentials &bull; 109 RBAC Permissions &bull; Apache 2.4 + PHP 8.4-FPM &bull; Active Directory, LDAP, RADIUS, WPAD/PAC, SNMP, SIEM, NAT, WireGuard &amp; OpenVPN
+        </div>
+        <div style="display:flex; gap:8px; margin-top: 0.75rem; flex-wrap:wrap;">
+          <span style="background:rgba(16,185,129,0.15); border:1px solid rgba(16,185,129,0.4); color:#10b981; padding:3px 10px; border-radius:20px; font-size:0.72rem; font-weight:700;">✔ LdapAuthService</span>
+          <span style="background:rgba(16,185,129,0.15); border:1px solid rgba(16,185,129,0.4); color:#10b981; padding:3px 10px; border-radius:20px; font-size:0.72rem; font-weight:700;">✔ RadiusAuthService</span>
+          <span style="background:rgba(16,185,129,0.15); border:1px solid rgba(16,185,129,0.4); color:#10b981; padding:3px 10px; border-radius:20px; font-size:0.72rem; font-weight:700;">✔ GroupMappingEngine</span>
+          <span style="background:rgba(16,185,129,0.15); border:1px solid rgba(16,185,129,0.4); color:#10b981; padding:3px 10px; border-radius:20px; font-size:0.72rem; font-weight:700;">✔ WpadPacService</span>
+          <span style="background:rgba(16,185,129,0.15); border:1px solid rgba(16,185,129,0.4); color:#10b981; padding:3px 10px; border-radius:20px; font-size:0.72rem; font-weight:700;">✔ SnmpdAgent</span>
+          <span style="background:rgba(16,185,129,0.15); border:1px solid rgba(16,185,129,0.4); color:#10b981; padding:3px 10px; border-radius:20px; font-size:0.72rem; font-weight:700;">✔ SiemForwarder</span>
+          <span style="background:rgba(16,185,129,0.15); border:1px solid rgba(16,185,129,0.4); color:#10b981; padding:3px 10px; border-radius:20px; font-size:0.72rem; font-weight:700;">✔ CronEngine</span>
+          <span style="background:rgba(16,185,129,0.15); border:1px solid rgba(16,185,129,0.4); color:#10b981; padding:3px 10px; border-radius:20px; font-size:0.72rem; font-weight:700;">✔ ServiceWatchdog</span>
+          <span style="background:rgba(16,185,129,0.15); border:1px solid rgba(16,185,129,0.4); color:#10b981; padding:3px 10px; border-radius:20px; font-size:0.72rem; font-weight:700;">✔ AdvancedNat</span>
+          <span style="background:rgba(16,185,129,0.15); border:1px solid rgba(16,185,129,0.4); color:#10b981; padding:3px 10px; border-radius:20px; font-size:0.72rem; font-weight:700;">✔ NftablesCompiler</span>
+          <span style="background:rgba(16,185,129,0.15); border:1px solid rgba(16,185,129,0.4); color:#10b981; padding:3px 10px; border-radius:20px; font-size:0.72rem; font-weight:700;">✔ WireguardCompiler</span>
+          <span style="background:rgba(16,185,129,0.15); border:1px solid rgba(16,185,129,0.4); color:#10b981; padding:3px 10px; border-radius:20px; font-size:0.72rem; font-weight:700;">✔ KeaDhcpCompiler</span>
+          <span style="background:rgba(16,185,129,0.15); border:1px solid rgba(16,185,129,0.4); color:#10b981; padding:3px 10px; border-radius:20px; font-size:0.72rem; font-weight:700;">✔ UnboundDnsCompiler</span>
+          <span style="background:rgba(16,185,129,0.15); border:1px solid rgba(16,185,129,0.4); color:#10b981; padding:3px 10px; border-radius:20px; font-size:0.72rem; font-weight:700;">✔ PppoeCompiler</span>
+          <span style="background:rgba(16,185,129,0.15); border:1px solid rgba(16,185,129,0.4); color:#10b981; padding:3px 10px; border-radius:20px; font-size:0.72rem; font-weight:700;">✔ RadiusAttributes</span>
+          <span style="background:rgba(16,185,129,0.15); border:1px solid rgba(16,185,129,0.4); color:#10b981; padding:3px 10px; border-radius:20px; font-size:0.72rem; font-weight:700;">✔ InternetServiceDb</span>
+          <span style="background:rgba(16,185,129,0.15); border:1px solid rgba(16,185,129,0.4); color:#10b981; padding:3px 10px; border-radius:20px; font-size:0.72rem; font-weight:700;">✔ AddressResolver</span>
+          <span style="background:rgba(16,185,129,0.15); border:1px solid rgba(16,185,129,0.4); color:#10b981; padding:3px 10px; border-radius:20px; font-size:0.72rem; font-weight:700;">✔ SuricataCompiler</span>
+          <span style="background:rgba(16,185,129,0.15); border:1px solid rgba(16,185,129,0.4); color:#10b981; padding:3px 10px; border-radius:20px; font-size:0.72rem; font-weight:700;">✔ SquidConfigCompiler</span>
+          <span style="background:rgba(16,185,129,0.15); border:1px solid rgba(16,185,129,0.4); color:#10b981; padding:3px 10px; border-radius:20px; font-size:0.72rem; font-weight:700;">✔ StrongswanCompiler</span>
+          <span style="background:rgba(16,185,129,0.15); border:1px solid rgba(16,185,129,0.4); color:#10b981; padding:3px 10px; border-radius:20px; font-size:0.72rem; font-weight:700;">✔ PppoeBackoff</span>
+          <span style="background:rgba(16,185,129,0.15); border:1px solid rgba(16,185,129,0.4); color:#10b981; padding:3px 10px; border-radius:20px; font-size:0.72rem; font-weight:700;">✔ TotpService</span>
+          <span style="background:rgba(16,185,129,0.15); border:1px solid rgba(16,185,129,0.4); color:#10b981; padding:3px 10px; border-radius:20px; font-size:0.72rem; font-weight:700;">✔ X509/PKI</span>
+          <span style="background:rgba(16,185,129,0.15); border:1px solid rgba(16,185,129,0.4); color:#10b981; padding:3px 10px; border-radius:20px; font-size:0.72rem; font-weight:700;">✔ DosPolicy</span>
+          <span style="background:rgba(16,185,129,0.15); border:1px solid rgba(16,185,129,0.4); color:#10b981; padding:3px 10px; border-radius:20px; font-size:0.72rem; font-weight:700;">✔ Schedules</span>
+        </div>
+      </div>
+      <a href="http://micronos.test/dashboard" target="_blank" style="background: linear-gradient(135deg, var(--accent-cyan), var(--accent-blue)); color: #fff; font-weight: 700; text-decoration: none; padding: 0.6rem 1.25rem; border-radius: 8px; font-size: 0.9rem; white-space: nowrap; box-shadow: 0 4px 12px rgba(6, 182, 212, 0.3); display:inline-flex; align-items:center; gap:6px;">
+        Launch Management GUI &rarr;
+      </a>
+    </div>
+
+    <div class="footer" style="text-align:center; color:var(--text-muted); font-size:0.85rem;">
+      <div>Micron Firewall OS &copy; 2026. Enterprise Linux Network Appliance.</div>
+      <div style="margin-top: 0.5rem;">Documentation source in <code>/docs/*.md</code> &bull; Standalone HTML Compilers verified</div>
+    </div>
+  </div>
+
+  <script>
+    const LIGHT_THEMES = ['light', 'solar', 'mint', 'paper'];
+    function setThemePreset(theme) {
+      document.documentElement.dataset.theme = theme;
+      document.documentElement.dataset.mode = LIGHT_THEMES.includes(theme) ? 'light' : 'dark';
+      try { localStorage.setItem('micron_docs_theme', theme); } catch (e) {}
+      const sel = document.getElementById('themePresetSelect');
+      if (sel) sel.value = theme;
+    }
+    try {
+      const savedTheme = localStorage.getItem('micron_docs_theme') || 'dark';
+      setThemePreset(savedTheme);
+    } catch (e) {
+      setThemePreset('dark');
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "id": "mdns-reflection",
+  "name": "mDNS Reflection",
+  "vendor": "MicronOS",
+  "version": "0.1.0",
+  "description": "Example service-plane connector: keeps the mDNS reflection daemon running. Engine skeleton — exercises the service target only.",
+  "category": "Network Services",
+  "includes": ["mdns-repeater"],
+  "sources": [
+    {
+      "id": "daemon",
+      "target": "service",
+      "service": "mdns-repeater",
+      "action": "restart"
+    }
+  ],
+  "permissions": ["connectors.manage", "connectors.sync"]
+}

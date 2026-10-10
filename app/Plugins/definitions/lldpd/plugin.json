@@ -1,0 +1,39 @@
+{
+    "schema": 1,
+    "id": "lldpd",
+    "name": "LLDP Neighbour Discovery",
+    "version": "1.0.0",
+    "class": "B",
+    "vendor": "Micron Network Systems",
+    "description": "Link Layer Discovery Protocol daemon. Advertises and discovers directly-connected neighbours for the Interfaces page inventory.",
+    "requires": {
+        "packages": ["lldpd"],
+        "repos": [],
+        "kernel_modules": [],
+        "binaries": ["/usr/sbin/lldpd"]
+    },
+    "provides": {
+        "services": ["lldpd"],
+        "menu": [
+            { "path": "/plugins/lldpd", "label": "LLDP Neighbours", "permission": "plugins.view" }
+        ],
+        "status_source": "rpc:plugin.status"
+    },
+    "capabilities": [
+        "system.service:lldpd",
+        "net.raw",
+        "root.rpc:plugin.status",
+        "root.rpc:plugin.lldpd.apply",
+        "root.rpc:plugin.lldpd.status",
+        "root.rpc:plugin.lldpd.neighbours",
+        "fs.write:/etc/systemd/system/lldpd.service.d/micron.conf",
+        "fs.write:/etc/lldpd.conf",
+        "fs.write:/var/lib/micron/plugins/lldpd"
+    ],
+    "lifecycle": [
+        { "step": "install", "action": "apt.install", "packages": ["lldpd"] },
+        { "step": "enable", "action": "system.enable", "unit": "lldpd" },
+        { "step": "start", "action": "system.start", "unit": "lldpd" },
+        { "step": "uninstall", "action": "apt.remove", "packages": ["lldpd"] }
+    ]
+}

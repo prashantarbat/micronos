@@ -1,0 +1,880 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark" data-mode="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Micron Firewall OS (MicronOS) — Plugin & Package Manager Specification</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <style>
+    /* ============================================================
+       THEME PRESETS: 9 MicronOS Schemes (Dark + Light)
+       ============================================================ */
+    :root, [data-theme="dark"] {
+      --bg-primary: #070b14;
+      --bg-secondary: #0d1220;
+      --bg-tertiary: #111827;
+      --card-bg: rgba(17, 24, 39, 0.7);
+      --card-border: rgba(255, 255, 255, 0.08);
+      --card-border-bright: rgba(255, 255, 255, 0.14);
+      --text-main: #f1f5f9;
+      --text-muted: #94a3b8;
+      --accent-cyan: #00d4ff;
+      --accent-cyan-dim: rgba(0, 212, 255, 0.15);
+      --accent-deep: #0096c7;
+      --accent-purple: #7c3aed;
+      --accent-emerald: #10b981;
+      --accent-amber: #f59e0b;
+      --accent-rose: #ef4444;
+      --code-bg: #0d1220;
+      --sidebar-w: 320px;
+    }
+
+    [data-theme="midnight"] {
+      --bg-primary: #090712;
+      --bg-secondary: #110f1e;
+      --bg-tertiary: #16132a;
+      --card-bg: rgba(22, 19, 42, 0.75);
+      --card-border: rgba(139, 92, 246, 0.12);
+      --card-border-bright: rgba(139, 92, 246, 0.22);
+      --text-main: #ede9fe;
+      --text-muted: #a1a1b5;
+      --accent-cyan: #a78bfa;
+      --accent-cyan-dim: rgba(167, 139, 250, 0.15);
+      --accent-deep: #7c3aed;
+      --accent-purple: #c084fc;
+      --accent-emerald: #34d399;
+      --accent-amber: #fbbf24;
+      --accent-rose: #f87171;
+      --code-bg: #110f1e;
+    }
+
+    [data-theme="ocean"] {
+      --bg-primary: #030f14;
+      --bg-secondary: #071820;
+      --bg-tertiary: #0c202a;
+      --card-bg: rgba(12, 32, 42, 0.75);
+      --card-border: rgba(45, 212, 191, 0.12);
+      --card-border-bright: rgba(45, 212, 191, 0.22);
+      --text-main: #f0fdfa;
+      --text-muted: #99f6e4;
+      --accent-cyan: #2dd4bf;
+      --accent-cyan-dim: rgba(45, 212, 191, 0.15);
+      --accent-deep: #0f766e;
+      --accent-purple: #818cf8;
+      --accent-emerald: #34d399;
+      --accent-amber: #fbbf24;
+      --accent-rose: #f87171;
+      --code-bg: #071820;
+    }
+
+    [data-theme="forest"] {
+      --bg-primary: #050f08;
+      --bg-secondary: #0a170e;
+      --bg-tertiary: #0e2014;
+      --card-bg: rgba(14, 32, 20, 0.75);
+      --card-border: rgba(74, 222, 128, 0.12);
+      --card-border-bright: rgba(74, 222, 128, 0.22);
+      --text-main: #f0fdf4;
+      --text-muted: #bbf7d0;
+      --accent-cyan: #4ade80;
+      --accent-cyan-dim: rgba(74, 222, 128, 0.15);
+      --accent-deep: #15803d;
+      --accent-purple: #a78bfa;
+      --accent-emerald: #22c55e;
+      --accent-amber: #fbbf24;
+      --accent-rose: #f87171;
+      --code-bg: #0a170e;
+    }
+
+    [data-theme="slate"] {
+      --bg-primary: #0a0d12;
+      --bg-secondary: #111520;
+      --bg-tertiary: #161b28;
+      --card-bg: rgba(22, 27, 40, 0.75);
+      --card-border: rgba(100, 116, 139, 0.14);
+      --card-border-bright: rgba(100, 116, 139, 0.24);
+      --text-main: #e2e8f0;
+      --text-muted: #94a3b8;
+      --accent-cyan: #94a3b8;
+      --accent-cyan-dim: rgba(148, 163, 184, 0.15);
+      --accent-deep: #475569;
+      --accent-purple: #818cf8;
+      --accent-emerald: #34d399;
+      --accent-amber: #fbbf24;
+      --accent-rose: #f87171;
+      --code-bg: #111520;
+    }
+
+    /* Shared light mode base */
+    [data-mode="light"] {
+      --bg-primary: #f1f5f9;
+      --bg-secondary: #ffffff;
+      --bg-tertiary: #f8fafc;
+      --card-bg: #ffffff;
+      --card-border: rgba(0, 0, 0, 0.08);
+      --card-border-bright: rgba(0, 0, 0, 0.15);
+      --text-main: #0f172a;
+      --text-muted: #64748b;
+      --accent-cyan: #0284c7;
+      --accent-cyan-dim: rgba(2, 132, 199, 0.10);
+      --accent-deep: #0369a1;
+      --accent-purple: #7c3aed;
+      --accent-emerald: #059669;
+      --accent-amber: #d97706;
+      --accent-rose: #dc2626;
+      --code-bg: #f8fafc;
+    }
+
+    /* Solar Amber (warm cream) */
+    [data-theme="solar"] {
+      --bg-primary: #fdf7ee;
+      --bg-secondary: #ffffff;
+      --bg-tertiary: #fffaf3;
+      --card-bg: #ffffff;
+      --card-border: rgba(146, 94, 28, 0.14);
+      --card-border-bright: rgba(146, 94, 28, 0.25);
+      --text-main: #3b2410;
+      --text-muted: #7c5a34;
+      --accent-cyan: #ea580c;
+      --accent-cyan-dim: rgba(234, 88, 12, 0.12);
+      --accent-deep: #c2410c;
+      --accent-purple: #9333ea;
+      --accent-emerald: #0f766e;
+      --accent-amber: #b45309;
+      --accent-rose: #dc2626;
+      --code-bg: #fbf0e0;
+    }
+
+    /* Mint Breeze (cool teal) */
+    [data-theme="mint"] {
+      --bg-primary: #f0fdf9;
+      --bg-secondary: #ffffff;
+      --bg-tertiary: #f6fefb;
+      --card-bg: #ffffff;
+      --card-border: rgba(13, 120, 100, 0.14);
+      --card-border-bright: rgba(13, 120, 100, 0.25);
+      --text-main: #0b3b34;
+      --text-muted: #3f6f66;
+      --accent-cyan: #0d9488;
+      --accent-cyan-dim: rgba(13, 148, 136, 0.12);
+      --accent-deep: #0f766e;
+      --accent-purple: #7c3aed;
+      --accent-emerald: #047857;
+      --accent-amber: #b45309;
+      --accent-rose: #dc2626;
+      --code-bg: #e3f9f2;
+    }
+
+    /* Paper Ink (neutral paper) */
+    [data-theme="paper"] {
+      --bg-primary: #f7f7f8;
+      --bg-secondary: #ffffff;
+      --bg-tertiary: #fbfbfc;
+      --card-bg: #ffffff;
+      --card-border: rgba(15, 23, 42, 0.10);
+      --card-border-bright: rgba(15, 23, 42, 0.20);
+      --text-main: #0f172a;
+      --text-muted: #64748b;
+      --accent-cyan: #4f46e5;
+      --accent-cyan-dim: rgba(79, 70, 229, 0.10);
+      --accent-deep: #4338ca;
+      --accent-purple: #7c3aed;
+      --accent-emerald: #047857;
+      --accent-amber: #b45309;
+      --accent-rose: #dc2626;
+      --code-bg: #f0f0f3;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background-color: var(--bg-primary);
+      color: var(--text-main);
+      line-height: 1.65;
+      display: flex;
+      min-height: 100vh;
+      overflow-x: hidden;
+      transition: background-color 0.2s ease, color 0.2s ease;
+    }
+
+    /* Scrollbars */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--card-border-bright); border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--accent-cyan); }
+
+    /* ============================================================
+       FULLPAGE SIDEBAR NAVIGATION
+       ============================================================ */
+    aside.sidebar {
+      width: var(--sidebar-w);
+      background-color: var(--bg-secondary);
+      border-right: 1px solid var(--card-border);
+      position: fixed;
+      top: 0; bottom: 0; left: 0;
+      height: 100vh;
+      max-height: 100vh;
+      overflow: hidden;
+      padding: 1.25rem 1rem 1rem 1rem;
+      display: flex;
+      flex-direction: column;
+      z-index: 100;
+      box-shadow: 2px 0 12px rgba(0, 0, 0, 0.15);
+      transition: background-color 0.2s ease, border-color 0.2s ease;
+    }
+
+    .sidebar-top {
+      flex: 0 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .brand-box {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding-bottom: 0.85rem;
+      border-bottom: 1px solid var(--card-border);
+    }
+    .brand-logo {
+      width: 38px;
+      height: 38px;
+      background: linear-gradient(135deg, var(--accent-cyan), var(--accent-deep));
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 1.2rem;
+      color: #fff;
+      box-shadow: 0 4px 12px var(--accent-cyan-dim);
+    }
+    .brand-text h2 {
+      font-size: 1.02rem;
+      font-weight: 700;
+      color: var(--text-main);
+      letter-spacing: -0.02em;
+    }
+    .brand-text p {
+      font-size: 0.72rem;
+      color: var(--accent-cyan);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .doc-nav-links {
+      display: flex;
+      flex-direction: column;
+      gap: 0.3rem;
+      padding-bottom: 0.85rem;
+      border-bottom: 1px solid var(--card-border);
+    }
+    .doc-nav-links a {
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-decoration: none;
+      padding: 0.45rem 0.65rem;
+      border-radius: 7px;
+      transition: all 0.18s ease;
+      display: flex;
+      align-items: center;
+      gap: 0.55rem;
+    }
+    .doc-nav-links a:hover {
+      color: var(--text-main);
+      background: var(--bg-tertiary);
+    }
+    .doc-nav-links a.active {
+      color: var(--accent-cyan);
+      background: var(--accent-cyan-dim);
+      border-left: 3px solid var(--accent-cyan);
+      font-weight: 700;
+    }
+
+    .toc-header-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .toc-title {
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--accent-cyan);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .toc-search {
+      width: 100%;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--card-border-bright);
+      border-radius: 7px;
+      padding: 7px 10px;
+      font-size: 0.78rem;
+      color: var(--text-main);
+      outline: none;
+      font-family: inherit;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    .toc-search:focus {
+      border-color: var(--accent-cyan);
+      box-shadow: 0 0 0 3px var(--accent-cyan-dim);
+    }
+
+    /* Dedicated scrollable TOC list filling full viewport */
+    nav.toc-nav {
+      flex: 1 1 0;
+      min-height: 0;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+      padding-top: 0.4rem;
+      padding-right: 4px;
+      scrollbar-width: thin;
+    }
+    nav.toc-nav a {
+      font-size: 0.79rem;
+      color: var(--text-muted);
+      text-decoration: none;
+      padding: 0.4rem 0.6rem;
+      border-radius: 6px;
+      transition: all 0.15s ease;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: block;
+      line-height: 1.35;
+    }
+    nav.toc-nav a:hover {
+      color: var(--text-main);
+      background: var(--bg-tertiary);
+    }
+    nav.toc-nav a.active {
+      color: var(--accent-cyan);
+      background: var(--accent-cyan-dim);
+      font-weight: 600;
+    }
+    nav.toc-nav a.h3-link {
+      padding-left: 1.25rem;
+      font-size: 0.74rem;
+      opacity: 0.85;
+    }
+
+    /* Pinned Sidebar Footer (Theme Preset Switcher) */
+    .sidebar-foot {
+      flex: 0 0 auto;
+      padding-top: 0.75rem;
+      border-top: 1px solid var(--card-border);
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+    }
+    .theme-select-label {
+      font-size: 0.68rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+    }
+    .theme-select {
+      width: 100%;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--card-border-bright);
+      border-radius: 6px;
+      padding: 6px 10px;
+      font-size: 0.78rem;
+      color: var(--text-main);
+      outline: none;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .theme-select:focus {
+      border-color: var(--accent-cyan);
+    }
+
+    /* ============================================================
+       MAIN CONTENT
+       ============================================================ */
+    main.main-content {
+      margin-left: var(--sidebar-w);
+      flex: 1;
+      padding: 2.5rem 3.5rem 5rem 3.5rem;
+      max-width: 1200px;
+    }
+
+    .doc-header {
+      margin-bottom: 2.5rem;
+      padding-bottom: 1.5rem;
+      border-bottom: 1px solid var(--card-border);
+    }
+    .doc-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 0.25rem 0.75rem;
+      border-radius: 9999px;
+      background: var(--accent-cyan-dim);
+      color: var(--accent-cyan);
+      border: 1px solid var(--accent-cyan);
+      margin-bottom: 0.75rem;
+    }
+    .doc-header h1 {
+      font-size: 2.2rem;
+      font-weight: 800;
+      color: var(--text-main);
+      letter-spacing: -0.03em;
+      margin-bottom: 0.5rem;
+      line-height: 1.2;
+    }
+    .doc-header p {
+      font-size: 1.05rem;
+      color: var(--text-muted);
+    }
+
+    /* Markdown Styling */
+    #markdown-body {
+      color: var(--text-main);
+      font-size: 0.95rem;
+    }
+    #markdown-body h1, #markdown-body h2, #markdown-body h3, #markdown-body h4 {
+      color: var(--text-main);
+      font-weight: 700;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      letter-spacing: -0.02em;
+      scroll-margin-top: 2rem;
+    }
+    #markdown-body h2 {
+      font-size: 1.45rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 1px solid var(--card-border);
+      margin-top: 2.5rem;
+      color: var(--accent-cyan);
+    }
+    #markdown-body h3 {
+      font-size: 1.2rem;
+      color: var(--text-main);
+    }
+    #markdown-body h4 {
+      font-size: 1rem;
+      color: var(--text-muted);
+    }
+    #markdown-body p {
+      margin-bottom: 1rem;
+      line-height: 1.7;
+    }
+    #markdown-body ul, #markdown-body ol {
+      margin-bottom: 1.25rem;
+      padding-left: 1.5rem;
+    }
+    #markdown-body li {
+      margin-bottom: 0.4rem;
+      line-height: 1.6;
+    }
+    #markdown-body a {
+      color: var(--accent-cyan);
+      text-decoration: none;
+      font-weight: 500;
+    }
+    #markdown-body a:hover {
+      text-decoration: underline;
+    }
+
+    /* ============================================================
+       CODE BLOCKS: Adaptive Theme Presets (Light & Dark)
+       ============================================================ */
+    #markdown-body code {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.85em;
+      background: var(--code-bg);
+      color: var(--accent-cyan);
+      padding: 0.2em 0.45em;
+      border-radius: 5px;
+      border: 1px solid var(--card-border-bright);
+      font-weight: 600;
+    }
+    #markdown-body pre {
+      background: var(--code-bg);
+      border: 1px solid var(--card-border-bright);
+      border-radius: 10px;
+      padding: 1.25rem;
+      overflow-x: auto;
+      margin-bottom: 1.5rem;
+      position: relative;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    }
+    #markdown-body pre code {
+      background: transparent !important;
+      padding: 0 !important;
+      border: none !important;
+      color: var(--text-main) !important;
+      font-size: 0.85rem;
+      line-height: 1.65;
+    }
+
+    /* Theme-adaptive syntax highlighting tokens */
+    #markdown-body pre code.hljs { background: transparent !important; padding: 0 !important; }
+    .hljs-keyword, .hljs-selector-tag, .hljs-subst, .hljs-doctag { color: var(--accent-cyan) !important; font-weight: 600; }
+    .hljs-string, .hljs-title, .hljs-title.function_, .hljs-section, .hljs-attribute, .hljs-literal,
+    .hljs-template-tag, .hljs-template-variable, .hljs-type, .hljs-addition { color: var(--accent-emerald) !important; }
+    .hljs-comment, .hljs-quote, .hljs-deletion, .hljs-meta { color: var(--text-muted) !important; font-style: italic; }
+    .hljs-number, .hljs-regexp, .hljs-link { color: var(--accent-amber) !important; }
+    .hljs-variable, .hljs-params, .hljs-attr { color: var(--text-main) !important; }
+    .hljs-built_in, .hljs-builtin-name, .hljs-symbol, .hljs-bullet { color: var(--accent-purple) !important; font-weight: 600; }
+
+    /* Copy Button */
+    .code-copy-btn {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      background: var(--bg-secondary);
+      border: 1px solid var(--card-border-bright);
+      border-radius: 6px;
+      color: var(--text-muted);
+      font-size: 0.72rem;
+      padding: 4px 8px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      transition: all 0.15s ease;
+      font-family: inherit;
+    }
+    .code-copy-btn:hover {
+      background: var(--accent-cyan);
+      color: #fff;
+      border-color: var(--accent-cyan);
+    }
+
+    #markdown-body table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 1.75rem;
+      background: var(--card-bg);
+      border-radius: 10px;
+      overflow: hidden;
+      border: 1px solid var(--card-border);
+      font-size: 0.88rem;
+    }
+    #markdown-body th {
+      background: var(--bg-tertiary);
+      color: var(--text-main);
+      font-weight: 600;
+      text-align: left;
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid var(--card-border);
+    }
+    #markdown-body td {
+      padding: 0.65rem 1rem;
+      border-bottom: 1px solid var(--card-border);
+      color: var(--text-main);
+    }
+    #markdown-body tr:hover td {
+      background: var(--bg-tertiary);
+    }
+    #markdown-body blockquote {
+      border-left: 4px solid var(--accent-cyan);
+      background: var(--accent-cyan-dim);
+      padding: 0.85rem 1.25rem;
+      border-radius: 0 8px 8px 0;
+      margin-bottom: 1.25rem;
+      color: var(--text-main);
+    }
+    #markdown-body hr {
+      border: none;
+      height: 1px;
+      background: var(--card-border);
+      margin: 2.5rem 0;
+    }
+
+    @media (max-width: 900px) {
+      aside.sidebar { display: none; }
+      main.main-content { margin-left: 0; padding: 1.5rem; }
+    }
+  </style>
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="sidebar-top">
+      <div class="brand-box">
+        <div class="brand-logo">M</div>
+        <div class="brand-text">
+          <h2>MicronOS Docs</h2>
+          <p>Enterprise Firewall</p>
+        </div>
+      </div>
+
+      <div class="doc-nav-links">
+        <a href="index.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
+          </svg>
+          Docs Portal Hub
+        </a>
+
+        <a href="MICRON_FIREWALL_OS_ARCHITECTURE.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/>
+          </svg>
+          Architecture Blueprint
+        </a>
+        <a href="MICRONOS_MODULE_REFERENCE.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/>
+          </svg>
+          Module Reference
+        </a>
+        <a href="STEP_BY_STEP_IMPLEMENTATION_PLAN.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/>
+          </svg>
+          Implementation Plan
+        </a>
+        <a href="ISO_CREATION_AND_INSTALLER_GUIDE.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/>
+          </svg>
+          ISO &amp; Installer Guide
+        </a>
+        <a href="SSLVPN_ZTNA_CLIENTLESS_GATEWAY_SPECIFICATION.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+          </svg>
+          SSL-VPN &amp; ZTNA Spec
+        </a>
+        <a href="MICRONOS_UPDATE_AND_UPGRADE_SPECIFICATION.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+          </svg>
+          Update &amp; Upgrade Spec
+        </a>
+        <a href="MICRONOS_PLUGIN_AND_PACKAGE_MANAGER_SPECIFICATION.html" class="active">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
+          </svg>
+          Plugin &amp; Package Manager
+        </a>
+        <a href="MICRONOS_CONNECTOR_ABSTRACTION_SPECIFICATION.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13.828 10.172a4 4 0 010 5.656l-4 4a4 4 0 11-5.656-5.656l1-1m9.656-2.344a4 4 0 00-5.656-5.656l-4 4a4 4 0 105.656 5.656l1-1"/>
+          </svg>
+          Connector Abstraction Spec
+        </a>
+        <a href="MICRONOS_CONNECTOR_THREAT_MODEL.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+          </svg>
+          Connector Threat Model
+        </a>
+        <a href="HYPERV_WIN11_DEVELOPMENT_AND_AI_COORDINATION_GUIDE.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
+          </svg>
+          Hyper-V &amp; AI Dev Guide
+        </a>
+        <a href="POWER_LOSS_RESILIENCE_AND_RECOVERY_ENGINEERING_SPECIFICATION.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+          </svg>
+          Power Resilience &amp; LKGC Spec
+        </a>
+        <a href="MICRONOS_BONDING_AND_WIRELESS_GUIDE.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13.828 10.172a4 4 0 010 5.656l-3 3a4 4 0 01-5.656-5.656l1.5-1.5m7.156-7.156a4 4 0 00-5.656 0l-3 3a4 4 0 000 5.656l1.5 1.5"/>
+          </svg>
+          Bonding &amp; Wi-Fi Guide
+        </a>
+        <a href="MICRONOS_ADVANCED_ROADMAP_SPECIFICATION.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+          </svg>
+          Advanced Roadmap Spec
+        </a>
+        <a href="MICRONOS_VERSIONING_AND_RELEASE_LIFECYCLE_SPECIFICATION.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"/>
+          </svg>
+          Versioning &amp; Release Spec
+        </a>
+        <a href="http://micronos.test/dashboard" target="_blank" style="color:var(--accent-cyan); background:var(--accent-cyan-dim);">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+          </svg>
+          Launch Appliance GUI &rarr;
+        </a>
+      </div>
+
+      <div class="toc-header-wrap">
+        <div class="toc-title">
+          <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h7"/>
+          </svg>
+          Table of Contents
+        </div>
+        <input type="text" id="toc-search" class="toc-search" placeholder="Filter sections (e.g. snmp, siem, nat)..." oninput="filterToc(this.value)">
+      </div>
+    </div>
+
+    <nav class="toc-nav" id="toc-container">
+      <!-- Generated dynamically -->
+    </nav>
+
+    <div class="sidebar-foot">
+      <label for="themePresetSelect" class="theme-select-label">Theme Preset</label>
+      <select id="themePresetSelect" class="theme-select" onchange="setThemePreset(this.value)">
+        <optgroup label="Dark Themes">
+          <option value="dark">Dark Abyss</option>
+          <option value="midnight">Midnight</option>
+          <option value="ocean">Ocean Teal</option>
+          <option value="forest">Forest</option>
+          <option value="slate">Slate Grey</option>
+        </optgroup>
+        <optgroup label="Light Themes">
+          <option value="light">Light / Day</option>
+          <option value="solar">Solar Amber</option>
+          <option value="mint">Mint Breeze</option>
+          <option value="paper">Paper Ink</option>
+        </optgroup>
+      </select>
+    </div>
+  </aside>
+
+  <main class="main-content">
+    <div class="doc-header">
+      <span class="doc-badge">
+        <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+        </svg>
+        MicronOS Technical Manual
+      </span>
+      <h1>Micron Firewall OS (MicronOS) — Plugin & Package Manager Specification</h1>
+      <p>OPNsense-/pfSense-Class Extension Surface: Signed Plugin Bundles, a Curated Package Manager, Capability Grants, and Third-Party Integrations</p>
+    </div>
+
+    <article id="markdown-body"></article>
+  </main>
+
+  <script>
+    const rawMarkdown = "# Micron Firewall OS (MicronOS)\n## Plugin & Package Manager Specification\n### The OPNsense-/pfSense-class Extension Surface: Daemon Plugins, Curated Packages, and Third-Party Integrations\n\n---\n\n## Table of Contents\n1. [Purpose & Scope](#1-purpose--scope)\n2. [Design Principles, and What We Refuse to Build](#2-design-principles-and-what-we-refuse-to-build)\n3. [The Three Extension Classes](#3-the-three-extension-classes)\n4. [Plugin Anatomy: The `.mplug` Bundle](#4-plugin-anatomy-the-mplug-bundle)\n5. [The Package Manager](#5-the-package-manager)\n6. [Lifecycle: Browse → Install → Configure → Enable → Upgrade → Remove](#6-lifecycle-browse--install--configure--enable--upgrade--remove)\n7. [Capability Grants & Privilege Model](#7-capability-grants--privilege-model)\n8. [Daemon-Side Enforcement (`micrond`)](#8-daemon-side-enforcement-micrond)\n9. [Management Plane: Libraries, Controllers & UI](#9-management-plane-libraries-controllers--ui)\n10. [Data Model](#10-data-model)\n11. [Integration Catalogue](#11-integration-catalogue)\n12. [Security Model & Threat Analysis](#12-security-model--threat-analysis)\n13. [Lifecycle Coupling: Updates, A/B Slots & Backup](#13-lifecycle-coupling-updates-ab-slots--backup)\n14. [CLI & RPC Reference](#14-cli--rpc-reference)\n15. [Phased Roadmap](#15-phased-roadmap)\n16. [Risks & Open Questions](#16-risks--open-questions)\n\n---\n\n## 1. Purpose & Scope\n\nMicronOS ships as a **closed, opinionated appliance**: the data plane (nftables, Unbound, Squid, FRR, strongSwan, Kea, Suricata …) is compiled from database state and controlled through a single privileged daemon, `micrond`. That model is what makes the appliance auditable and avoids the classic \"admin web UI that can `apt install` anything\" trap.\n\nIt also means that anything *not* in the core image — LLDP neighbour discovery, an iperf3 speed-test server, a ZeroTier or NetBird overlay, a commercial threat-feed connector — has no supported way in today's tree. This document specifies how those capabilities enter the appliance **without** breaking the control/data-plane separation that the rest of the architecture depends on.\n\n**In scope**\n- A first-class **plugin** mechanism (what OPNsense calls *plugins* and pfSense calls *packages*).\n- A **curated package manager** that installs the Debian packages those plugins depend on, from signed, pinned repositories.\n- The **integration catalogue**: ZeroTier, NetBird, Lightsquid, iperf3 (server + client), darkstat, and LLDP (`lldpd`).\n- The management surface, data model, capability/privilege model, and lifecycle \"glue\" to the Update and Backup specifications.\n\n**Out of scope (deliberately)**\n- A generic, operator-facing `apt` console. Arbitrary package names never come from the browser (see §2, §5).\n- Anything that lets a plugin register a new HTTP route or RBAC permission **at runtime** from untrusted data. Plugins are static artefacts, authored and signed by Micron Network Systems; the surface they may add is declared at build time and allowlisted in `micrond` (§7–§8).\n\n> **Relationship to the Connector Specification.** *Connectors* (see the [Connector Abstraction Specification](MICRONOS_CONNECTOR_ABSTRACTION_SPECIFICATION.html)) are the **data-plane policy** extension class: they fetch and stage typed feed data (DNSBL, address groups, PKI material). Plugins and packages are the **service/daemon** extension class: they add a running process, a config file, and a status surface. The two share a governance model (signed, static, capability-granted, audited) but not an execution mechanism. §3 keeps the line sharp.\n\n---\n\n## 2. Design Principles, and What We Refuse to Build\n\n| # | Principle | Consequence |\n| :-- | :-- | :-- |\n| P1 | **One privileged broker.** Only `micrond` runs as root and only it touches the filesystem outside `/var/lib/micron`. | The Package Manager does **not** shell out from PHP. Every install/remove/reload is an RPC. |\n| P2 | **No arbitrary package names from the web UI.** | The UI references a *plugin id* or a *catalogue entry*; the daemon resolves that to a fixed apt package set. A caller can never name `curl` or `openssh-server`. |\n| P3 | **Signed and pinned.** | Repositories are curated; every Debian package is signature-verified against a key whose **fingerprint the operator states in advance** (image-shipped for presets, declared out of band for operator-registered ones), and every curated repository is pinned below the distribution (§5.2). Plugin bundles are GPG-signed. |\n| P4 | **Declarative, not executable, extension.** | A plugin contributes a manifest (menu, config schema, required packages, declared RPCs, lifecycle hooks as *typed steps*) — never an arbitrary `run_this.sh` that the appliance executes as root on install. |\n| P5 | **Capability grants, least privilege.** | A plugin declares capabilities (e.g. `system.service:zerotier-one`, `net.raw`, `dns.upstream`, `firewall.rules`). The operator approves them individually; `micrond` enforces the approved set. |\n| P6 | **Reversible.** | Every install/upgrade can be rolled back; uninstall offers *retain data* vs *purge*; a broken daemon must not take the firewall with it. |\n| P7 | **Fail closed, and say so.** | If a dependency, signature, or capability is unmet, the plugin is *not* installed — the UI reports exactly which check failed, mirroring the connector guard's error style. |\n\n**What we refuse to build.** A form that accepts a **package name**, or raw `sources.list`/option syntax (§5.2 allows a repository to be *registered*, never apt options, and never a hand-typed package). A plugin that ships PHP that is `include`d into controllers at runtime. A plugin that can restart `nftables`, `wireguard`, `strongswan`, `unbound`, `keepalived` or `frr` (the same units the connector allowlist already refuses). A plugin install that runs arbitrary shell from the manifest.\n\n---\n\n## 3. The Three Extension Classes\n\nThe appliance's extension surface is intentionally split so that risk is proportional to what an extension does.\n\n| Class | What it is | What it adds | Reach | Examples |\n| :-- | :-- | :-- | :-- | :-- |\n| **A — Connector** | Declarative feed adapter (manifest only, no new code) | Fetched, typed policy data (domains, CIDRs, certs) | `dnsbl`, `addressgroup`, `pki`, `service` targets | abuse.ch/URLhaus, Spamhaus |\n| **B — Service/Daemon plugin** | Signed bundle + curated Debian packages | A systemd unit, a config file, a status page, an nftables integration | Starts/stops its own daemon; may add rules through a declared target | `lldpd`, `iperf3`, `darkstat`, Lightsquid |\n| **C — Third-party overlay / agent** | Bundle that vendors a *third-party* repository and account | A full overlay stack, tunnel agent, or kernel-side engine | Higher: third-party repo, outbound registration, sometimes a kernel module | ZeroTier, NetBird |\n\nOnly Class A is fully implemented today (the Connector engine). This document specifies B and C.\n\n---\n\n## 4. Plugin Anatomy: The `.mplug` Bundle\n\nA MicronOS plugin is a signed archive. It is **not** a tarball of shell scripts; it is a manifest plus static assets, and an explicit, closed list of *typed* lifecycle steps.\n\n```\nzerotier.mplug  (tar, gzip, GPG-signed)\n├── plugin.json          # the manifest (authoritative; schema below)\n├── signature.asc        # detached signature over plugin.json + payload hashes\n├── payload/\n│   ├── menu/            # optional declarative menu additions\n│   ├── views/           # optional CI4 view partials (static, escaped)\n│   └── config/          # template config files copied into place\n└── checksums.txt        # sha256 of every payload file\n```\n\n### 4.1 `plugin.json` schema\n\n```json\n{\n  \"schema\": 1,\n  \"id\": \"zerotier\",\n  \"name\": \"ZeroTier One\",\n  \"version\": \"1.14.0-1\",\n  \"vendor\": \"Micron Network Systems\",\n  \"description\": \"ZeroTier virtual network overlay agent.\",\n  \"class\": \"C\",\n  \"min_appliance\": \"2.0.0\",\n  \"max_appliance\": \"2.x\",\n  \"provides\": {\n    \"services\": [\"zerotier-one\"],\n    \"menu\": [\n      { \"path\": \"/plugins/zerotier\", \"label\": \"ZeroTier\", \"permission\": \"plugins.zerotier.view\" }\n    ],\n    \"settings_schema\": \"payload/settings.schema.json\",\n    \"status_source\": \"rpc:zerotier.status\"\n  },\n  \"requires\": {\n    \"packages\": [\"zerotier-one\"],\n    \"repos\": [\"zerotier\"],\n    \"kernel_modules\": [],\n    \"binaries\": [\"/usr/sbin/zerotier-one\"]\n  },\n  \"capabilities\": [\n    \"system.service:zerotier-one\",\n    \"root.rpc:zerotier.status\",\n    \"root.rpc:zerotier.join\",\n    \"firewall.ifgroup:zt+\",\n    \"net.raw\"\n  ],\n  \"lifecycle\": [\n    { \"step\": \"install\",   \"action\": \"apt.install\",  \"packages\": [\"zerotier-one\"] },\n    { \"step\": \"enable\",    \"action\": \"system.enable\", \"unit\": \"zerotier-one\" },\n    { \"step\": \"configure\", \"action\": \"template.render\", \"src\": \"payload/config/zerotier.local.conf\", \"dst\": \"/var/lib/zerotier-one/local.conf\" },\n    { \"step\": \"uninstall\", \"action\": \"apt.remove\",   \"packages\": [\"zerotier-one\"],\n      \"data\": { \"paths\": [\"/var/lib/zerotier-one\"], \"policy\": \"ask\" } }\n  ]\n}\n```\n\n**Closed vocabularies** (validated at load, exactly like the connector manifest's closed enums):\n\n| Field | Allowed values |\n| :-- | :-- |\n| `class` | `A` \\| `B` \\| `C` |\n| `action` (lifecycle) | `apt.install` \\| `apt.remove` \\| `system.enable` \\| `system.disable` \\| `system.start` \\| `system.stop` \\| `template.render` \\| `file.copy` \\| `dir.ensure` \\| `pki.issue` \\| `dns.setupstream` \\| `nft.set` |\n| `capabilities` | a fixed grammar: `system.service:<unit>`, `root.rpc:<name>`, `net.raw`, `kernel.module:<name>`, `dns.upstream`, `firewall.rules`, `firewall.ifgroup:<prefix>`, `fs.write:<path>` |\n\nAnything outside those vocabularies fails manifest validation *before* any install step runs. There is no `shell.run`, no `exec`, and no dynamic code-loading action.\n\n**`provides.menu` is validated too.** Each entry is an object with the closed key set `path` / `label` / `permission` only:\n\n| Key | Rule |\n| :-- | :-- |\n| `path` | Must match `^/plugins/[a-z0-9][a-z0-9/-]*$` and must not contain `..` — a bundle can contribute a page inside the plugin namespace, never a route into the core UI |\n| `label` | Non-empty; this is the human text shown in the navigation |\n| `permission` | Optional; when present the entry is only shown to a session holding it |\n\nA manifest whose menu declares an unknown key, an empty label, or a path outside `/plugins/` is rejected before install. The management plane reads these entries for the navigation (see §9.1).\n\n### 4.2 Settings schema\n\n`settings_schema.json` is a JSON-Schema subset (string/int/bool/enum/secret, `required`, `default`, `pattern`) that the management plane renders into a settings form. **`secret` fields are encrypted with the same `SecretsVault` (AES-256-GCM) the connector engine uses** and are never returned to the browser or written to logs — the plugin's daemon receives them at `template.render` time only.\n\n---\n\n## 5. The Package Manager\n\n### 5.1 Model\n\nUnder the hood the Package Manager is apt, but it is **never** driven by an operator-typed package name. It is a *hermetic* front end over one or more **curated, signed** repositories:\n\n```\n┌───────────────────────────────────────────────────────────────────────┐\n│  Plugins page (Browse / Installed / Updates)                          │\n│  \"Available: ZeroTier One 1.14.0-1  [Install]\"                        │\n└───────────────────────────────┬───────────────────────────────────────┘\n                                │ RPC: plugin.catalog  /  plugin.install {id}\n┌───────────────────────────────▼───────────────────────────────────────┐\n│  micrond  →  PackageManager                                           │\n│    1. resolve plugin id → packages (from the signed catalogue)       │\n│    2. apt-get update against ONLY the curated source list            │\n│    3. dry-run: dependency + conflict resolution                       │\n│    4. verify signatures against pinned keys                           │\n│    5. install into the running slot; snapshot for rollback            │\n│    6. run the manifest's typed lifecycle steps                        │\n│    7. reload/refresh only the affected daemons                        │\n│    8. emit plugin.audit event                                         │\n└───────────────────────────────────────────────────────────────────────┘\n```\n\n### 5.2 Repository curation\n\nA repository is a row in `plugin_repos`, managed on the **Repositories** screen (§9.5). It is *registered*, never written by hand: `micrond` generates every file, from a closed grammar, and the operator supplies only validated fields.\n\n| Property | Rule |\n| :-- | :-- |\n| **Source list** | `/etc/apt/sources.list.d/micron-<id>.sources`, `deb822`, generated by the daemon. `Types: deb` only — a `deb-src` is never emitted, so a curated repository cannot feed the build toolchain. There is **no field for apt options**, so `[trusted=yes]`, `allow-insecure` and friends are unexpressible; the URL grammar (`https://`, no credentials, no query, no whitespace, no brackets) is the injection boundary. |\n| **Signing keys** | `/etc/apt/keyrings/micron-<id>.gpg`, referenced by `Signed-By`. The operator declares the **fingerprint out of band** (from the vendor's documentation — never from the key file); the daemon imports the supplied or fetched key into a private keyring, compares fingerprints, refuses a mismatch, and exports **only the verified key**. A key URL is resolved by the management plane through the shared `ConnectorEgressGuard`, so it inherits the SSRF defence and byte caps; `micrond` never fetches a key itself. |\n| **Pinning** | Two layers. Each repository is `Pin: origin \"<host>\"` + `Pin-Priority: 100`, below the distribution's own 500, so a package the distribution ships is always taken from the distribution. Independently, **every protected core package is pinned to the appliance's own release** (`Pin: release o=<Origin>, n=<codename>`, priority 990) from `/etc/os-release` — so a curated repository can supply packages the distribution lacks but can never supply, let alone upgrade, `nftables`, `unbound`, `kea-*` or any other core dependency. If the distribution identity cannot be read the core pin is *not* written and the apply fails closed. |\n| **Reconcile** | `plugin.repo.apply` is declarative, like `dhcp.relay_apply`: the enabled set is applied and any file `MicronOS` previously generated for a repository that is now disabled or removed is retired. Only files named `micron-*` are ever listed or deleted; the appliance's own sources are untouchable, and the protected-core pin is explicitly excluded from retirement. |\n| **Verify** | `plugin.repo_test` — a **read-only** check of one repository, offered as a *Test* action per row. The management plane fetches the release metadata (`InRelease`, or the detached `Release` + `Release.gpg`) through the egress guard; the daemon imports the signing key into a **private** keyring, verifies the signature against it, and compares gpg's `VALIDSIG` signer to the declared fingerprint. Because that keyring holds only the key whose fingerprint was already checked, one call proves three things at once: the repository is reachable, its metadata is signed, and it is signed by the key the operator named. No source, pin, keyring or apt list is written, nothing is cached and no package operation runs — so a vendor's repository can be checked *before* it is trusted. The release is also compared with what was declared (suite/codename, component, architecture, `Valid-Until`) and any divergence is reported as a warning rather than a failure, since it is the misconfiguration a bare reachability probe misses. The same read-only check is offered for a **preset** (`plugins/repositories/preset/<id>/test`, permission `plugins.repo.refresh`), and it deliberately proves the *image-shipped* trust data (`App\\Libraries\\RepoPresets`) rather than a stored row: the preset's own URL, suite, armor and declared fingerprint are the inputs, and the preset need not be registered at all. The answer is therefore about what *this image* would install from, independent of any row the operator has registered — and of a row they may have re-pointed at a different key after a rotation. It leaves `plugin_repos` untouched, including `last_verified_at`: proving shipped trust data is not adopting it, and a check the operator ran against the image must not stamp a verification onto a repository it never examined. |\n| **Register / enable** | Both are gated on verification. Saving a repository (registering or editing) and enabling a disabled one fetch the release metadata and check the signing key against the declared fingerprint **first**, and refuse a source that cannot be reached or does not match — the failure is shown on the page rather than stored. The check runs from the controller (`Packages::store()` / `Packages::toggle()`) against the *candidate* definition, since a register has no row to look up until after it has decided, via `RepoRegistry::verify()`. `RepoRegistry::save()` deliberately stays ungated, so restore, image-shipped presets and reconciliation are never blocked by a network condition. A deliberately offline check is an **explicit override** (`skip_verify`), never a silent fallback, and the success message says the row was saved *unverified*; disabling a repository is never gated, because retiring a source must always be possible. |\n| **Refresh** | `plugin.repo.refresh` — operator-triggered or scheduled; metadata only, never an install. |\n| **Drift** | A scheduled sweep (`micron:repo-drift`, the `cron_plugin_repo_drift` task, daily 04:45) refreshes metadata and, for every **enabled** repository, compares one observation against the last. A curated repository can be perfectly configured and still be quietly dead, so the things it watches for are exactly the ones a single check cannot see: a metadata `Date:` that never advances (the vendor stopped publishing), a signing key whose *own* validity is running out (independent of the metadata's `Valid-Until`), a `Valid-Until` approaching or past, or metadata now signed by a different key — a rotation, which the daemon reports as a machine-readable `reason` so it is told apart from an unreachable CDN. The verdict is written back onto the row (`drift_kinds`, `drift_since`, `drift_detail`, `last_check_at`) beside the raw inputs it was drawn from (`metadata_date`, `metadata_seen_at`, `key_created_at`, `key_expires_at`), because none of it is visible from a single reading; `drift_since` deliberately survives a sweep so the age of a problem does not reset each time it is noticed. The same sweep runs on demand from the screen. Metadata refresh and verification are both read-only with respect to what apt may install, so the task cannot widen the package surface however long it runs. Every sweep also **re-verifies** each repository in service — the same read-only check the *Test* action runs — so a source that verified before and no longer does is the event an operator most needs to hear about. That regression is flagged **Verification lost** (a warning, carrying the daemon's reason), and it is told apart from a repository that never verified by `last_verified_at`, the last **successful** verification, which a failure deliberately leaves in place (`2026-10-06-000096_AddRepositoryVerificationTracking`); a successful register or enable stamps it too. The command exits **non-zero** on a critical finding, so a monitor watching cron sees what a person reading it would. |\n| **Registry** | At most 16 repositories. Duplicate sources, an enabled repository with no key, and a URL pointing at the appliance's own distribution host are **conflicts** that block an apply (and are refused at save time); two repositories sharing a signing key is a warning. |\n| **Presets** | Image-shipped trust data for a known vendor lives in `App\\Libraries\\RepoPresets`: the id, name, URL, suite/components/architectures, the **declared fingerprint**, and the vendor's **armored public key inline**. Registering one (`plugins/repositories/preset/<id>`, or `micron:plugin repos --seed <id>`) passes through the *identical* validation as a hand-entered row, so a preset can only pre-fill what the operator could have typed; an existing definition is never rewritten, so re-seeding cannot silently re-point a row the operator has changed. A preset arrives **disabled**, and because the key travels inline an `apply` needs no vendor fetch. The shipped claim is re-checkable from the screen: each preset card carries a **Verify against vendor** action (`plugins/repositories/preset/<id>/test`) that runs the read-only check described under **Verify** above — reachability, signature, declared fingerprint — *before* the preset is registered, and renders the verdict in the page's verification panel. |\n| **Manifest binding** | A manifest names repositories in `requires.repos`. Resolution is appliance state: a plugin whose repository is not registered **and enabled** is *blocked* with the repository named, never half-installed. |\n| **Version catalogue** | A signed JSON feed (§9.4) is the only source of \"a newer plugin version exists\". It is verified against a key shipped in the image and is *descriptive* — it cannot widen what apt is permitted to install. |\n| **Backup** | The registry travels in configuration backups and a restore **reconciles the daemon with it** (`Backup::applyRestore()` → `apply()`), so a rebuilt appliance gets its sources, keyrings and pins back out of the archive — no vendor fetch, because the archived rows carry the armored key inline. Restoring only the *Package Repositories & Signing Keys* section restores just this registry. |\n| **Offline / air-gap** | Import a signed catalogue envelope and/or upload a `.mplug` + a `.deb` bundle; the same signature and dry-run gates apply. A key fetched once is cached inline, so a restored repository does not depend on the vendor URL being reachable. |\n\n**Third-party repositories are the reason Class C exists.** ZeroTier and NetBird publish their own apt repos. The Package Manager permits a repository only through the mechanism above: the operator may *register* one, but cannot express apt options, cannot supply a key whose fingerprint they did not state in advance, and cannot make the repository outbid the distribution.\n\n**Shipped preset — NetBird.** `RepoPresets::PRESETS['netbird']` carries the vendor's real trust data for `https://pkgs.netbird.io/debian` (suite `stable`, component `main`, `amd64`/`arm64`), with the signing key's fingerprint `EFE37DF047DF7CCDF1FC54FA83F79AD029778355` and the vendor's 2440-byte armored public key embedded verbatim. `2026-10-06-000093_SeedNetbirdPresetRepository` seeds the row **disabled**, so the Class C plugin `netbird` is *blocked with the repository named* until an operator enables and applies it — the third-party-repo path is therefore exercised end to end, not merely specified. `tests/app/Libraries/RepoPresetsTest.php` and `tests/test_repo_presets.py` recompute the fingerprint from the embedded key, so a corrupted paste fails in CI rather than on the appliance. The shipped claim is re-checkable on demand, too: `tests/test_repo_presets_live.py --live` is an **opt-in** harness that fetches each preset's `dists/<suite>/InRelease` (falling back to `Release` + `Release.gpg`), verifies it against the shipped key in a private keyring, and requires gpg's `VALIDSIG` signer to equal the declared fingerprint — the same proof the daemon's `plugin.repo_test` makes, without an appliance. It is opt-in precisely because it reaches the network: a bare invocation fetches nothing and says so, so the default test run never depends on a vendor being up.\n\nThe same proof is available on the appliance, from the page: each preset card on the Repositories screen carries a **Verify against vendor** action (`plugins/repositories/preset/<id>/test`, the read-only `plugin.repo_test` path) that fetches the vendor's metadata and requires the shipped fingerprint to be the signer, without registering the preset or writing anything. The report is rendered in the same panel a repository *Test* uses — labelled a **preset** verification, naming the shipped fingerprint, its provenance (`key_source_url`) and the `verified_at` the image records — so a verdict about the image's trust data is never mistaken for one about a registered row.\n\n### 5.3 Dependency & conflict resolution\n\nResolution is a dry-run first: `apt-get -s install <resolved set>`. The result is surfaced to the operator as a **plain-language plan** (\"will install `zerotier-one`, 3 dependencies; will not remove anything; 1.4 MiB\"). Conflicts that would remove a core package (anything in the protected set: `nftables`, `unbound`, `wireguard-tools`, `strongswan`, `frr`, `keepalived`, `suricata`, `squid`, `kea-*`, `chrony`, `rsyslog`, `snmpd`) are refused outright — the plugin is marked **uninstallable on this appliance** with the blocking package named.\n\n### 5.4 Transaction & rollback\n\nAn install/upgrade is a transaction:\n\n```\nbegin  → snapshot dpkg selections (dpkg --get-selections) + plugin rows\n       → install/upgrade\n       → run typed lifecycle steps\n       → health-check the declared service (systemctl is-active + a plugin-declared probe)\ncommit → keep; record in plugin_install_log\nrollback → apt reinstall previous versions from the dpkg cache, restore plugin rows,\n           re-run the inverse of the typed steps, restart the pre-existing daemons\n```\n\nThis mirrors the existing `SafeTransactionManager` pattern used by the firewall compiler. A failed health-check after upgrade triggers an automatic rollback and an alert.\n\n---\n\n## 6. Lifecycle: Browse → Install → Configure → Enable → Upgrade → Remove\n\n| State | Meaning | UI affordance |\n| :-- | :-- | :-- |\n| `available` | In the catalogue, not installed. | **Install** (shows the plan + capability grants) |\n| `installing` | Transaction in flight. | Progress; cancel = rollback |\n| `installed` | Files present, service not yet enabled. | **Configure** / **Enable** / **Remove** |\n| `enabled` | Service enabled + started, config rendered. | **Disable** / **Restart** / **Update** / **Remove** |\n| `update_available` | A newer signed version exists. | **Update** (same transaction) |\n| `broken` | Last transaction failed or health-check failed. | **Repair** (re-run steps) / **Rollback** / **Remove** |\n| `blocked` | Conflicts with a core package or appliance version. | Shows the blocking reason; no install button |\n| `removing` | Uninstall in flight; asks retain vs purge. | — |\n\n**Configure** renders `settings_schema.json`; **Enable** renders config templates (with decrypted secrets) via typed `template.render`/`file.copy` steps and then `system.enable`+`system.start`. **Remove** always offers *retain configuration and data* (default) vs *purge*, matching the Backup spec's \"credentials excluded unless encrypted\" philosophy — the destructive path is explicit.\n\n---\n\n## 7. Capability Grants & Privilege Model\n\nA plugin is inert until the operator grants capabilities. Grants are recorded per plugin and enforced by `micrond` at every call.\n\n| Capability | Grants | Enforcement point |\n| :-- | :-- | :-- |\n| `system.service:<unit>` | control *that one* unit (start/stop/restart/enable/disable) | `plugin.service` RPC checks the per-plugin allowlist; the unit must also exist in the catalogue's pinned set |\n| `root.rpc:<name>` | call a **named** plugin RPC that the daemon compiles in | `micrond`'s plugin RPC registry |\n| `net.raw` | create overlay interfaces / raw sockets | gate before any `ip`/`wg`/tun operation |\n| `kernel.module:<name>` | load a specific out-of-tree module | refused unless the module is signed and on the image's allowlist |\n| `dns.upstream` | change Unbound forwarders (resolver-upstream modes) | `dns.setupstream` step; conflicts flagged as an either/or mode |\n| `firewall.rules` / `firewall.ifgroup:<prefix>` | add rules / named sets for its own interfaces only | nftables compiler; namespace bounded by the prefix |\n| `fs.write:<path>` | write under a declared path | path must resolve inside `/etc/micron/plugins/<id>` or `/var/lib/micron/plugins/<id>` |\n\n**Default deny.** A capability not listed in `plugin_grants` (or listed as revoked) means the corresponding operation is refused with **no command run** — the same posture as `CONNECTOR_SAFE_UNITS`.\n\n**Protected units.** Even with a grant, a plugin can never control the protected set (`nftables`, `wireguard`, `strongswan`, `unbound`, `keepalived`, `frr`, `kea-*`, `suricata`, `chrony`, `rsyslog`, `snmpd`). It may *read* their state and may ask the core to reload through an existing admin RPC; it may not stop them. This is the plugin analogue of the connector/`system.service` split.\n\n---\n\n## 8. Daemon-Side Enforcement (`micrond`)\n\nNew RPC families, all resolved by id rather than by caller-supplied unit/package/path:\n\n| RPC | Params | Notes |\n| :-- | :-- | :-- |\n| `plugin.catalog` | `{}` | Returns the signed catalogue index (id, version, class, capabilities). |\n| `plugin.repo.refresh` | `{}` | `apt-get update` against the curated sources only — metadata, never an install. |\n| `plugin.repo.apply` | `{ repos: [{ id, name, url, suite, components, architectures, fingerprint, key_armor }] }` | Declarative reconcile (§5.2): verifies each fingerprint, generates `micron-<id>.sources` / `.pref` / keyring, writes the protected-core pin, retires undeclared `micron-*` files, then `apt-get update`. Every field re-validated; a bare `key_url` is refused (the management plane resolves it through the egress guard). |\n| `plugin.repo_status` | `{}` | What is actually applied: one entry per `micron-*` source on disk, plus whether the protected-core pin exists. |\n| `plugin.repo_test` | `{ repo: { id, url, suite, components, architectures, fingerprint, key_armor }, release, signature }` | **Read-only** verification: imports the key into a *private* keyring, checks the fingerprint, verifies the release metadata against it and compares the `VALIDSIG` signer to the declared fingerprint. Writes no source, pin, keyring or apt list and runs no package operation. A bare `key_url` is refused (the management plane resolves it through the egress guard); the release body is capped at 2 MiB. |\n| `plugin.install` | `{ id, grants: [...], data_policy }` | Dry-run → install → lifecycles → health-check → audit. |\n| `plugin.remove` | `{ id, purge: bool }` | Inverse steps; honours retain-data. |\n| `plugin.upgrade` | `{ id }` | Transaction with auto-rollback on failed health-check. |\n| `plugin.service` | `{ id, action }` | Per-plugin unit allowlist; protected units refused. |\n| `plugin.settings.apply` | `{ id, values }` | Renders templates; secrets decrypted daemon-side only. |\n| `plugin.status` | `{ id }` | `systemctl is-active` + plugin-declared probe + version. |\n| `plugin.logs` | `{ id, lines }` | Recent journal lines for the plugin's own unit (`journalctl -u <unit>`); protected and unknown units refused. |\n| `<plugin>::<rpc>` | plugin-defined | Only names compiled into the daemon and granted to that plugin. |\n\nEnforcement mirrors today's service model: `SERVICE_UNITS` is the admin whitelist, `CONNECTOR_SAFE_UNITS` is the connector whitelist. Plugins get a **third, per-plugin** allowlist built from `plugin_grants` at install time, default-deny for everything else. `micrond` keeps **no** generic \"run this for plugin X\" path.\n\n---\n\n## 9. Management Plane: Libraries, Controllers & UI\n\n| Component | Responsibility |\n| :-- | :-- |\n| `App\\Plugins\\PluginManifest` | Validate `plugin.json` against the closed vocabularies; expose accessors. (Sibling of `App\\Connectors\\Manifest`.) |\n| `App\\Plugins\\PluginRegistry` | Catalogue index, installed set, version/update diff. |\n| `App\\Plugins\\CapabilitySet` | Parse, normalise and compare declared vs granted capabilities. |\n| `App\\Libraries\\PackageManager` | Talks to `micrond`; never shells out; builds the human-readable install plan. |\n| `App\\Libraries\\PluginHealth` | Post-install/upgrade probe; feeds the `broken` state and alerts. |\n| `App\\Libraries\\PluginNav` | The installed plugins' `provides.menu` entries for the current session, filtered by each entry's permission (§9.1). Filesystem-only, no IPC. |\n| `App\\Controllers\\Plugins` | Browse / install / remove / upgrade / configure / enable / status, plus the per-plugin page (`show`), the Updates screen (`updates`/`upgradeAll`), and the daemon status/control/logs endpoints (§9.2–§9.3). |\n| `App\\Libraries\\RepoRegistry` | The curated repository registry: field grammars, the generated `deb822` stanza and apt pin, the plan's conflicts, the declarative apply, and `requires.repos` resolution. Daemon-free, like `DhcpRelayCompiler`. |\n| `App\\Controllers\\Packages` | The Repositories screen: registry CRUD, declarative apply, metadata refresh, and the read-only verification of a repository row or an image-shipped preset. (Catalogue view and offline bundle upload are still to land.) |\n| `App\\Models\\PluginModel` / `PluginRepoModel` / `PluginGrantModel` | Persistence and audit. |\n| `App\\Views\\plugins/index.php` + `_configure.php` | Grid of plugin cards, schema-driven config modal, capability consent dialog. |\n| `App\\Views\\plugins/show.php` + `plugins/updates.php` | The per-plugin page and the Updates & Upgrades screen (§9.2–§9.3). |\n| `App\\Views\\plugins/repositories.php` | The Repositories screen (§9.5): the registry table, the preset panel, the trust-model panel, the add/edit form, the compiled plan and the verification report panel. |\n\nThe management surfaces in §9.1–§9.3 and §9.5 ship in the current tree; the remaining components above (health probe, catalogue view, offline bundle upload, models) are specified and land with the roadmap in §15.\n\n**Permissions** (added to the RBAC catalogue as *static* keys at migration time, never registered at runtime):\n\n| Key | Meaning |\n| :-- | :-- |\n| `plugins.view` | See installed + available plugins |\n| `plugins.install` | Install/remove/upgrade (implies accepting the plan & grants) |\n| `plugins.configure` | Edit settings and enable/disable |\n| `plugins.repo.refresh` | Refresh repository metadata |\n| `plugins.repo.manage` | Register, edit, enable and remove curated repositories, and apply them |\n| `plugins.audit.view` | Read the install/rollback history |\n\nA plugin's own menu entries reference a permission **declared in its manifest and created at migration time** — so a malicious or corrupted bundle cannot invent a permission that the UI then honours.\n\n### 9.1 Navigation menus contributed by plugins\n\nA plugin contributes its navigation as declaratively as everything else: entries in `provides.menu`, validated at load (§4.1). The management plane renders them **only for installed plugins**, and only when the session satisfies the entry's optional `permission`.\n\n- **Source.** `App\\Libraries\\PluginNav::entries()` reads the installed-plugin set from the `plugins` table and resolves each `provides.menu` entry through `PluginRegistry`. It uses the filesystem-only registry (no daemon call), so the per-render cost of building the navigation stays trivial.\n- **Filtering.** An entry with a `permission` is shown only when the session holds it, or when the session is superadmin (the same bypass the RBAC filter uses). An entry with no `permission` is visible to any session that can see the page at all. A plugin that is not installed contributes nothing — installing it makes its menu appear, removing it takes the menu away.\n- **Placement.** The entries render in two places: the top bar's **Plugins** group (below the *Manager* links) and the sidebar's **Administration** section, each labelled from the manifest and highlighted by path prefix. The group itself also carries the manager entries — *Plugins & Packages* and *Updates & Upgrades*.\n\n```json\n\"provides\": {\n  \"services\": [\"iperf3\"],\n  \"menu\": [\n    { \"path\": \"/plugins/iperf3\", \"label\": \"iperf3 Speed Test\", \"permission\": \"plugins.view\" }\n  ],\n  \"status_source\": \"rpc:plugin.status\"\n}\n```\n\nBecause menu paths are constrained to `/plugins/…`, a bundle can never add an item that resolves into the core route namespace — the navigation can only ever grow inside the extension surface.\n\n### 9.2 Per-plugin pages (`/plugins/<id>`)\n\nEvery installed plugin gets its own page at the path its menu entry declares. `Plugins::show()` renders it; the route is registered **after** the literal `plugins/*` routes (`updates`, `daemon…`, `refresh`) so those always win over the `(:segment)` catch-all.\n\n- **Guard.** A request for a plugin whose manifest is unknown *or* which has no install row is a `404` — the page exists only for something actually installed.\n- **Identity.** The header shows name, class, shipped version, and enabled/installed state; the body lists the install facts (installed version — and, when newer, the shipped version — install date, enabled flag), the declared packages and systemd units, the manifest's menu entries, and the vendor/description.\n- **Daemon control.** A plugin that declares units gets the shared service widget: live run-state, **Start / Restart / Stop**, and a click-through to the journal. It is driven by three JSON endpoints — `plugins/daemons/status` (bulk poll), `plugins/daemons/<id>/control`, and `plugins/daemons/<id>/logs` — with the same contract the DHCP-relay instance controls use. Each endpoint gates on the plugin being installed and declaring a unit.\n- **Grants.** The declared-capability table lists every capability and whether the operator granted it, with who granted it.\n- **Actions.** *Update* (per-plugin upgrade) and *Remove* (data retained) are presented here.\n- **Plugin-contributed UI.** If the bundle ships a view at `Views/plugins/apps/<id>.php`, `show()` renders that instead of the generic metadata page — the hook a plugin uses for a real tool. The `iperf3` plugin is the reference for Class B: its menu entry `/plugins/iperf3` lands on a throughput runner (client test with target/port/duration/protocol/direction/streams, and a time-bounded on-demand server), while plugins without such a view fall back to the metadata page. The `netbird` plugin is the reference for Class C: `Views/plugins/apps/netbird.php` renders the overlay's live status (FQDN, overlay IP, interface, public key, management/signal reachability, peer counts) from `plugin.netbird.status` — refusing to draw a page at all unless the plugin is installed — with **Connect / Disconnect** (`plugin.netbird.up` / `.down`) and a setup-key enrolment form (`plugin.netbird.enroll`) that stages the key daemon-side into a `0600` file, so it never reaches the process table, a log line or the response. The `zerotier` plugin is the second Class C page and the reference for a *membership-driven* overlay: `Views/plugins/apps/zerotier.php` renders the node's identity (address, version, online state) and a table of the networks this node has joined, from `plugin.zerotier.status`, and drives **Join network** / **Leave** through `plugin.zerotier.join` / `.leave` with nothing but a 16-hex network id. Because a network's *name* is chosen by whoever controls that network, every cell is built as a text node and never as markup.\n\n### 9.3 Updates & Upgrades screen (`/plugins/updates`)\n\n`Plugins::updates()` is the plugin-lifecycle counterpart to the appliance-wide **System Updates** page in the [Update & Upgrade Specification](MICRONOS_UPDATE_AND_UPGRADE_SPECIFICATION.html): plugins are moved here, OS packages there.\n\n- **List.** Every installed plugin with its installed version, its available version, enabled state, and packages. The available version is the **signed catalogue's** when it names a newer release, otherwise the shipped manifest's; each row is labelled `FROM CATALOGUE` or `SHIPPED`, and `update_available` is `version_compare(available, installed, '>')`.\n- **Check Signed Catalogue** — `plugins/catalogue/sync` (permission `plugins.repo.refresh`); fetches, verifies and caches the feed (§9.4). The header carries a `CATALOGUE VERIFIED` badge and a panel with the feed version, source URL, signing key id, issue/expiry, fetch time and SHA-256; a cache older than `maxAgeHours` is flagged **STALE**.\n- **Refresh Repositories** — `plugins/refresh`, permission `plugins.repo.refresh`; forwards to the `plugin.repo.refresh` RPC (`apt-get update` against the curated sources only).\n- **Upgrade All** — `plugins/upgrade-all`, permission `plugins.install`; iterates the installed plugins, calls `plugin.upgrade` for each, and records the version the operator upgraded **to** — the catalogue's when it is newer, otherwise the shipped manifest's. A partial failure is reported with the offending plugin ids rather than a blanket success.\n- **Per-plugin Upgrade** — `plugins/<id>/upgrade`, the same transaction scoped to one plugin, recording the same target version.\n\n### 9.4 The signed remote catalogue\n\nThe Updates screen detects newer versions from a document published by Micron Network Systems and signed by a key shipped in the image. `App\\Libraries\\RemoteCatalogue` fetches it through the shared `ConnectorEgressGuard` — so it inherits the same SSRF defence, DNS-rebinding pinning, redirect validation and byte caps the connector engine uses — and `App\\Libraries\\CatalogueVerifier` verifies it before anything is written. Only a verified document is cached (`writable/plugin-catalogue.json`), and the cached envelope is **re-verified on every read**, so rotating a key out of the keyring invalidates it immediately.\n\nThe feed is a single envelope document so verification never depends on JSON canonicalisation — the signature covers the *exact bytes* of the inner catalogue, transported base64-encoded:\n\n```json\n{\n  \"schema\": 1,\n  \"signature\": { \"algorithm\": \"RSA-SHA256\", \"key_id\": \"micron-plugins-2026\", \"value\": \"base64\" },\n  \"payload\": \"base64(<catalogue JSON>)\"\n}\n```\n\nThe signed payload carries `schema`, `issued_at`, `expires_at`, `catalogue_version`, and a `plugins[]` array (`id`, `version`, `class`, `packages`, `units`, `capabilities`, and optional `bundle` metadata for the signed `.mplug`).\n\n**Trust and failure modes.**\n\n| Check | On failure |\n| :-- | :-- |\n| Trusted key | Keys come from the image keyring (`/etc/micron/pkg/keys/*.pem`, key id = file stem) plus inline dev keys in `Config\\PluginCatalogue`. An unknown `key_id` is refused. |\n| Signature | The payload bytes are verified with OpenSSL against the named key; a tampered payload or a bad signature is refused. |\n| Currency | A document issued in the future (beyond a small skew) or past `expires_at` is refused. |\n| Schema | An unexpected `schema`, a malformed entry, an invalid or duplicate plugin id, or a missing version is refused. |\n| Transport | The URL must be `https` (unless `requireHttps` is relaxed). |\n\nNothing above is ever cached — a refused catalogue leaves the previous verified cache untouched, and the screen shows why.\n\n**Offline / air-gap.** `RemoteCatalogue::import()` verifies a local envelope with the same gates and no URL configured; the operator's explicit action is the consent. The CLI exposes it as `micron:plugin catalogue --file <envelope>` (Plugin Spec §5.2, §14).\n\n**Configuration.** `Config\\PluginCatalogue` — `enabled`, `url`, `keyringPath`, `trustedKeys`, `cachePath`, `maxAgeHours`, `maxSkewSeconds`, `requireHttps` — every property overridable by environment (`PluginCatalogue.url`, …). When unconfigured the screen says so and falls back to shipped-manifest comparison.\n\n> **What a valid catalogue cannot do.** It is *descriptive*, not authoritative. It can only name versions for plugin ids the daemon already knows; `plugin.install`/`plugin.upgrade` still resolve the id against `micrond`'s fixed catalogue and still refuse protected packages/units. A compromised or forged feed cannot introduce a package set, a unit, or a repository — at most it can misstate a version. Fetching the newer packages remains an apt action through the daemon, so the catalogue changes *detection*, never the privilege boundary.\n\n### 9.5 Repositories screen (`/plugins/repositories`)\n\nThe registry behind `requires.repos` and the curated package sources (§5.2).\n\n- **Registry.** Every registered repository with its generated source path, suite/components/architectures, signing-key fingerprint (tail only) and key provenance (`KEY STORED` / `FETCHED PER APPLY`), enabled state, applied state (`APPLIED` / `NOT APPLIED`), and the outcome of the last apply. Presence on the daemon means applied — the same presence-based contract the DHCP relay widget uses, read from `plugin.repo_status`.\n- **Trust model.** The page states, in the order the daemon performs them, what an apply will do: generate the stanza, verify the fingerprint, pin the repository to 100, pin the protected core to the appliance's own release, and reconcile. It reports the core pin path once it exists.\n- **CRUD.** `plugins/repositories/store` upserts a repository (permission `plugins.repo.manage`); `plugins/repositories/<id>/toggle` enables/disables; `plugins/repositories/<id>/delete` forgets it (its files are retired by the next apply). An invalid field is refused at save time, so a stored repository always compiles. Registering and enabling are also **verified first** — the release metadata is fetched and the signing key checked against the declared fingerprint, and an unreachable source or a key that does not match is refused before anything is persisted or brought into service. An explicit *Save without verifying* checkbox (and an *Enable offline* action) is the only way past it, for a deliberately offline check; the flash then says the row was saved unverified. Disabling is never gated.\n- **Apply / Refresh.** `plugins/repositories/apply` reconciles (permission `plugins.repo.manage`) and is **disabled** while the plan has conflicts; `plugins/repositories/refresh` is metadata-only (permission `plugins.repo.refresh`). A conflicting plan is refused before anything reaches the daemon.\n- **Presets.** A panel of image-shipped vendor definitions (`App\\Libraries\\RepoPresets`) with a *Register* action per preset — `plugins/repositories/preset/<id>`, permission `plugins.repo.manage`. The preset's declared fingerprint is shown *before* it is registered. Registering goes through the identical validation as a typed row and refuses to overwrite an existing definition, so a preset is a starting point the operator can then edit, disable or delete like any other, never a hidden override. Each card carries its own **Verify against vendor** action — `plugins/repositories/preset/<id>/test`, permission `plugins.repo.refresh` — which proves the *shipped* trust data against the vendor (reachability, signature against the shipped key, `VALIDSIG` signer equal to the declared fingerprint) **without registering the preset**, leaving the registry exactly as it was. The card shows the last preset check's outcome as a `VERIFIED` / `FAILED` badge.\n- **Compiled plan.** Each enabled repository is shown with the exact `deb822` stanza and apt pin that will be written, so nothing about the resulting system state is implicit.\n- **Test.** `plugins/repositories/<id>/test` (permission `plugins.repo.refresh`) verifies the repository **without changing anything** and stores the report in the session, which the page renders as a panel: the declared versus held fingerprints, the verified signer and signature form, the release's origin/suite/codename/architectures/components/`Valid-Until`, the steps taken, and any warnings. The tested row is flagged `TESTED` / `TEST FAILED`. The panel states plainly that nothing was written, is stamped with the moment of the check, and can be dismissed (`plugins/repositories/test/clear`). The **preset** check renders in the same panel, titled `Preset verification — <name>` and badged *image-shipped trust data*: it names the shipped fingerprint and where it was re-derived from, and says explicitly that no repository was registered, enabled or applied — because a statement about the image's shipped trust data must not be read as a verdict on a row the operator authored.\n- **A report describes one definition at one moment.** Editing, enabling/disabling or deleting a repository — or registering one over it — drops the stored report (`App\\Controllers\\Packages`), so the page can never keep claiming a verification of a row that has since changed. A *rejected* submit or an unknown id changes nothing and keeps it. The check is read-only, so it deliberately survives `apply` and `refresh`; re-run it when the vendor's metadata should be re-confirmed.\n- **Drift.** Health, as opposed to trustworthiness. A per-row **Drift** column (`HEALTHY` / `NOT CHECKED` / kind chips, with the day flagged and the signing key's expiry) and a **Repository drift** panel listing what is flagged, why, since when, and what to do about it — the remedy is part of the model (`App\\Libraries\\RepoDrift::remedyOf()`), because a badge that says only \"DRIFT\" is not actionable. `plugins/repositories/drift` (permission `plugins.repo.refresh`) runs the same sweep as the scheduled task at once; the panel states whether the sweep is actually scheduled, and warns when the task is **missing, disabled or has never run**, because a badge nobody refreshes looks like an assurance. Thresholds live in one place: metadata stale after 21 days, a metadata `Date:` unchanged for 14 days is *not updating*, `Valid-Until` inside 7 days is expiring, a key inside 30 days of its own expiry is expiring. `not_updating` is reported *instead of* the weaker `metadata_stale` — it is the stronger, more actionable signal. A defect in *our* stored definition (`invalid_repository`, `unknown_repository`) is `definition_invalid`, critical, rather than a transient warning that could sit unnoticed. Alerting keys on change: a newly flagged or just-recovered repository is recorded in the audit log, while a standing finding is not re-announced every day — the sweep's own run history carries the pattern instead. The sweep re-verifies as well as refreshes, so a source that verified before and no longer does is flagged **Verification lost** with the reason (e.g. `release_unreachable`, `signer_mismatch`); the row's last good verification is shown as `verified <date>` in the Drift column and names the date in the finding, so a regression reads as *\"this worked on 2026-10-01 and now does not\"* rather than an undifferentiated failure.\n\n---\n\n## 10. Data Model\n\n```sql\nCREATE TABLE plugins (\n    id              VARCHAR(64) PRIMARY KEY,   -- catalogue/plugin.json id\n    name            VARCHAR(128) NOT NULL,\n    version         VARCHAR(32)  NOT NULL,\n    class           VARCHAR(1)   NOT NULL,     -- A | B | C\n    state           VARCHAR(16)  NOT NULL,     -- available|installed|enabled|broken|blocked\n    installed_at    DATETIME     NULL,\n    enabled         TINYINT(1)   DEFAULT 0,\n    data_policy     VARCHAR(8)   DEFAULT 'retain', -- retain | purge\n    manifest_json   TEXT         NOT NULL\n);\n\nCREATE TABLE plugin_grants (\n    id              INTEGER PRIMARY KEY AUTOINCREMENT,\n    plugin_id       VARCHAR(64)  NOT NULL,\n    capability      VARCHAR(128) NOT NULL,     -- e.g. system.service:zerotier-one\n    granted         TINYINT(1)   DEFAULT 0,\n    granted_by      VARCHAR(64)  NULL,\n    granted_at      DATETIME     NULL,\n    UNIQUE (plugin_id, capability)\n);\n\nCREATE TABLE plugin_repos (\n    id              VARCHAR(64) PRIMARY KEY,\n    name            VARCHAR(128) NULL,\n    url             VARCHAR(255) NOT NULL,      -- https, single line, no apt option syntax\n    suite           VARCHAR(64)  NULL,          -- 'stable', …, or './' for a flat repository\n    components      VARCHAR(255) NULL,          -- comma-separated; empty for a flat repository\n    architectures   VARCHAR(64)  NULL,          -- comma-separated, from the closed Debian set\n    key_fingerprint VARCHAR(64)  NOT NULL,      -- the trust anchor, declared out of band\n    key_url         VARCHAR(255) NULL,          -- fetched through the egress guard when key_armor is empty\n    key_armor       TEXT         NULL,          -- public key, cached so a restore needs no fetch\n    enabled         TINYINT(1)   DEFAULT 1,\n    last_refresh    DATETIME     NULL,\n    last_outcome    VARCHAR(16)  NULL,          -- ok | error\n    last_detail     TEXT         NULL,\n    added_by        VARCHAR(64)  NULL,\n    created_at      DATETIME     NULL\n);\n\nCREATE TABLE plugin_settings (\n    plugin_id       VARCHAR(64)  NOT NULL,\n    setting_key     VARCHAR(64)  NOT NULL,\n    value           TEXT         NULL,          -- secrets stored ciphertext only\n    is_secret       TINYINT(1)   DEFAULT 0,\n    PRIMARY KEY (plugin_id, setting_key)\n);\n\nCREATE TABLE plugin_install_log (\n    id              INTEGER PRIMARY KEY AUTOINCREMENT,\n    plugin_id       VARCHAR(64)  NOT NULL,\n    action          VARCHAR(16)  NOT NULL,      -- install|upgrade|remove|rollback\n    outcome         VARCHAR(16)  NOT NULL,      -- ok|failed|rolled_back\n    plan            TEXT         NULL,          -- the dry-run plan shown to the operator\n    detail          TEXT         NULL,\n    user_id         VARCHAR(36)  NULL,\n    created_at      DATETIME     NOT NULL\n);\n```\n\nPlugins are, like connectors, part of the appliance's **configuration backup**. `plugins` and `plugin_grants` hold no secret — a manifest is the plugin's public shape and a grant is a capability name the operator already approved — so they travel in a plaintext archive as well as an encrypted one, alongside `plugin_repos`. `plugin_settings` is the one mixed table: its non-secret rows are configuration and travel in both forms, while its **secret** rows (`is_secret`) obey §7.6 of the Connector Specification / Backup engine and ride **only inside the encrypted envelope**, exactly as `connector_secrets` does. A plaintext archive is therefore free of plugin credentials, and — because a restore never truncates `plugin_settings` — restoring one adds the non-secret rows without destroying the secret rows the target already holds.\n\n---\n\n## 11. Integration Catalogue\n\nThe request that motivated this document named a specific set. Each is placed in its correct class, with its real dependency and risk. This table is the single source of truth for what MicronOS ships as an integration, and it is machine-checked: `tests/DocsIntegrationCatalogueTest.php` requires it to list *exactly* the registered integrations, and fails if any document names an entry that was removed — a name cannot creep back in unnoticed.\n\n| Integration | Class | Source | Provides | Notable privilege / risk | Phase |\n| :-- | :-- | :-- | :-- | :-- | :-- |\n| **LLDP (`lldpd`)** | B | Debian `main` | Neighbour-discovery daemon + Interfaces-page neighbour table | `net.raw` (LLDP frames); low risk, read-only telemetry | 1 |\n| **iperf3** | B | Debian `main` | On-demand `iperf3 -s` + client UI under Diagnostics | Binds a listening TCP port; must be explicitly enabled and time-bounded | 1 |\n| **darkstat** | B | Debian `main` | Per-interface traffic statistics daemon + graphs | `net.raw` (promiscuous capture); read-only | 1 |\n| **Lightsquid** | B (report) | Curated bundle + Debian `perl`/`gd` | Offline Squid **log reporter**: cron job, static HTML reports, no daemon | Parses Squid logs; **no** new listener; safest Class B | 1 |\n| **ZeroTier One** | C | ZeroTier apt repo | Overlay network agent (`zerotier-one`), network join/leave, firewall ifgroup `zt+` | Third-party repo; outbound registration; `net.raw`; its own daemon | 3 · **implemented** |\n| **NetBird** | C | NetBird apt repo / self-hosted | WireGuard-based mesh agent, SSO enrolment | Third-party repo; account provisioning; `net.raw`; managed routes | 3 · **implemented** |\n| **NAT64 / DNS64** | B | Debian `main` (`tayga`) | IPv6-only clients reach IPv4-only hosts: userspace NAT64 translator + Unbound DNS64 synthesis | Owns its own service unit (`tayga`); writes beside the **protected** `unbound` but never controls it; needs a forwarding accept for its translator interface | 2 · **implemented** |\n| **IPv6 tunnel broker (6in4)** | B | none (generated unit) | A free 6in4/SIT tunnel from a broker (tunnelbroker.net, route64.org, …) | `kernel.module:sit`; fixed `/usr/sbin/ip` argv in a generated unit; optional endpoint update contacts a **third-party** service | 2 · **implemented** |\n\n> **Why ZeroTier and NetBird are Class C, not B.** Both require a *third-party* apt repository and an account/controller the vendor operates. That combination — external repo, external identity, and an overlay that changes the routing of live traffic — is qualitatively more dangerous than a distro daemon, even though the code path (install → configure → enable) looks identical. Class C forces the extra consent step and the third-party-repo pinning in §5.2.\n\n**NetBird and ZeroTier are the two implemented Class C references**, and they share one shape. NetBird's manifest (`app/Plugins/definitions/netbird/plugin.json`) declares `class: \"C\"`, `requires.packages: [\"netbird\"]`, `requires.repos: [\"netbird\"]`, the `system.service:netbird` and `net.raw` capabilities, and `root.rpc` entries for the four overlay calls below; the daemon's fixed catalogue marks the entry with `repos: [\"netbird\"]` and `plugin.install` **refuses the id as `blocked` until `/etc/apt/sources.list.d/micron-netbird.sources` actually exists on the appliance** — enabled in the management-plane database is not enough. The Plugins page additionally requires an explicit Class C acknowledgement checkbox before the install is submitted, and the overlay page is a ThinUI that names the vendor, the fingerprint and the fact that enrolment creates vendor-side state the appliance does not own (§16).\n\n**ZeroTier is the second implemented Class C entry** (`app/Plugins/definitions/zerotier/plugin.json`), and it binds the `zerotier` repository preset to something concrete: `requires.packages: [\"zerotier-one\"]`, `requires.repos: [\"zerotier\"]`, the `system.service:zerotier-one` / `net.raw` / `firewall.ifgroup:zt+` surface, and `root.rpc` entries for its three calls. The daemon's fixed catalogue carries the same `repos: [\"zerotier\"]`, so `plugin.install` refuses the id as `blocked` until `/etc/apt/sources.list.d/micron-zerotier.sources` actually exists on the appliance — the repository being enabled in the management-plane database is not enough, and the preset itself is seeded **disabled**, so nothing reaches the vendor until an operator enables and applies it. Its overlay page (`app/Views/plugins/apps/zerotier.php`, routes `plugins/zerotier/status` and `plugins/zerotier/control`) is driven by network memberships rather than a single peer: it lists the joined networks and drives join/leave by network id.\n\n**NAT64/DNS64 and the IPv6 tunnel broker are the implemented Class B references** for a plugin that owns a *kernel-visible interface*.\n\n- **NAT64 / DNS64** (`app/Plugins/definitions/nat64/plugin.json`) installs Debian `main`'s userspace `tayga` — no kernel module, no third-party repository — and provides the `tayga` unit plus its own page. Applying configuration from the page is a *request*: the daemon validates the prefix against RFC 6052's `/32, /40, /48, /56, /64, /96` set and the dynamic pool before writing `/etc/tayga.conf` and the host-side route unit, and gates the DNS64 half through `unbound-checkconf` with rollback before reloading the resolver. Unbound is a **protected unit** and is never started, stopped or enabled from the plugin — only its fragment is written, beside the resolver's own config. The plugin page reports honestly when `/etc/unbound/unbound.conf` lacks the `unbound.conf.d` include, rather than pretending the fragment is live.\n- **IPv6 6in4 tunnel broker** (`app/Plugins/definitions/ipv6-tunnel/plugin.json`) ships **no package**: it generates one `micron-6in4.service` unit whose fixed `/usr/sbin/ip` argv creates the SIT tunnel, addresses and routes from the values the broker gave the operator. `tunnelbroker.net` (Hurricane Electric) is a preset and its documented dyndns2 update URL is a daemon constant — the caller never supplies a URL — with the update key stored in a `0600` file and never echoed. `route64.org` and any other 6in4 broker are selectable as a generic broker; the plugin makes no assumption about a broker-specific API beyond HE's.\n\nBoth interfaces are **gated in the firewall compiler**: `NftablesCompiler` emits forward-chain accepts for the translator device (`nat64`) and the tunnel device (`sit1`) only while the owning plugin's `plugins` row is installed and enabled, so a disabled or removed plugin leaves no standing accept. A successful apply recompiles and reloads the ruleset (without safe mode — the operator already confirmed the change and a rollback timer would silently revert the accepts).\n\n---\n\n## 12. Security Model & Threat Analysis\n\nModelled on the Connector Threat Model's finding style. Severity: High / Medium / Low.\n\n| # | Finding | Severity | Required control |\n| :-- | :-- | :-- | :-- |\n| **PL1** | **Arbitrary root install.** A package manager that accepts a package name from the browser is remote root. | High | Ids only; `micrond` resolves to a fixed, signed package set (principle P2, §5.1). No `apt install <input>` path exists. |\n| **PL2** | **Malicious repository.** A curated repo is compromised or a key is swapped. | High | Image-shipped keys; signature verification mandatory; pinning prevents core-package takeover; key change requires an image update. |\n| **PL3** | **Plugin declares an over-broad capability.** e.g. `system.service:nftables`. | High | Protected-unit list is absolute and independent of grants; capability grammar bounds what can even be *declared*. |\n| **PL4** | **Uninstall/upgrade breakage.** A failed upgrade bricks a daemon or lingers half-installed. | Medium | Transaction + health-check + auto-rollback; `broken` state is visible; `repair` re-runs the typed steps. |\n| **PL5** | **Data loss on remove.** Purge deletes overlay keys/config the operator needed. | Medium | Retain-data is the default; purge is an explicit, confirmed choice; both audited. |\n| **PL6** | **Kernel-module / eBPF surface.** Out-of-tree module in the packet path. | High | Only signed modules on the image's allowlist; `kernel.module:<name>` capability; premium/distro-gated; a failed load or panic must not wedge forwarding. |\n| **PL7** | **Secret exposure.** Plugin settings hold API keys/tokens. | Medium | Same `SecretsVault` (AES-256-GCM) as connectors; never returned to the browser or logged; injected daemon-side at render time. |\n| **PL8** | **Supply-chain drift.** \"Updates\" pull a new upstream version silently. | Medium | Versions are pinned in the catalogue; upgrades are explicit and shown as a plan; the repo metadata is signed. |\n| **PL9** | **Route/permission injection.** A bundle adds an HTTP route or RBAC key the UI trusts. | High | Routes and permissions are **static** and created at migration time; the manifest may only *reference* declared keys; no runtime registration. |\n| **PL10** | **Third-party egress.** An overlay agent phones home from the appliance. | Medium | The agent is upstream's responsibility, but its outbound is surfaced (status page + the appliance's own egress rules); Class C consent states it plainly. |\n\nThe recurring theme is the same as the connector work: **the caller names an id, never a unit, package, path or command**; the privileged daemon resolves it against a signed, curated, default-deny table; and the operator approves capabilities one at a time.\n\n---\n\n## 13. Lifecycle Coupling: Updates, A/B Slots & Backup\n\n- **Platform updates (A/B).** Plugins and their Debian packages live in the running root slot, which the [Update & Upgrade Specification](MICRONOS_UPDATE_AND_UPGRADE_SPECIFICATION.html) treats as immutable between platform releases. A platform update therefore **re-installs** the plugin set into the new slot by replaying the recorded `plugins` state — plugins are configuration, and configuration survives the slot flip. Plugin *state* (grants, settings, catalogue) lives in the data partition.\n- **Management-plane releases.** Because plugins reference routes/permissions created at migration time, a plugin whose manifest is newer than the app's declared compat range is held in `blocked` until the app updates — the same schema-compatibility gate the Update spec already defines.\n- **Backup/Restore.** The curated repository registry (`plugin_repos`) and the signing keys that anchor it are archived with the rest of the configuration, and a restore **re-applies** them to the daemon — so a rebuilt appliance can reach its Class C packages again without the operator re-typing a fingerprint and without reaching the vendor. The rows hold no secret (`key_armor` is the vendor's *published* public key), so they travel in a plaintext archive as well as an encrypted one; what is asserted is that the key material sits **inside** the envelope, never beside it. Selective restore exposes the registry as its own section, *Package Repositories & Signing Keys* (`sections[]=repositories`). A restore onto a different appliance re-runs the install plan for any plugin whose packages are absent, after the NIC-remap step (an overlay bound to a NIC name is remapped like any interface reference). Secret settings obey the §7.6 encrypted-envelope policy: `plugins` and `plugin_grants` are configuration and travel in both archive forms, while only the `is_secret` rows of `plugin_settings` are held back from a plaintext archive.\n  > **Status.** `plugin_repos` is implemented end to end: archived in `BackupEngine::createBackup`, reconciled by `Backup::applyRestore()` → `RepoRegistry::apply()`, exercised by `BackupRepositoryPolicyTest` and `BackupRepositoryRestoreTest`. The row's drift observation (`drift_kinds`, `drift_since`, `drift_detail`, `last_check_at`, `last_verified_at`, `metadata_date`, `metadata_seen_at`, `key_created_at`, `key_expires_at`) travels with it, so a restored appliance knows where each repository stood until the first sweep re-observes it; the scheduled sweep itself is a `cron_jobs` row, not archived state. `plugins`, `plugin_grants` and `plugin_settings` are now archived too: the installed-plugin rows and their grants in both archive forms, and the settings split so the `is_secret` rows are written **only** inside the encrypted envelope. A restore writes `plugin_settings` by replacing the rows the archive names rather than truncating the table, so a plaintext archive — which by design carries no secret rows — adds its non-secret settings without deleting the target's own plugin secrets. Covered by `BackupPluginPolicyTest`.\n- **Content updates.** Class A connectors continue to ride the content plane (feed refresh), unaffected by plugin transactions.\n\n---\n\n## 14. CLI & RPC Reference\n\n```\nphp spark micron:plugin list            # the catalogue, with installability\nphp spark micron:plugin plan    <id>    # the local, daemon-free install plan\nphp spark micron:plugin install <id>    # same transaction as the UI\nphp spark micron:plugin remove  <id> [--purge]\nphp spark micron:plugin status  <id>\nphp spark micron:plugin refresh         # repository metadata only\nphp spark micron:plugin repos          # the curated repository registry + compiled plan\nphp spark micron:plugin repos --apply  # reconcile sources, keys and pins, then apt-get update\nphp spark micron:plugin repos --refresh\nphp spark micron:plugin repos --test <id>   # read-only: reachable, signed by the declared key\nphp spark micron:plugin repos --seed <id>   # register an image-shipped vendor preset (disabled)\nphp spark micron:repo-drift             # refresh metadata + flag drift (the scheduled sweep)\nphp spark micron:repo-drift --repo=<id,id>  # limit to named repositories\nphp spark micron:repo-drift --dry-run   # report stored verdicts; refresh and write nothing\nphp spark micron:repo-drift --json      # machine-readable report; exit non-zero on a critical finding\nphp spark micron:plugin catalogue       # show the verified catalogue status\nphp spark micron:plugin catalogue --sync            # fetch + verify + cache the remote feed\nphp spark micron:plugin catalogue --file <envelope> # air-gap: verify + cache a local envelope\nphp spark micron:plugin sign <catalogue.json> <private-key.pem> [--key-id <id>] [--out <path>]\n```\n\n`sign` builds the envelope a publisher ships (it never runs on the appliance's request path); `catalogue --file` is the corresponding appliance-side import.\n\n| RPC | Caller | Enforcement |\n| :-- | :-- | :-- |\n| `plugin.catalog` / `plugin.status` | read paths | RBAC `plugins.view` |\n| `plugin.install` / `plugin.remove` / `plugin.upgrade` | operator/CLI | RBAC `plugins.install` + capability consent |\n| `plugin.service` | status widget | per-plugin unit allowlist |\n| `plugin.settings.apply` | configure page | RBAC `plugins.configure` |\n| `plugin.repo.refresh` | operator/schedule | RBAC `plugins.repo.refresh`, metadata only |\n| `plugin.repo.apply` / `plugin.repo_status` | Repositories screen, CLI | RBAC `plugins.repo.manage` (write) / `plugins.view` (read) |\n| `plugin.repo_test` | Repositories screen, CLI | RBAC `plugins.repo.refresh`; read-only (private keyring, no writes) |\n| `plugin.netbird.status` | NetBird plugin page | RBAC `plugins.view`; read-only, refused unless the plugin is installed and its unit is running |\n| `plugin.netbird.up` / `plugin.netbird.down` | NetBird plugin page | RBAC `plugins.configure`; fixed argv, `https://` management URL validated before any command runs |\n| `plugin.netbird.enroll` | NetBird plugin page | RBAC `plugins.configure`; setup key validated against a closed grammar, staged in a `0600` file, never in argv, never logged, never returned |\n| `plugin.zerotier.status` | ZeroTier plugin page | RBAC `plugins.view`; read-only, refused unless the plugin is installed and its unit is running |\n| `plugin.zerotier.join` / `plugin.zerotier.leave` | ZeroTier plugin page | RBAC `plugins.configure`; fixed argv, the network id validated as exactly 16 hex characters *before* the readiness probe runs, and a `zerotier-cli` status code other than `200` treated as a failure even under a zero exit status |\n| `plugin.nat64.status` | NAT64 plugin page | RBAC `plugins.view`; read-only, refused unless the plugin is installed |\n| `plugin.nat64.apply` | NAT64 plugin page | RBAC `plugins.configure`; every prefix/pool validated before a byte is written; DNS64 gated through `unbound-checkconf` with rollback; the protected `unbound` unit is never controlled |\n| `plugin.tunnel.status` | IPv6 tunnel plugin page | RBAC `plugins.view`; read-only, never returns the stored update key |\n| `plugin.tunnel.apply` | IPv6 tunnel plugin page | RBAC `plugins.configure`; every address validated before the unit is generated; the update key is staged in a `0600` file, never in argv and never returned (an empty value clears it, an absent one keeps it) |\n| `plugin.tunnel.update` | IPv6 tunnel plugin page | RBAC `plugins.configure`; contacts the broker's **fixed** update URL (no caller-supplied URL) with this appliance's public IPv4 and the stored key |\n| `plugin.darkstat.status` | darkstat plugin page | RBAC `plugins.view`; read-only, refused unless the plugin is installed |\n| `plugin.darkstat.apply` | darkstat plugin page | RBAC `plugins.configure`; every value (interface names, port range, local networks, BPF filter, chroot/database/daylog, hosts caps) validated before the generated systemd drop-in is written or the unit is restarted |\n| `plugin.lightsquid.status` | lightsquid plugin page | RBAC `plugins.view`; read-only, refused unless the plugin is installed |\n| `plugin.lightsquid.apply` | lightsquid plugin page | RBAC `plugins.configure`; every value (report language/template/bar colour, IP resolve method, directories, skip list, schedule) validated against a closed set or an absolute path before the generated config file and `/etc/cron.d/lightsquid` drop-in are written |\n| `plugin.lightsquid.refresh` | lightsquid plugin page | RBAC `plugins.configure`; runs the reporter's **fixed** parser — `today` re-parses the current log, `full` the current and every rotated log (bounded at 100) — with the mode validated first |\n| `plugin.lldpd.status` | lldpd plugin page | RBAC `plugins.view`; read-only, refused unless the plugin is installed |\n| `plugin.lldpd.neighbours` | lldpd plugin page, Interfaces inventory | RBAC `plugins.view`; read-only, runs the **fixed** `lldpcli show neighbors`, bounded in size. `format=text` (default) passes the listing through verbatim; `format=json` runs `-f json0` and returns one structured row per neighbour (local interface, remote chassis name/ID/description, remote port, management address, age, TTL) so the **Interfaces** page can show which switch and port each interface is patched into without parsing the human-readable table. Any other format is refused before `lldpcli` runs |\n| `plugin.lldpd.apply` | lldpd plugin page | RBAC `plugins.configure`; every value (interface and management-address patterns, system name, description, platform, transmit timing) validated before the generated systemd drop-in and `/etc/lldpd.conf` are written or the unit is restarted |\n\n---\n\n## 15. Phased Roadmap\n\n**Phase 1 — Class B daemon plugins (low risk, no third-party repo).**\nManifest + registry + capability model; catalogue and install/remove/transaction/rollback; the `plugins` UI and schema-driven config; `plugin.service`. Ship **LLDP, iperf3, darkstat, Lightsquid** — all from Debian `main` or a first-party report bundle, none introducing a third-party repo or kernel module. Proves install → configure → enable → upgrade → remove end to end.\n\n> **Status (engine + daemon implemented).** `App\\Plugins\\PluginManifest`, `App\\Plugins\\CapabilitySet`, `App\\Plugins\\PluginRegistry` (with the four shipped Class B definitions under `app/Plugins/definitions/`), `App\\Libraries\\PackageManager`, `Config\\Services::packageManager()`, and the `micron:plugin` CLI are in place, together with the `plugin.*` RPCs and the protected-core refusals in `micrond`. The `plugins`/`plugin_grants`/`plugin_repos`/`plugin_settings`/`plugin_install_log` tables and the `plugins.*` permissions exist (`2026-10-06-000090_CreatePluginTables`). The **Plugins page** (`App\\Controllers\\Plugins`, `app/Views/plugins/index.php`, the `plugins/*` routes and the sidebar/top-nav entry) renders the catalogue grid and drives install/remove/upgrade/service/refresh through a capability-consent dialog that shows the install plan and lets the operator approve each grant — persisting the plugin and its grants. Covered by `tests/app/Plugins/*`, `tests/app/Libraries/PackageManagerTest.php`, `tests/app/Controllers/PluginsControllerTest.php` and `tests/test_micrond_plugins.py`. The **curated repository registry** is in place too: `App\\Libraries\\RepoRegistry`, `App\\Controllers\\Packages`, `app/Views/plugins/repositories.php`, the first `repos/…` routes, the `plugins.repo.manage` permission and the enriched `plugin_repos` schema (`2026-10-06-000092_EnhancePluginRepos`), together with the `plugin.repo.apply` / `plugin.repo_status` RPCs — the daemon generates every source, preference and keyring file, verifies each signing key's fingerprint, pins the repository below the distribution and pins the protected core to the appliance's own release. A manifest's `requires.repos` is now resolved against it, so a plugin whose repository is absent is blocked rather than half-installed. A per-repository **Test** action (`plugin.repo_test`) verifies reachability, the signature and the declared fingerprint without writing anything, on a private keyring. The registry is also observed **over time**: a scheduled sweep (`micron:repo-drift`, seeded by `2026-10-06-000095_SeedRepoDriftCronJob` with the drift columns added by `2026-10-06-000094_AddRepositoryDriftTracking`) refreshes metadata and flags drift — a vendor that stopped publishing, a `Valid-Until` or signing key nearing expiry, a rotated key, or a source that has gone unreachable — keeping the verdict on the `plugin_repos` row and exiting non-zero on a critical finding. The same sweep re-verifies each repository and flags a **Verification lost** regression when a source that previously verified — tracked by `last_verified_at` (`2026-10-06-000096_AddRepositoryVerificationTracking`) — stops doing so, with the reason surfaced on the row and in the drift panel. Covered by `tests/app/Libraries/RepoRegistryTest.php`, `tests/app/Libraries/RepoDriftTest.php`, `tests/app/Controllers/PackagesControllerTest.php`, `tests/app/Commands/RepoDriftCommandTest.php`, `tests/_support/Libraries/RepoFixture.php` and `tests/test_micrond_plugins.py`. It also has a **per-plugin page** for each plugin that needs one, and darkstat's is now among them: `app/Views/plugins/apps/darkstat.php` renders a settings form (enabled, capture interface(s), web-UI port, local networks, BPF filter, DNS resolution, local-only, chroot/database/daylog, hosts caps) and `plugin.darkstat.apply` writes the validated settings into a systemd drop-in over the package's own `darkstat.service` and restarts it — the unit name stays the package's, so the generic status/control and the daemon widget resolve the same service. The **lightsquid reporter** has its own page too: `app/Views/plugins/apps/lightsquid.php` renders the pfSense-parity settings (report language/template/bar colour, IP resolve method, skip list, Squid log and report directories, refresh schedule) and `plugin.lightsquid.apply` writes the validated values into a generated `lightsquid.conf` plus a `/etc/cron.d/lightsquid` drop-in — no daemon and no listener — while `plugin.lightsquid.refresh` runs the parser on demand (today, or full over the rotated logs). The **lldpd** page carries both halves of pfSense's LLDP screen: `app/Views/plugins/apps/lldpd.php` renders the settings (interfaces, management-address pattern, system name/description, CDP platform, transmit interval and hold, receive-only, the CDP/FDP/SONMP/EDP companion protocols, the SNMP subagent, kernel-version suppression) and the neighbour table (`plugin.lldpd.neighbours` returns `lldpcli show neighbors`, verbatim as `format=text` or as structured rows as `format=json`). The page renders the structured rows as a **sortable table** — one row per neighbour across local port, remote chassis, remote port, management address and TTL, with a TTL compared as a number and a blank left last — and falls back to the raw `lldpcli` listing, with a toggle between the two, whenever a table cannot be built (the daemon refuses, or answers with no neighbours). A neighbour name arrives over the wire, so every cell is rendered as text, never markup. `plugin.lldpd.apply` writes the validated values into a systemd drop-in over the package's own `lldpd.service` plus `/etc/lldpd.conf` for the settings only `lldpcli` can apply at start. The neighbour table is consumed by the **Interfaces page** (`App\\Controllers\\Interfaces`), which annotates each row and card with the remote chassis and port that interface is patched into — the peer is shown as inventory, only for the devices an interface is bound to, and the page degrades to no peer when lldpd is not installed or the daemon cannot answer. Still to do: the generic schema-driven per-plugin **settings** form, the catalogue view and offline `.mplug`/`.deb` bundle upload, and a live-on-daemon apt transaction (the daemon path is exercised against stubbed `apt-get`/`systemctl`/`gpg`).\n\n**Phase 2 — Kernel-visible interfaces.**\nNAT64/DNS64 (Debian `main`'s userspace `tayga` plus Unbound DNS64 synthesis, written beside the protected resolver but never controlling it) and the IPv6 6in4 tunnel broker (a generated `micron-6in4.service` unit carrying the `sit` module) — both **implemented**. Each owns a kernel-visible interface whose forward accept is gated on the plugin's installed state (§11). No third-party repository; no new privilege class.\n\n**Phase 3 — Class C overlays: ZeroTier, NetBird.**\nThird-party repos + pinning, `net.raw`/`firewall.ifgroup` capabilities, account enrolment flow, interface remap on restore, and the extra consent step. This is where the Package Manager's repo discipline is really exercised.\n\n> **Status (both Class C overlays implemented).** The whole Class C path exists for `netbird`: the image-shipped repository preset (§5.2) with the vendor's real key and fingerprint, the `netbird` manifest with `requires.repos`, the Class C acknowledgement on the Plugins page, the daemon's repository-presence refusal in `plugin.install`, the `plugin.netbird.status` / `.up` / `.down` / `.enroll` RPCs, and the per-plugin overlay page (`app/Views/plugins/apps/netbird.php`, routes `plugins/netbird/status` and `plugins/netbird/control`). **ZeroTier is implemented the same way**, on top of its own shipped repository: `RepoPresets` carries the vendor key and `2026-10-09-000100_SeedZerotierPresetRepository` lands the preset — `https://download.zerotier.com/debian/trixie`, key `74A5E9C458E1A431F1DA57A71657198823E52A61`, verified live against `dists/trixie/InRelease` — **disabled**, so the manifest never needed an operator-transcribed fingerprint. `app/Plugins/definitions/zerotier/plugin.json` declares `class: \"C\"`, `requires.repos: [\"zerotier\"]` and the `zt+` ifgroup; the daemon's catalogue carries the matching `repos: [\"zerotier\"]`, and `plugin.zerotier.status` / `.join` / `.leave` plus the overlay page (`app/Views/plugins/apps/zerotier.php`) report the node's identity and its memberships and drive join/leave by network id. Unlike NetBird's release-independent `stable`, ZeroTier publishes one distribution *per Debian codename*, so that preset is image-specific (the image is Debian 13 \"trixie\") and a future image on a newer codename ships an updated one. Covered by `tests/app/Libraries/RepoPresetsTest.php`, `tests/app/Libraries/IpcClientZerotierMockTest.php`, `tests/test_repo_presets.py`, the `zerotier` manifest case in `tests/app/Plugins/PluginManifestTest.php`, the Class C cases in `tests/app/Controllers/PluginsControllerTest.php` and the ZeroTier section of `tests/test_micrond_plugins.py`. Still to do: an interface remap on restore, and a live enrolment against a real controller — the daemon path is exercised against a stubbed `netbird`/`zerotier-cli`/`systemctl`.\n\n**Phase 4 — High-assurance engines.**\nKernel-module/eBPF allowlist, signed out-of-tree module loading, packet-path safety (a failed engine must not wedge forwarding), premium gating, and an explicit operator warning. Only if the module risk can be contained to the appliance's satisfaction.\n\n**Phase 5 — Ecosystem.**\nThird-party plugin authoring kit (schema, validator, signing helper), a published catalogue, and a reproducible offline bundle path for air-gapped sites.\n\n---\n\n## 16. Risks & Open Questions\n\n1. **Kernel-path plugins change the risk calculus.** Anything that hooks the packet path needs its own threat model; treat Phase 4 as a separate decision, not an incremental Class C install.\n2. **Third-party account provisioning.** ZeroTier/NetBird enrolment creates vendor-side state the appliance cannot fully audit. The consent text must say so, and the UI must never imply the appliance \"owns\" that identity.\n3. **Slot re-install cost.** Replaying the plugin set on every platform update needs the dpkg cache to survive the flip; without it, an update on an air-gapped appliance can strand plugins. Decide whether the data partition carries the package cache.\n4. **Permission accretion.** Every plugin adds RBAC keys and menu entries; the catalogue needs a lint that rejects duplicate/conflicting keys before an image is built.\n5. **`apt` and A/B interact.** A plugin installed into the live slot and then rejected by a rollback must be reverted with it; the transaction engine must coordinate with the slot flip, not fight it.\n\n---\n\n*Document Version:* 1.0.0 (Plugin & Package Manager Specification)\n*Project:* Micron Firewall OS (MicronOS)\n*See also:* [Connector Abstraction Specification](MICRONOS_CONNECTOR_ABSTRACTION_SPECIFICATION.html) · [Connector Threat Model](MICRONOS_CONNECTOR_THREAT_MODEL.html) · [Update & Upgrade Specification](MICRONOS_UPDATE_AND_UPGRADE_SPECIFICATION.html) · [Architecture Blueprint](MICRON_FIREWALL_OS_ARCHITECTURE.html)\n";
+    
+    // Theme Presets Management
+    const LIGHT_THEMES = ['light', 'solar', 'mint', 'paper'];
+    function setThemePreset(theme) {
+      document.documentElement.dataset.theme = theme;
+      document.documentElement.dataset.mode = LIGHT_THEMES.includes(theme) ? 'light' : 'dark';
+      try {
+        localStorage.setItem('micron_docs_theme', theme);
+      } catch (e) {}
+      const sel = document.getElementById('themePresetSelect');
+      if (sel) sel.value = theme;
+    }
+
+    try {
+      const savedTheme = localStorage.getItem('micron_docs_theme') || 'dark';
+      setThemePreset(savedTheme);
+    } catch (e) {
+      setThemePreset('dark');
+    }
+
+    // Configure marked with highlight.js
+    marked.setOptions({
+      highlight: function(code, lang) {
+        if (lang && hljs.getLanguage(lang)) {
+          return hljs.highlight(code, { language: lang }).value;
+        }
+        return hljs.highlightAuto(code).value;
+      },
+      breaks: false,
+      gfm: true
+    });
+
+    const rendered = marked.parse(rawMarkdown);
+    document.getElementById('markdown-body').innerHTML = rendered;
+
+    // Generate Dynamic TOC with IDs
+    const headings = document.getElementById('markdown-body').querySelectorAll('h2, h3');
+    const tocContainer = document.getElementById('toc-container');
+    
+    headings.forEach(heading => {
+      const text = heading.textContent;
+      const base = text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+      let slug = base;
+      for (let n = 2; document.getElementById(slug); n++) {
+        slug = base + '-' + n;
+      }
+      heading.id = slug;
+      
+      const link = document.createElement('a');
+      link.href = '#' + slug;
+      link.textContent = text;
+      link.dataset.title = text.toLowerCase();
+      if (heading.tagName.toLowerCase() === 'h3') {
+        link.classList.add('h3-link');
+      }
+      tocContainer.appendChild(link);
+    });
+
+    // Add Copy Buttons to Pre blocks
+    document.querySelectorAll('#markdown-body pre').forEach(pre => {
+      const copyBtn = document.createElement('button');
+      copyBtn.className = 'code-copy-btn';
+      copyBtn.innerHTML = '<svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg> Copy';
+      copyBtn.onclick = () => {
+        const codeText = pre.querySelector('code')?.innerText || pre.innerText;
+        navigator.clipboard.writeText(codeText);
+        copyBtn.innerHTML = '✔ Copied!';
+        setTimeout(() => {
+          copyBtn.innerHTML = '<svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg> Copy';
+        }, 2000);
+      };
+      pre.appendChild(copyBtn);
+    });
+
+    // TOC Filter
+    function filterToc(query) {
+      query = (query || '').toLowerCase().trim();
+      document.querySelectorAll('#toc-container a').forEach(a => {
+        if (!query || a.dataset.title.includes(query)) {
+          a.style.display = 'block';
+        } else {
+          a.style.display = 'none';
+        }
+      });
+    }
+
+    // Scrollspy for TOC highlight
+    const tocLinks = Array.from(tocContainer.querySelectorAll('a'));
+    function syncTocActive() {
+      const scrollPos = window.scrollY + 120;
+      let activeHeading = null;
+      headings.forEach(h => {
+        if (h.offsetTop <= scrollPos) {
+          activeHeading = h;
+        }
+      });
+      if (activeHeading) {
+        tocLinks.forEach(link => {
+          link.classList.toggle('active', link.getAttribute('href') === '#' + activeHeading.id);
+        });
+      }
+    }
+    window.addEventListener('scroll', syncTocActive, { passive: true });
+    syncTocActive();
+  </script>
+</body>
+</html>

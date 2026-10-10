@@ -1,0 +1,36 @@
+{
+    "schema": 1,
+    "id": "lightsquid",
+    "name": "Lightsquid Report",
+    "version": "1.0.0",
+    "class": "B",
+    "vendor": "Micron Network Systems",
+    "description": "Offline Squid access-log reporter. Runs on a schedule and writes static HTML reports; it contributes no daemon and opens no listener.",
+    "requires": {
+        "packages": ["perl", "libgd-perl"],
+        "repos": [],
+        "kernel_modules": [],
+        "binaries": ["/usr/bin/perl"]
+    },
+    "provides": {
+        "services": [],
+        "menu": [
+            { "path": "/plugins/lightsquid", "label": "Squid Reports", "permission": "plugins.view" }
+        ],
+        "status_source": "rpc:plugin.status"
+    },
+    "capabilities": [
+        "root.rpc:plugin.status",
+        "root.rpc:plugin.lightsquid.apply",
+        "root.rpc:plugin.lightsquid.status",
+        "root.rpc:plugin.lightsquid.refresh",
+        "fs.write:/etc/lightsquid/lightsquid.conf",
+        "fs.write:/etc/cron.d/lightsquid",
+        "fs.write:/var/lib/micron/plugins/lightsquid"
+    ],
+    "lifecycle": [
+        { "step": "install", "action": "apt.install", "packages": ["perl", "libgd-perl"] },
+        { "step": "data", "action": "dir.ensure", "path": "/var/lib/micron/plugins/lightsquid" },
+        { "step": "uninstall", "action": "apt.remove", "packages": ["perl", "libgd-perl"] }
+    ]
+}

@@ -1,0 +1,39 @@
+{
+    "schema": 1,
+    "id": "zerotier",
+    "name": "ZeroTier One",
+    "version": "0.1.0",
+    "class": "C",
+    "vendor": "ZeroTier, Inc. (packaged by Micron Network Systems)",
+    "description": "ZeroTier virtual-network overlay agent. Joins this appliance to one or more ZeroTier networks as a node, so network members can reach it — and, with managed routes, so it can reach them. Installs from the vendor's own apt repository and registers the node with a controller the vendor operates (or your own, if self-hosted). Class C: read the consent notice on the page before installing.",
+    "requires": {
+        "packages": ["zerotier-one"],
+        "repos": ["zerotier"],
+        "kernel_modules": [],
+        "binaries": ["/usr/sbin/zerotier-one", "/usr/sbin/zerotier-cli"]
+    },
+    "provides": {
+        "services": ["zerotier-one"],
+        "menu": [
+            { "path": "/plugins/zerotier", "label": "ZeroTier Overlay", "permission": "plugins.view" }
+        ],
+        "status_source": "rpc:plugin.zerotier.status"
+    },
+    "capabilities": [
+        "system.service:zerotier-one",
+        "net.raw",
+        "firewall.ifgroup:zt+",
+        "fs.write:/var/lib/zerotier-one",
+        "root.rpc:plugin.status",
+        "root.rpc:plugin.zerotier.status",
+        "root.rpc:plugin.zerotier.join",
+        "root.rpc:plugin.zerotier.leave"
+    ],
+    "lifecycle": [
+        { "step": "install", "action": "apt.install", "packages": ["zerotier-one"] },
+        { "step": "enable", "action": "system.enable", "unit": "zerotier-one" },
+        { "step": "start", "action": "system.start", "unit": "zerotier-one" },
+        { "step": "uninstall", "action": "system.stop", "unit": "zerotier-one" },
+        { "step": "uninstall", "action": "apt.remove", "packages": ["zerotier-one"] }
+    ]
+}

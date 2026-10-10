@@ -1,0 +1,91 @@
+# Disable directory browsing
+Options -Indexes
+
+# ----------------------------------------------------------------------
+# Rewrite engine
+# ----------------------------------------------------------------------
+
+# Turning on the rewrite engine is necessary for the following rules and features.
+# FollowSymLinks must be enabled for this to work.
+<IfModule mod_rewrite.c>
+	Options +FollowSymlinks
+	RewriteEngine On
+
+	# If you installed CodeIgniter in a subfolder, you will need to
+	# change the following line to match the subfolder you need.
+	# http://httpd.apache.org/docs/current/mod/mod_rewrite.html#rewritebase
+	# RewriteBase /
+
+	# Redirect Trailing Slashes...
+	RewriteCond %{REQUEST_FILENAME} !-d
+	RewriteCond %{REQUEST_URI} (.+)/$
+	RewriteRule ^ %1 [L,R=301]
+
+	# Rewrite "www.example.com -> example.com"
+	RewriteCond %{HTTPS} !=on
+	RewriteCond %{HTTP_HOST} ^www\.(.+)$ [NC]
+	RewriteRule ^ http://%1%{REQUEST_URI} [R=301,L]
+
+	# Checks to see if the user is attempting to access a valid file,
+	# such as an image or css document, if this isn't true it sends the
+	# request to the front controller, index.php
+	RewriteCond %{REQUEST_FILENAME} !-f
+	RewriteCond %{REQUEST_FILENAME} !-d
+	RewriteRule ^([\s\S]*)$ index.php/$1 [L,NC,QSA]
+
+	# Ensure Authorization header is passed along
+	RewriteCond %{HTTP:Authorization} .
+	RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+</IfModule>
+
+<IfModule !mod_rewrite.c>
+	# If we don't have mod_rewrite installed, all 404's
+	# can be sent to index.php, and everything works as normal.
+	ErrorDocument 404 index.php
+</IfModule>
+
+# Disable server signature start
+ServerSignature Off
+# Disable server signature end
+
+# ----------------------------------------------------------------------
+# Long-lived caching for the locally served UI assets
+# ----------------------------------------------------------------------
+
+# The UI has to render with no route to the internet, so the typefaces, the
+# documentation browser's markdown renderer / syntax highlighter and the shared
+# request scheduler are served from this appliance instead of a CDN
+# (assets/fonts/README.md, assets/vendor/README.md).
+#
+# `immutable` is only truthful when a replaced file is a new URL, so every path
+# named here is versioned at each place the app references it: the font set
+# carries the token `?v=1` (fonts.css, its @import in css/micronos.css, and the
+# preload links in the views all share it), the two vendored libraries carry
+# `?v=<filemtime>` (app/Views/docs/page.php), the shared scheduler script carries
+# `?v=<filemtime>` (app/Views/layouts/main.php), and the design system stylesheet
+# is loaded as `css/micronos.css?v=<filemtime>` by every view that uses it
+# (app/Views/layouts/main.php and the two standalone auth screens). Bumping the
+# font token when the fonts change is documented in assets/fonts/README.md; the
+# others version themselves from the file's mtime.
+#
+# Named per path rather than per file extension, so an unrelated image, icon or
+# stylesheet added under public/ later keeps the default revalidating policy —
+# pinning an unversioned file for a year is the failure this avoids.
+#
+# tests/app/Views/OfflineAssetsTest.php fails if a versioned asset and this scope
+# ever drift apart. The nginx server block the appliance itself ships carries the
+# same scope; it lives in docs/ISO_CREATION_AND_INSTALLER_GUIDE.md §6.1.
+
+<IfModule mod_setenvif.c>
+	# The offline asset trees, versioned by the font token / the script mtimes.
+	SetEnvIf Request_URI "/assets/(fonts|js|vendor)/" micron_immutable_asset
+
+	# The design system stylesheet, versioned by its own mtime at every load site.
+	# Anchored to the one file so another stylesheet under public/css/ keeps the
+	# default revalidating policy.
+	SetEnvIf Request_URI "/css/micronos\.css" micron_immutable_asset
+</IfModule>
+
+<IfModule mod_headers.c>
+	Header set Cache-Control "public, max-age=31536000, immutable" env=micron_immutable_asset
+</IfModule>

@@ -1,0 +1,880 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark" data-mode="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Micron Firewall OS (MicronOS) — Connector Abstraction Specification</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <style>
+    /* ============================================================
+       THEME PRESETS: 9 MicronOS Schemes (Dark + Light)
+       ============================================================ */
+    :root, [data-theme="dark"] {
+      --bg-primary: #070b14;
+      --bg-secondary: #0d1220;
+      --bg-tertiary: #111827;
+      --card-bg: rgba(17, 24, 39, 0.7);
+      --card-border: rgba(255, 255, 255, 0.08);
+      --card-border-bright: rgba(255, 255, 255, 0.14);
+      --text-main: #f1f5f9;
+      --text-muted: #94a3b8;
+      --accent-cyan: #00d4ff;
+      --accent-cyan-dim: rgba(0, 212, 255, 0.15);
+      --accent-deep: #0096c7;
+      --accent-purple: #7c3aed;
+      --accent-emerald: #10b981;
+      --accent-amber: #f59e0b;
+      --accent-rose: #ef4444;
+      --code-bg: #0d1220;
+      --sidebar-w: 320px;
+    }
+
+    [data-theme="midnight"] {
+      --bg-primary: #090712;
+      --bg-secondary: #110f1e;
+      --bg-tertiary: #16132a;
+      --card-bg: rgba(22, 19, 42, 0.75);
+      --card-border: rgba(139, 92, 246, 0.12);
+      --card-border-bright: rgba(139, 92, 246, 0.22);
+      --text-main: #ede9fe;
+      --text-muted: #a1a1b5;
+      --accent-cyan: #a78bfa;
+      --accent-cyan-dim: rgba(167, 139, 250, 0.15);
+      --accent-deep: #7c3aed;
+      --accent-purple: #c084fc;
+      --accent-emerald: #34d399;
+      --accent-amber: #fbbf24;
+      --accent-rose: #f87171;
+      --code-bg: #110f1e;
+    }
+
+    [data-theme="ocean"] {
+      --bg-primary: #030f14;
+      --bg-secondary: #071820;
+      --bg-tertiary: #0c202a;
+      --card-bg: rgba(12, 32, 42, 0.75);
+      --card-border: rgba(45, 212, 191, 0.12);
+      --card-border-bright: rgba(45, 212, 191, 0.22);
+      --text-main: #f0fdfa;
+      --text-muted: #99f6e4;
+      --accent-cyan: #2dd4bf;
+      --accent-cyan-dim: rgba(45, 212, 191, 0.15);
+      --accent-deep: #0f766e;
+      --accent-purple: #818cf8;
+      --accent-emerald: #34d399;
+      --accent-amber: #fbbf24;
+      --accent-rose: #f87171;
+      --code-bg: #071820;
+    }
+
+    [data-theme="forest"] {
+      --bg-primary: #050f08;
+      --bg-secondary: #0a170e;
+      --bg-tertiary: #0e2014;
+      --card-bg: rgba(14, 32, 20, 0.75);
+      --card-border: rgba(74, 222, 128, 0.12);
+      --card-border-bright: rgba(74, 222, 128, 0.22);
+      --text-main: #f0fdf4;
+      --text-muted: #bbf7d0;
+      --accent-cyan: #4ade80;
+      --accent-cyan-dim: rgba(74, 222, 128, 0.15);
+      --accent-deep: #15803d;
+      --accent-purple: #a78bfa;
+      --accent-emerald: #22c55e;
+      --accent-amber: #fbbf24;
+      --accent-rose: #f87171;
+      --code-bg: #0a170e;
+    }
+
+    [data-theme="slate"] {
+      --bg-primary: #0a0d12;
+      --bg-secondary: #111520;
+      --bg-tertiary: #161b28;
+      --card-bg: rgba(22, 27, 40, 0.75);
+      --card-border: rgba(100, 116, 139, 0.14);
+      --card-border-bright: rgba(100, 116, 139, 0.24);
+      --text-main: #e2e8f0;
+      --text-muted: #94a3b8;
+      --accent-cyan: #94a3b8;
+      --accent-cyan-dim: rgba(148, 163, 184, 0.15);
+      --accent-deep: #475569;
+      --accent-purple: #818cf8;
+      --accent-emerald: #34d399;
+      --accent-amber: #fbbf24;
+      --accent-rose: #f87171;
+      --code-bg: #111520;
+    }
+
+    /* Shared light mode base */
+    [data-mode="light"] {
+      --bg-primary: #f1f5f9;
+      --bg-secondary: #ffffff;
+      --bg-tertiary: #f8fafc;
+      --card-bg: #ffffff;
+      --card-border: rgba(0, 0, 0, 0.08);
+      --card-border-bright: rgba(0, 0, 0, 0.15);
+      --text-main: #0f172a;
+      --text-muted: #64748b;
+      --accent-cyan: #0284c7;
+      --accent-cyan-dim: rgba(2, 132, 199, 0.10);
+      --accent-deep: #0369a1;
+      --accent-purple: #7c3aed;
+      --accent-emerald: #059669;
+      --accent-amber: #d97706;
+      --accent-rose: #dc2626;
+      --code-bg: #f8fafc;
+    }
+
+    /* Solar Amber (warm cream) */
+    [data-theme="solar"] {
+      --bg-primary: #fdf7ee;
+      --bg-secondary: #ffffff;
+      --bg-tertiary: #fffaf3;
+      --card-bg: #ffffff;
+      --card-border: rgba(146, 94, 28, 0.14);
+      --card-border-bright: rgba(146, 94, 28, 0.25);
+      --text-main: #3b2410;
+      --text-muted: #7c5a34;
+      --accent-cyan: #ea580c;
+      --accent-cyan-dim: rgba(234, 88, 12, 0.12);
+      --accent-deep: #c2410c;
+      --accent-purple: #9333ea;
+      --accent-emerald: #0f766e;
+      --accent-amber: #b45309;
+      --accent-rose: #dc2626;
+      --code-bg: #fbf0e0;
+    }
+
+    /* Mint Breeze (cool teal) */
+    [data-theme="mint"] {
+      --bg-primary: #f0fdf9;
+      --bg-secondary: #ffffff;
+      --bg-tertiary: #f6fefb;
+      --card-bg: #ffffff;
+      --card-border: rgba(13, 120, 100, 0.14);
+      --card-border-bright: rgba(13, 120, 100, 0.25);
+      --text-main: #0b3b34;
+      --text-muted: #3f6f66;
+      --accent-cyan: #0d9488;
+      --accent-cyan-dim: rgba(13, 148, 136, 0.12);
+      --accent-deep: #0f766e;
+      --accent-purple: #7c3aed;
+      --accent-emerald: #047857;
+      --accent-amber: #b45309;
+      --accent-rose: #dc2626;
+      --code-bg: #e3f9f2;
+    }
+
+    /* Paper Ink (neutral paper) */
+    [data-theme="paper"] {
+      --bg-primary: #f7f7f8;
+      --bg-secondary: #ffffff;
+      --bg-tertiary: #fbfbfc;
+      --card-bg: #ffffff;
+      --card-border: rgba(15, 23, 42, 0.10);
+      --card-border-bright: rgba(15, 23, 42, 0.20);
+      --text-main: #0f172a;
+      --text-muted: #64748b;
+      --accent-cyan: #4f46e5;
+      --accent-cyan-dim: rgba(79, 70, 229, 0.10);
+      --accent-deep: #4338ca;
+      --accent-purple: #7c3aed;
+      --accent-emerald: #047857;
+      --accent-amber: #b45309;
+      --accent-rose: #dc2626;
+      --code-bg: #f0f0f3;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background-color: var(--bg-primary);
+      color: var(--text-main);
+      line-height: 1.65;
+      display: flex;
+      min-height: 100vh;
+      overflow-x: hidden;
+      transition: background-color 0.2s ease, color 0.2s ease;
+    }
+
+    /* Scrollbars */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--card-border-bright); border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--accent-cyan); }
+
+    /* ============================================================
+       FULLPAGE SIDEBAR NAVIGATION
+       ============================================================ */
+    aside.sidebar {
+      width: var(--sidebar-w);
+      background-color: var(--bg-secondary);
+      border-right: 1px solid var(--card-border);
+      position: fixed;
+      top: 0; bottom: 0; left: 0;
+      height: 100vh;
+      max-height: 100vh;
+      overflow: hidden;
+      padding: 1.25rem 1rem 1rem 1rem;
+      display: flex;
+      flex-direction: column;
+      z-index: 100;
+      box-shadow: 2px 0 12px rgba(0, 0, 0, 0.15);
+      transition: background-color 0.2s ease, border-color 0.2s ease;
+    }
+
+    .sidebar-top {
+      flex: 0 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .brand-box {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding-bottom: 0.85rem;
+      border-bottom: 1px solid var(--card-border);
+    }
+    .brand-logo {
+      width: 38px;
+      height: 38px;
+      background: linear-gradient(135deg, var(--accent-cyan), var(--accent-deep));
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 1.2rem;
+      color: #fff;
+      box-shadow: 0 4px 12px var(--accent-cyan-dim);
+    }
+    .brand-text h2 {
+      font-size: 1.02rem;
+      font-weight: 700;
+      color: var(--text-main);
+      letter-spacing: -0.02em;
+    }
+    .brand-text p {
+      font-size: 0.72rem;
+      color: var(--accent-cyan);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .doc-nav-links {
+      display: flex;
+      flex-direction: column;
+      gap: 0.3rem;
+      padding-bottom: 0.85rem;
+      border-bottom: 1px solid var(--card-border);
+    }
+    .doc-nav-links a {
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-decoration: none;
+      padding: 0.45rem 0.65rem;
+      border-radius: 7px;
+      transition: all 0.18s ease;
+      display: flex;
+      align-items: center;
+      gap: 0.55rem;
+    }
+    .doc-nav-links a:hover {
+      color: var(--text-main);
+      background: var(--bg-tertiary);
+    }
+    .doc-nav-links a.active {
+      color: var(--accent-cyan);
+      background: var(--accent-cyan-dim);
+      border-left: 3px solid var(--accent-cyan);
+      font-weight: 700;
+    }
+
+    .toc-header-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .toc-title {
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--accent-cyan);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .toc-search {
+      width: 100%;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--card-border-bright);
+      border-radius: 7px;
+      padding: 7px 10px;
+      font-size: 0.78rem;
+      color: var(--text-main);
+      outline: none;
+      font-family: inherit;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    .toc-search:focus {
+      border-color: var(--accent-cyan);
+      box-shadow: 0 0 0 3px var(--accent-cyan-dim);
+    }
+
+    /* Dedicated scrollable TOC list filling full viewport */
+    nav.toc-nav {
+      flex: 1 1 0;
+      min-height: 0;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+      padding-top: 0.4rem;
+      padding-right: 4px;
+      scrollbar-width: thin;
+    }
+    nav.toc-nav a {
+      font-size: 0.79rem;
+      color: var(--text-muted);
+      text-decoration: none;
+      padding: 0.4rem 0.6rem;
+      border-radius: 6px;
+      transition: all 0.15s ease;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: block;
+      line-height: 1.35;
+    }
+    nav.toc-nav a:hover {
+      color: var(--text-main);
+      background: var(--bg-tertiary);
+    }
+    nav.toc-nav a.active {
+      color: var(--accent-cyan);
+      background: var(--accent-cyan-dim);
+      font-weight: 600;
+    }
+    nav.toc-nav a.h3-link {
+      padding-left: 1.25rem;
+      font-size: 0.74rem;
+      opacity: 0.85;
+    }
+
+    /* Pinned Sidebar Footer (Theme Preset Switcher) */
+    .sidebar-foot {
+      flex: 0 0 auto;
+      padding-top: 0.75rem;
+      border-top: 1px solid var(--card-border);
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+    }
+    .theme-select-label {
+      font-size: 0.68rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+    }
+    .theme-select {
+      width: 100%;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--card-border-bright);
+      border-radius: 6px;
+      padding: 6px 10px;
+      font-size: 0.78rem;
+      color: var(--text-main);
+      outline: none;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .theme-select:focus {
+      border-color: var(--accent-cyan);
+    }
+
+    /* ============================================================
+       MAIN CONTENT
+       ============================================================ */
+    main.main-content {
+      margin-left: var(--sidebar-w);
+      flex: 1;
+      padding: 2.5rem 3.5rem 5rem 3.5rem;
+      max-width: 1200px;
+    }
+
+    .doc-header {
+      margin-bottom: 2.5rem;
+      padding-bottom: 1.5rem;
+      border-bottom: 1px solid var(--card-border);
+    }
+    .doc-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 0.25rem 0.75rem;
+      border-radius: 9999px;
+      background: var(--accent-cyan-dim);
+      color: var(--accent-cyan);
+      border: 1px solid var(--accent-cyan);
+      margin-bottom: 0.75rem;
+    }
+    .doc-header h1 {
+      font-size: 2.2rem;
+      font-weight: 800;
+      color: var(--text-main);
+      letter-spacing: -0.03em;
+      margin-bottom: 0.5rem;
+      line-height: 1.2;
+    }
+    .doc-header p {
+      font-size: 1.05rem;
+      color: var(--text-muted);
+    }
+
+    /* Markdown Styling */
+    #markdown-body {
+      color: var(--text-main);
+      font-size: 0.95rem;
+    }
+    #markdown-body h1, #markdown-body h2, #markdown-body h3, #markdown-body h4 {
+      color: var(--text-main);
+      font-weight: 700;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      letter-spacing: -0.02em;
+      scroll-margin-top: 2rem;
+    }
+    #markdown-body h2 {
+      font-size: 1.45rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 1px solid var(--card-border);
+      margin-top: 2.5rem;
+      color: var(--accent-cyan);
+    }
+    #markdown-body h3 {
+      font-size: 1.2rem;
+      color: var(--text-main);
+    }
+    #markdown-body h4 {
+      font-size: 1rem;
+      color: var(--text-muted);
+    }
+    #markdown-body p {
+      margin-bottom: 1rem;
+      line-height: 1.7;
+    }
+    #markdown-body ul, #markdown-body ol {
+      margin-bottom: 1.25rem;
+      padding-left: 1.5rem;
+    }
+    #markdown-body li {
+      margin-bottom: 0.4rem;
+      line-height: 1.6;
+    }
+    #markdown-body a {
+      color: var(--accent-cyan);
+      text-decoration: none;
+      font-weight: 500;
+    }
+    #markdown-body a:hover {
+      text-decoration: underline;
+    }
+
+    /* ============================================================
+       CODE BLOCKS: Adaptive Theme Presets (Light & Dark)
+       ============================================================ */
+    #markdown-body code {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.85em;
+      background: var(--code-bg);
+      color: var(--accent-cyan);
+      padding: 0.2em 0.45em;
+      border-radius: 5px;
+      border: 1px solid var(--card-border-bright);
+      font-weight: 600;
+    }
+    #markdown-body pre {
+      background: var(--code-bg);
+      border: 1px solid var(--card-border-bright);
+      border-radius: 10px;
+      padding: 1.25rem;
+      overflow-x: auto;
+      margin-bottom: 1.5rem;
+      position: relative;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    }
+    #markdown-body pre code {
+      background: transparent !important;
+      padding: 0 !important;
+      border: none !important;
+      color: var(--text-main) !important;
+      font-size: 0.85rem;
+      line-height: 1.65;
+    }
+
+    /* Theme-adaptive syntax highlighting tokens */
+    #markdown-body pre code.hljs { background: transparent !important; padding: 0 !important; }
+    .hljs-keyword, .hljs-selector-tag, .hljs-subst, .hljs-doctag { color: var(--accent-cyan) !important; font-weight: 600; }
+    .hljs-string, .hljs-title, .hljs-title.function_, .hljs-section, .hljs-attribute, .hljs-literal,
+    .hljs-template-tag, .hljs-template-variable, .hljs-type, .hljs-addition { color: var(--accent-emerald) !important; }
+    .hljs-comment, .hljs-quote, .hljs-deletion, .hljs-meta { color: var(--text-muted) !important; font-style: italic; }
+    .hljs-number, .hljs-regexp, .hljs-link { color: var(--accent-amber) !important; }
+    .hljs-variable, .hljs-params, .hljs-attr { color: var(--text-main) !important; }
+    .hljs-built_in, .hljs-builtin-name, .hljs-symbol, .hljs-bullet { color: var(--accent-purple) !important; font-weight: 600; }
+
+    /* Copy Button */
+    .code-copy-btn {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      background: var(--bg-secondary);
+      border: 1px solid var(--card-border-bright);
+      border-radius: 6px;
+      color: var(--text-muted);
+      font-size: 0.72rem;
+      padding: 4px 8px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      transition: all 0.15s ease;
+      font-family: inherit;
+    }
+    .code-copy-btn:hover {
+      background: var(--accent-cyan);
+      color: #fff;
+      border-color: var(--accent-cyan);
+    }
+
+    #markdown-body table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 1.75rem;
+      background: var(--card-bg);
+      border-radius: 10px;
+      overflow: hidden;
+      border: 1px solid var(--card-border);
+      font-size: 0.88rem;
+    }
+    #markdown-body th {
+      background: var(--bg-tertiary);
+      color: var(--text-main);
+      font-weight: 600;
+      text-align: left;
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid var(--card-border);
+    }
+    #markdown-body td {
+      padding: 0.65rem 1rem;
+      border-bottom: 1px solid var(--card-border);
+      color: var(--text-main);
+    }
+    #markdown-body tr:hover td {
+      background: var(--bg-tertiary);
+    }
+    #markdown-body blockquote {
+      border-left: 4px solid var(--accent-cyan);
+      background: var(--accent-cyan-dim);
+      padding: 0.85rem 1.25rem;
+      border-radius: 0 8px 8px 0;
+      margin-bottom: 1.25rem;
+      color: var(--text-main);
+    }
+    #markdown-body hr {
+      border: none;
+      height: 1px;
+      background: var(--card-border);
+      margin: 2.5rem 0;
+    }
+
+    @media (max-width: 900px) {
+      aside.sidebar { display: none; }
+      main.main-content { margin-left: 0; padding: 1.5rem; }
+    }
+  </style>
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="sidebar-top">
+      <div class="brand-box">
+        <div class="brand-logo">M</div>
+        <div class="brand-text">
+          <h2>MicronOS Docs</h2>
+          <p>Enterprise Firewall</p>
+        </div>
+      </div>
+
+      <div class="doc-nav-links">
+        <a href="index.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
+          </svg>
+          Docs Portal Hub
+        </a>
+
+        <a href="MICRON_FIREWALL_OS_ARCHITECTURE.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/>
+          </svg>
+          Architecture Blueprint
+        </a>
+        <a href="MICRONOS_MODULE_REFERENCE.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/>
+          </svg>
+          Module Reference
+        </a>
+        <a href="STEP_BY_STEP_IMPLEMENTATION_PLAN.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/>
+          </svg>
+          Implementation Plan
+        </a>
+        <a href="ISO_CREATION_AND_INSTALLER_GUIDE.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/>
+          </svg>
+          ISO &amp; Installer Guide
+        </a>
+        <a href="SSLVPN_ZTNA_CLIENTLESS_GATEWAY_SPECIFICATION.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+          </svg>
+          SSL-VPN &amp; ZTNA Spec
+        </a>
+        <a href="MICRONOS_UPDATE_AND_UPGRADE_SPECIFICATION.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+          </svg>
+          Update &amp; Upgrade Spec
+        </a>
+        <a href="MICRONOS_PLUGIN_AND_PACKAGE_MANAGER_SPECIFICATION.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
+          </svg>
+          Plugin &amp; Package Manager
+        </a>
+        <a href="MICRONOS_CONNECTOR_ABSTRACTION_SPECIFICATION.html" class="active">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13.828 10.172a4 4 0 010 5.656l-4 4a4 4 0 11-5.656-5.656l1-1m9.656-2.344a4 4 0 00-5.656-5.656l-4 4a4 4 0 105.656 5.656l1-1"/>
+          </svg>
+          Connector Abstraction Spec
+        </a>
+        <a href="MICRONOS_CONNECTOR_THREAT_MODEL.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+          </svg>
+          Connector Threat Model
+        </a>
+        <a href="HYPERV_WIN11_DEVELOPMENT_AND_AI_COORDINATION_GUIDE.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
+          </svg>
+          Hyper-V &amp; AI Dev Guide
+        </a>
+        <a href="POWER_LOSS_RESILIENCE_AND_RECOVERY_ENGINEERING_SPECIFICATION.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+          </svg>
+          Power Resilience &amp; LKGC Spec
+        </a>
+        <a href="MICRONOS_BONDING_AND_WIRELESS_GUIDE.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13.828 10.172a4 4 0 010 5.656l-3 3a4 4 0 01-5.656-5.656l1.5-1.5m7.156-7.156a4 4 0 00-5.656 0l-3 3a4 4 0 000 5.656l1.5 1.5"/>
+          </svg>
+          Bonding &amp; Wi-Fi Guide
+        </a>
+        <a href="MICRONOS_ADVANCED_ROADMAP_SPECIFICATION.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+          </svg>
+          Advanced Roadmap Spec
+        </a>
+        <a href="MICRONOS_VERSIONING_AND_RELEASE_LIFECYCLE_SPECIFICATION.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"/>
+          </svg>
+          Versioning &amp; Release Spec
+        </a>
+        <a href="http://micronos.test/dashboard" target="_blank" style="color:var(--accent-cyan); background:var(--accent-cyan-dim);">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+          </svg>
+          Launch Appliance GUI &rarr;
+        </a>
+      </div>
+
+      <div class="toc-header-wrap">
+        <div class="toc-title">
+          <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h7"/>
+          </svg>
+          Table of Contents
+        </div>
+        <input type="text" id="toc-search" class="toc-search" placeholder="Filter sections (e.g. snmp, siem, nat)..." oninput="filterToc(this.value)">
+      </div>
+    </div>
+
+    <nav class="toc-nav" id="toc-container">
+      <!-- Generated dynamically -->
+    </nav>
+
+    <div class="sidebar-foot">
+      <label for="themePresetSelect" class="theme-select-label">Theme Preset</label>
+      <select id="themePresetSelect" class="theme-select" onchange="setThemePreset(this.value)">
+        <optgroup label="Dark Themes">
+          <option value="dark">Dark Abyss</option>
+          <option value="midnight">Midnight</option>
+          <option value="ocean">Ocean Teal</option>
+          <option value="forest">Forest</option>
+          <option value="slate">Slate Grey</option>
+        </optgroup>
+        <optgroup label="Light Themes">
+          <option value="light">Light / Day</option>
+          <option value="solar">Solar Amber</option>
+          <option value="mint">Mint Breeze</option>
+          <option value="paper">Paper Ink</option>
+        </optgroup>
+      </select>
+    </div>
+  </aside>
+
+  <main class="main-content">
+    <div class="doc-header">
+      <span class="doc-badge">
+        <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+        </svg>
+        MicronOS Technical Manual
+      </span>
+      <h1>Micron Firewall OS (MicronOS) — Connector Abstraction Specification</h1>
+      <p>Subscribed Feed, Cloud Service & Integration Connectors: Manifest Format, Encrypted Secret Store, Scheduled Sync Engine, and Target Application</p>
+    </div>
+
+    <article id="markdown-body"></article>
+  </main>
+
+  <script>
+    const rawMarkdown = "# Micron Firewall OS (MicronOS) — Connector Abstraction Specification\n\n## Subscribed Feed, Cloud Service & Integration Connectors\n### Manifest Format, Encrypted Secret Store, Scheduled Sync Engine, and Target Application (DNS Blocklists & Firewall Address Groups)\n\n---\n\n## Table of Contents\n1. [Executive Summary](#1-executive-summary)\n2. [Relationship to the Existing Architecture](#2-relationship-to-the-existing-architecture)\n3. [Design Goals, Non-Goals & Principles](#3-design-goals-non-goals--principles)\n4. [Architecture Overview](#4-architecture-overview)\n5. [Connector Manifest Format](#5-connector-manifest-format)\n6. [Data Model](#6-data-model)\n7. [Encrypted Secret Store](#7-encrypted-secret-store)\n8. [Sync Engine & Lifecycle](#8-sync-engine--lifecycle)\n9. [Target Application](#9-target-application)\n10. [IPC Surface (micrond RPCs)](#10-ipc-surface-micrond-rpcs)\n11. [Permissions & RBAC](#11-permissions--rbac)\n12. [Management UI & Registration](#12-management-ui--registration)\n13. [Security Model](#13-security-model)\n14. [Failure Handling, Idempotency & Limits](#14-failure-handling-idempotency--limits)\n15. [Reference Connectors](#15-reference-connectors)\n16. [Phased Implementation Roadmap](#16-phased-implementation-roadmap)\n17. [Risks & Open Questions](#17-risks--open-questions)\n18. [Appendix A — Manifest JSON Schema](#appendix-a--manifest-json-schema)\n19. [Appendix B — DDL](#appendix-b--ddl)\n\n---\n\n## 1. Executive Summary\n\nMicronOS already downloads public threat and service feeds and distributes them locally: the **Internet Service Database** (§13 of the architecture document) resolves vendor-published prefix lists and emits nftables feed files, and the **DNSBL Threat Shield** (§22) syncs domain blocklists through the `dnsbl-update` job. Both follow one principle — **resolve once, distribute locally**.\n\nThat pipeline, however, only handles **anonymous, unauthenticated, public-URL** feeds, and it only knows two targets (`firewall_addresses` / nftables sets, and the Unbound blocklist). What is missing is a general way to attach a **subscribed, credentialed, or protocol-speaking external service** — Q-Feeds, abuse.ch, a ZeroTier/NetBird controller, ACME directories — and to apply its data into *any* local primitive.\n\nThis document specifies the **Connector Abstraction**: a manifest-driven registry of connectors, an encrypted secret store, a cron-driven sync engine, and a pluggable set of **targets** (DNS blocklist, firewall address group, systemd service, TLS certificate). It is the generalisation of the existing feed pipeline, not a parallel subsystem.\n\nTwo seams are already stubbed in the codebase and are completed by this work:\n\n- `dnsbl.update` — called by the DNS controller, **not implemented** in `micrond`.\n- `system.service` — called by the Services controller, **not implemented** in `micrond`.\n\nBoth currently fail as *Method not found* while the UI reports success. Any connector that applies to DNS or restarts a daemon depends on these two RPCs existing.\n\n---\n\n## 2. Relationship to the Existing Architecture\n\nThe connector layer is assembled almost entirely from primitives that already exist. This table is the inventory that the design builds on, including the verified gaps.\n\n| Concern | Existing primitive | Status |\n| :--- | :--- | :--- |\n| Control/data plane split | CI4 management plane ↔ `micrond` (root, argv-only `_run`, no shell) | ✅ Exists |\n| Feed *subscription* record | `dns_feeds` (`id`, `name`, `url`, `category`, `entries_count`, `enabled`, `last_updated`) | ✅ Exists |\n| DNSBL ingest/compile | `dnsbl.update` RPC + `/usr/local/bin/dnsbl-update --reload-unbound` | ⚠️ RPC **missing** in `micrond`; script not in tree |\n| Unbound config | `UnboundDnsCompiler`, `dns_settings` (DoT upstreams), `dns_overrides` | ✅ Exists (overrides only — does **not** consume feeds) |\n| IP/domain objects | `firewall_addresses` (`type` = ipmask/iprange/fqdn/internet-service/geoip), `firewall_address_groups` (`members` JSON) | ✅ Exists |\n| Scheduled work | `cron_jobs` (`minute`..`day_of_week`, `user`, `command`, `enabled`, `last_run_at`, `last_status`, `last_output`) | ✅ Exists |\n| Daemon lifecycle | `system_services` registry, `Services` controller, `ServiceStatus::widget()` | ✅ Exists; `system.service` RPC **missing** |\n| ACL | `permissions` (`key` unique, `label`, `module`, `description`) | ✅ Exists |\n| Audit | `audit_logs` (`action`, `action_type`, `target`, `old_state`, `new_state`, `user_id`, `ip_address`) | ✅ Exists (there is **no `details` column**; the writers that used one are fixed and the shape is now enforced by `tests/app/Models/ModelSchemaConsistencyTest.php`) |\n| Transactional rollback | `SafeTransactionManager` | ⚠️ nftables-only today |\n| Secret storage | ad-hoc: TOTP base64, `PppoeCompiler::encrypt()`, `Backup` AES-256-GCM | ⚠️ **No single store** |\n\nThe conclusion: the connector abstraction is roughly 70% assembly and 30% new machinery. The new machinery is a registry, a secret store, a sync engine, and a target adapter interface.\n\n---\n\n## 3. Design Goals, Non-Goals & Principles\n\n### Goals\n- Attach external services and feeds by **manifest**, not by bespoke controller code.\n- Support **authenticated** sources (API tokens, HTTP basic, bearer) with credentials held in one encrypted store.\n- Apply fetched data into **multiple target types**, starting with DNS blocklists and firewall address groups.\n- Be **fully scheduled** (cron-driven), **audited**, and **idempotent**.\n- Remain **offline-safe**: the appliance must keep filtering with the last successfully applied data if the internet is unreachable.\n- Keep the **privilege boundary**: PHP never executes privileged work directly; all writes and reloads go through `micrond`.\n\n### Non-Goals\n- Installing arbitrary Debian packages. This document deliberately excludes a generic `apt`-driven package manager; that is a separate, higher-risk capability (§16, Phase 4) and must not be the first step.\n- Kernel-module integrations and commercial agents requiring a licensed daemon. These are vendor integrations, not connectors.\n- Storing or proxying user traffic. Connectors move *policy data*, not packets.\n\n### Principles\n1. **Resolve once, distribute locally.** (Inherited from §13.) Never block packet filtering or DNS resolution on an external request.\n2. **The control plane fetches and normalises; the data plane applies.** PHP owns HTTP, parsing, and validation; `micrond` owns privileged writes and reloads.\n3. **Data is staged, then atomically promoted.** A sync either produces a complete new artifact or leaves the previous one untouched.\n4. **Fail closed on secrets, fail open on freshness.** A missing credential blocks *configuration*, but a stale feed keeps serving its last good data.\n5. **Everything is attributed.** Every apply writes an `audit_logs` row with the connector instance id.\n\n---\n\n## 4. Architecture Overview\n\n```\n                     ┌──────────────────────────────────────────────────────┐\n                     │              MANAGEMENT PLANE (CI4 / PHP)             │\n                     │                                                       │\n  Cron tick ────────►│  SyncScheduler ──► ConnectorRunner                    │\n (cron_jobs row)     │                       │                              │\n                     │        ┌──────────────┼──────────────┐               │\n                     │        ▼              ▼              ▼               │\n                     │   Fetch (HTTP)   Normalise      Validate             │\n                     │   + Secret ◄── SecretsVault                       │\n                     │        │              │              │               │\n                     │        └──────────────┴──────────────┘               │\n                     │                       ▼                              │\n                     │             Staging artifact (JSON/text)             │\n                     │                       │                              │\n                     │        connector_sync_log (status, counts)           │\n                     └───────────────────────┼──────────────────────────────┘\n                                             │ IPC (JSON-RPC over Unix socket)\n                                             ▼\n                     ┌──────────────────────────────────────────────────────┐\n                     │              DATA PLANE (micrond, root)               │\n                     │                                                       │\n                     │   Target adapters:                                    │\n                     │     dnsbl.apply        → Unbound blocklist + reload   │\n                     │     addressgroup.sync  → local feed file + nft set    │\n                     │     system.service     → systemctl start/stop/restart  │\n                     │     pki.deploy         → cert write + service reload   │\n                     └──────────────────────────────────────────────────────┘\n                                             │\n                                             ▼\n                        Unbound · nftables · systemd units · service reloads\n```\n\n**Fetch location decision.** The authenticated HTTP fetch happens in the management plane (PHP), because: (a) it keeps tokens out of the root daemon's process; (b) parsing/validation is easier to unit-test in PHP alongside the existing compilers; (c) the control plane is already the component that talks to the outside world for service sync (`ServiceDatabase`). `micrond` receives *already-normalised* data and performs only whitelisted, privileged application.\n\n---\n\n## 5. Connector Manifest Format\n\nA connector is described by a static `manifest.json`. Manifests are **first-party, shipped with the appliance** (Phase 1–3). They are never fetched at runtime — fetching executable descriptors over the network would defeat the security model (§13).\n\n```jsonc\n{\n  \"schema\": 1,\n  \"id\": \"q-feeds\",\n  \"name\": \"Q-Feeds Threat Intelligence\",\n  \"vendor\": \"Q-Feeds\",\n  \"version\": \"1.0.0\",\n  \"description\": \"Curated EU IP and domain threat-intelligence feeds.\",\n  \"category\": \"Threat Intelligence\",\n  \"icon\": \"shield-alert\",\n  \"includes\": [],                        // related system_services ids, if any\n\n  \"auth\": {\n    \"type\": \"bearer\",                 // none | bearer | basic | header | query\n    \"fields\": [\n      { \"key\": \"api_token\", \"label\": \"API Token\", \"secret\": true,\n        \"help\": \"Create a key at tip.qfeeds.com → Manage API Keys.\" }\n    ]\n  },\n\n  \"options\": [\n    { \"key\": \"register_domain_feeds\", \"type\": \"bool\", \"default\": true,\n      \"label\": \"Publish domain feeds to the DNS blocklist\" },\n    { \"key\": \"allowlist_domains\", \"type\": \"list\", \"default\": [],\n      \"label\": \"Allowlist domains (regex supported)\" },\n    { \"key\": \"source_nets\", \"type\": \"list\", \"default\": [],\n      \"label\": \"Restrict policy to client networks (empty = all)\" }\n  ],\n\n  \"schedule\": { \"default\": \"0 */6 * * *\" },   // written into cron_jobs\n\n  \"sources\": [\n    { \"id\": \"malware-ip\", \"target\": \"addressgroup\",\n      \"url\": \"https://tip.qfeeds.com/api/v1/feeds/malware-ip\",\n      \"format\": \"plain-ip-list\",\n      \"group_name\": \"__qfeeds_malware_ip\" },\n    { \"id\": \"malware-domain\", \"target\": \"dnsbl\",\n      \"url\": \"https://tip.qfeeds.com/api/v1/feeds/malware-domain\",\n      \"format\": \"plain-domain-list\",\n      \"feed_name\": \"Q-Feeds Malware Domains\",\n      \"category\": \"High-Risk Cyber Threats\" }\n  ],\n\n  \"status_url\": \"https://tip.qfeeds.com/api/v1/subscription\",\n  \"docs_url\": \"https://docs.opnsense.org/manual/qfeeds.html\",\n  \"permissions\": [\"connectors.manage\", \"connectors.secrets.manage\"]\n}\n```\n\n### Manifest field semantics\n\n| Field | Meaning |\n| :--- | :--- |\n| `id` | Stable slug; becomes the connector namespace and permission prefix. |\n| `auth` | Declarative credential form. `secret: true` fields land in the secret store, never the settings row. |\n| `options` | Non-secret configuration rendered as a form. |\n| `schedule` | Default cron expression; copied into a `cron_jobs` row on enable. |\n| `sources[].target` | One of `dnsbl`, `addressgroup`, `service`, `pki`. Selects the data-plane adapter. |\n| `sources[].format` | A **closed enumeration** of parsers: `plain-ip-list`, `plain-domain-list`, `hostfile`, `json-ip-list`, `json-domain-list`, `csv`, `rfc1035-spf`. Unknown formats are rejected at load time. All are implemented in `App\\Connectors\\FeedParser`; each yields a canonical domain or CIDR set with per-entry validation and drop counts. |\n| `includes` | Advisory: related `system_services` ids (for the page-header widget). |\n\nManifests are loaded from `app/Connectors/definitions/<id>/manifest.json`, validated against the schema in Appendix A, and cached. A manifest that fails validation is refused at boot, not at first use.\n\n---\n\n## 6. Data Model\n\nFour new tables plus two small extensions. DDL is in [Appendix B](#appendix-b--ddl).\n\n### 6.1 `connector_instances`\nOne row per configured connector. Holds non-secret configuration and enablement.\n\n- `id` (VARCHAR 36, PK)\n- `connector_id` (VARCHAR 64) — manifest id\n- `name` (VARCHAR 128) — operator label\n- `enabled` (TINYINT)\n- `settings` (TEXT/JSON) — the `options` values\n- `schedule_override` (VARCHAR 64, nullable)\n- `last_sync_at`, `last_status` (`success`/`failed`/`running`/`never`), `last_message`\n- `created_at`, `updated_at`\n\n### 6.2 `connector_secrets`\nOne row per secret *field per instance*, so rotation is per-field.\n\n- `id` (VARCHAR 36, PK)\n- `instance_id` (VARCHAR 36, FK → `connector_instances.id`, ON DELETE CASCADE)\n- `field_key` (VARCHAR 64)\n- `ciphertext` (TEXT) — base64 of AES-256-GCM\n- `nonce` (VARCHAR 32) — base64, 12 bytes\n- `tag` (VARCHAR 32) — base64, 16 bytes\n- `key_version` (INT) — supports master-key rotation\n- `created_at`, `rotated_at`\n\nUnique index on `(instance_id, field_key)`.\n\n### 6.3 `connector_sync_log`\nAppend-only audit of sync runs (distinct from `audit_logs`, which records *operator* actions).\n\n- `id` (INTEGER PK autoincrement)\n- `instance_id` (VARCHAR 36)\n- `source_id` (VARCHAR 64, nullable — per-source granularity)\n- `started_at`, `finished_at` (DATETIME)\n- `status` (`success`/`failed`/`partial`)\n- `items_in` (INT), `items_out` (INT), `bytes_in` (INT)\n- `message` (TEXT)\n\n### 6.4 `connector_targets`\nBinds a connector source to the concrete local object it manages, so the object is marked as externally-owned and not clobbered by manual edits.\n\n- `id` (VARCHAR 36, PK)\n- `instance_id` (VARCHAR 36)\n- `source_id` (VARCHAR 64)\n- `target_type` (`dnsbl`/`addressgroup`/`service`)\n- `target_ref` (VARCHAR 128) — e.g. `feed_qfeeds_domains` or `group_qfeeds_ip`\n- `managed` (TINYINT, default 1) — 1 = connector owns membership\n- `created_at`, `updated_at`\n\n### 6.5 Extensions to existing tables\n- `dns_feeds` — add `connector_instance_id` (VARCHAR 36, nullable, FK) and `source_id` (VARCHAR 64, nullable). Existing manual feeds keep both NULL.\n- `firewall_address_groups` — add `managed_by` (VARCHAR 36, nullable). Rows created by a connector carry the instance id; the UI hides or locks manual member editing for them.\n\n---\n\n## 7. Encrypted Secret Store\n\nA single canonical store replaces today's three ad-hoc approaches.\n\n**Algorithm.** AES-256-GCM (AEAD), matching the existing `Backup` engine, so no new crypto dependency is introduced.\n\n**Master key.** A 32-byte key at `/etc/micron/secrets.key`, mode `0600`, owner `root:www-data`, generated on first boot. It is **not** stored in the SQLite database — a database dump or backup must not yield plaintext credentials. The key is read by the management plane at request time.\n\n**Envelope & versions.** Each secret stores `key_version`. Rotation writes a new master key, re-encrypts rows lazily (or eagerly via a `connectors.secrets.rotate` task), and bumps `key_version`. Old ciphertext remains decryptable by version until re-encrypted.\n\n**Access path.**\n```\nConnectorRunner\n    └─ SecretsVault::get(instanceId, 'api_token')\n           ├─ SELECT ciphertext, nonce, tag, key_version\n           ├─ key = loadMasterKey(key_version)\n           └─ openssl_decrypt(AES-256-GCM)  → plaintext (in-memory only)\n```\n\n**Rules.**\n- Secrets are **never** returned to the browser. The settings form shows a masked placeholder and submits a value only when the operator types a new one.\n- Secrets are **never** written to `audit_logs`, `connector_sync_log`, or application logs. The redactor strips any key listed as `secret: true` in the manifest.\n- Secrets are **never** passed to `micrond`. The data plane receives normalised data only; this is why the fetch lives in the control plane.\n- Compromise response: rotate the master key and the provider credential; both are independent operations.\n\n**Note on the current state.** TOTP secrets are base64 (`Auth::verifyTotp`), PPPoE passwords use `PppoeCompiler::encrypt()`, and backups use an operator-supplied password. This specification does **not** retro-fit those (out of scope), but the `SecretsVault` is defined so they can adopt it later without a schema break.\n\n### 7.6 Backup, Restore & Key Recovery Policy\n\n**Decision (threat-model finding F6): the connector master key travels *only* inside the password-encrypted backup payload. It is never present in a plaintext backup.**\n\n#### Why\n\nA backup contains the whole database, including the `connector_secrets` **ciphertext**. If the key travelled alongside that ciphertext in a plaintext backup, the archive would be a complete, self-contained credential leak. Equally, excluding the key from *every* backup would make disaster recovery impossible without re-issuing every credential. The policy resolves this by binding the key to the encryption password: the archive alone is useless, and the archive plus the password is a full, restorable recovery set.\n\nThis matters because the current `BackupEngine` accepts a **null** password (`createBackup(?string $encryptionPassword = null)`) and writes a plaintext JSON payload — so an unencrypted backup is a supported, reachable case today.\n\n#### Rules\n\n| # | Rule |\n| :--- | :--- |\n| **R1** | **Password-encrypted backup:** include the connector master key *and* the `connector_secrets` rows, all inside the AES-256-GCM envelope. `is_encrypted = 1`. |\n| **R2** | **Plaintext backup (no password):** exclude the master key **and** the `connector_secrets` rows entirely, and record that credentials were omitted so the restore path can say so plainly. A plaintext backup therefore never contains a connector credential or the means to read one. |\n| **R3** | The key is **never** persisted into the database, written to logs, or embedded in a filename, description, or `system_backups` row. Restore writes it to the key-file path only. |\n| **R4** | The key is never returned to the browser and never sent to `micrond` (see §7). |\n| **R5** | The backup password is **credential-grade**. Enforce a minimum length, reject reuse of a login password, and state this in the UI at the point of entry. |\n\n#### Payload shape\n\nThe key travels in a dedicated top-level `secrets` object, deliberately **outside** `tables`:\n\n```jsonc\n{\n  \"format\": 2,\n  \"created_at\": \"2026-10-05T12:00:00Z\",\n  \"is_encrypted\": true,\n  \"credentials_included\": true,\n  \"secrets\": {                 // present ONLY inside the encrypted envelope\n    \"master_key\": \"<32 bytes, hex>\",\n    \"key_version\": 1,\n    \"created_at\": \"2026-10-05T12:00:00Z\"\n  },\n  \"tables\": { \"connector_instances\": [], \"connector_secrets\": [] }\n}\n```\n\nKeeping `secrets` out of `tables` means a restore can never insert key material into a database table by accident — the restore path must handle it explicitly or ignore it.\n\n#### Restore-time key handling\n\n| Appliance state | Payload carries a key | Action |\n| :--- | :--- | :--- |\n| No key present | yes | Install it (mode `0600`, owner `root:www-data`, atomic `O_EXCL` create) |\n| Same key | yes | No-op |\n| **Different key** | yes | Require an explicit *“replace the connector master key”* confirmation. Without it, **skip** the connector tables rather than writing undecryptable ciphertext, and mark those connectors `needs_credentials` |\n| Any | **no** | Restore configuration normally, mark every connector `needs_credentials`, and report it plainly |\n\n**Post-restore verification is mandatory.** Attempt to decrypt every `connector_secrets` row; any failure marks that connector `needs_credentials` and is surfaced in the UI. A restore must never leave a connector that silently fails to authenticate.\n\n**Cloning.** Restoring onto a second production appliance makes two hosts share one master key. Rotate the master key after cloning so each is independent.\n\n#### Runbook\n\n**A. Create a backup (connectors configured)**\n1. Enter a strong encryption password (R5). Confirm the UI's statement that it protects connector credentials.\n2. Create the backup; confirm `is_encrypted = 1` and `credentials_included = true` in the metadata.\n3. Store the archive and the password **separately** — never in the same location, ticket, or password manager entry (see Retention).\n4. Optionally verify the recorded `sha256_checksum`.\n\n**B. Disaster recovery onto new hardware**\n1. Install MicronOS on the replacement appliance (no connector credentials yet).\n2. Upload the archive and enter the password.\n3. Restore installs the master key at `/etc/micron/secrets.key` (`0600 root:www-data`), then the configuration.\n4. Run post-restore decryption verification; every connector must report healthy.\n5. Trigger one connector sync to confirm outbound fetch and apply.\n6. If this appliance is a clone of a live one, **rotate the master key**.\n\n**C. Restore onto an appliance that already has connectors**\n- Same key → proceed.\n- Different key → the operator must confirm key replacement; otherwise connector tables are skipped and those connectors are marked `needs_credentials` for re-entry from each vendor.\n\n**D. Restore a backup with no key (plaintext or pre-feature)**\n- Configuration restores; connectors are marked `needs_credentials`; re-issue tokens at each vendor. Expect this and plan for it — a plaintext backup is **not** a credential recovery set by design.\n\n**E. Rotate the master key**\n- Re-encrypt all rows eagerly, then destroy the old key (§7, T1.5). Take a fresh encrypted backup immediately; it carries only the new key.\n\n**F. Key lost, no encrypted backup**\n- No recovery is possible. Re-issue every connector credential at the vendor; there is no back door by design.\n\n#### Retention & transport\n\nThe archive is credential-bearing whenever `credentials_included` is true. Offsite copies inherit that sensitivity, the password must never be stored with the archive, and retention/deletion of old archives must be deliberate.\n\n#### Implementation status — **implemented**\n\n- `BackupEngine` (with `ConnectorKeyStore` at `/etc/micron/secrets.key` and `SecretsVault`) now stamps `format: 2`, `is_encrypted` and `credentials_included` into the payload, adds the top-level `secrets` object (hex key + `key_version`) **inside the encrypted envelope only**, includes `connector_secrets` rows only when encrypted, and returns `credentials_included` in its metadata. A plaintext run carries neither the key nor the rows.\n- `BackupEngine::restore()` returns a structured report and implements the restore-time table above: `installed` / `unchanged` / `replaced` (only with explicit confirmation) / `skipped_conflict` / `absent`. When no usable key can be established, connector ciphertext tables are skipped (not written undecryptable) and the instance `last_status` is set to `needs_credentials` where the table exists.\n- Post-restore decryption verification is mandatory: every restored `connector_secrets` row is decrypted with the installed key; failures set `needs_credentials` and are surfaced in the restore flash message.\n- `system_backups.credentials_included` records the marker (migration `2026-10-06-000089`), and the Backup page shows a **Creds** badge, a “replace the connector master key” confirmation on restore, and the R5 password guidance.\n- R5 is enforced on the create path: a minimum length of 12 characters and rejection of the operator's current login password.\n\nVerified by `tests/app/Libraries/BackupConnectorPolicyTest.php` (key/row inclusion and exclusion, install/match/conflict/replace, verification failure, absent tables) and `tests/app/Controllers/BackupPolicyTest.php` (password policy and persisted marker).\n\nOutstanding (Phase 2, blocked on the connector tables): full `SecretsVault` CRUD and key rotation, and the `connector_instances`/`connector_secrets` migrations themselves — the backup code already guards on their presence, so it is correct before and after they land.\n\n---\n\n## 8. Sync Engine & Lifecycle\n\n### 8.1 Scheduling\nEnabling a connector writes a `cron_jobs` row:\n\n- `id` = `connector_<instance_id>`\n- `command` = `php spark connector:sync <instance_id>` (a CLI command, not a web route — syncs must run without a session)\n- `user` = `www-data` (the fetch is unprivileged; only `micrond` is root)\n- `enabled`, `description`, `last_run_at`, `last_status`, `last_output` — populated as today.\n\nThis reuses the existing cron engine and its run history rather than inventing a second scheduler.\n\nUntil `connector_instances` exists, the skeleton's entry point is the manifest-scoped `php spark micron:connector-sync <connector-id>` (following the repository's `micron:` command convention). The instance-scoped `connector:sync <instance_id>` above supersedes it in Phase 2.\n\n### 8.2 Run sequence\n\n```\n 1. Guard        — instance exists, enabled, credential present\n 2. Acquire lock — per-instance advisory lock (prevents overlapping runs)\n 3. For each source:\n       a. Fetch      HTTP(S) with timeout, size cap, redirect cap, TLS verify\n       b. Authenticate  from SecretsVault (header/query/basic as declared)\n       c. Parse      via the manifest's declared format (closed enum)\n       d. Normalise  to a canonical typed list (domains | CIDRs | addresses)\n       e. Validate   syntax per type; drop invalid entries with a count\n       f. Stage      write to a staging artifact (temp file / temp table)\n 4. Apply        single IPC call per target with the staged artifact\n 5. Promote      on success, swap staging → live, update counters + audit\n 6. Log          connector_sync_log row; update instance last_* fields\n 7. Release lock\n```\n\n### 8.3 Why stage-then-promote\nReplacing a live blocklist or address group in place means a mid-run failure (network drop, malformed file) can leave a **partially applied** policy — for a security control that is worse than stale data. Staging guarantees the live artifact is only ever the last complete, validated result.\n\n### 8.4 Schedule vs. on-demand\nThe UI offers a **Sync now** action that enqueues the same CLI path (optimistically via a queue row or synchronously with a short timeout). Manual sync is audited identically.\n\n---\n\n## 9. Target Application\n\nEach target is a data-plane adapter with a fixed contract: **receive a validated artifact, apply atomically, reload if required, report what changed.**\n\n### 9.1 Target: DNS blocklist (`dnsbl`)\nThis is the target that completes the stubbed `dnsbl.update`.\n\n**Current reality.** `Dns` controller calls `$this->ipc->call('dnsbl.update')` in six places; `micrond` has no `rpc_dnsbl_update`. `UnboundDnsCompiler` compiles the resolver config and `local-data` overrides but does **not** ingest feeds. The `cron_dnsbl_update` job references `/usr/local/bin/dnsbl-update`, a script not present in the tree.\n\n**Operator feeds are already guarded.** The manual `dns_feeds` path does **not** wait for the connector engine: `Dns::storeFeed()` rejects any URL with `ConnectorEgressGuard::checkSyntax()` (https-only, no literal internal address, no internal hostname), and `Dns::syncFeeds()` fetches every enabled feed through `App\\Connectors\\ManualFeedIngestor`, which uses the same resolve-and-pin `fetch()` pipeline as the manifest path. So operator-supplied URLs already share the manifest connector's SSRF controls (threat model F3).\n\n**Proposed contract.**\n- PHP fetches and normalises all enabled domain sources into a deduplicated, sorted domain set (staged).\n- PHP calls `dnsbl.apply` with either the full set or a content hash + a staged file path readable by `micrond`.\n- `micrond` writes a blocklist include file (Unbound `local-zone`/`local-data` directives or an `include:` referenced file), validates with `unbound-checkconf`, and only then reloads.\n- On validation failure, the previous include file is restored and the call returns an error — no reload occurs.\n\nThe existing `dns_feeds` rows remain the subscription UI; a connector simply *populates* a `dns_feeds` row (`connector_instance_id` set) instead of the operator typing a URL. A hand-typed URL is validated with `checkSyntax()` on save and fetched through `ManualFeedIngestor` on sync, so it passes through the same guard as the connector path.\n\n### 9.2 Target: Firewall address group (`addressgroup`)\n- PHP normalises IP/CIDR sources into a typed set.\n- PHP calls `addressgroup.sync` with `{ group_name, entry_count, artifact_path }`.\n- `micrond` writes a **local feed file** (the pattern already defined in architecture §13.4) and emits/refreshes an nftables named set, then reloads the ruleset.\n- `firewall_address_groups.managed_by` marks the group; its `members` are materialised as `firewall_addresses` rows owned by the connector (so they are visible and reusable in the rule editor).\n- Because a set is refreshed by rewriting the include file, updating a threat feed **never re-emits the whole ruleset** (the same optimisation §13.4 relies on).\n\n### 9.3 Target: Systemd service (`service`)\nNeeded by connectors that toggle a daemon on apply (e.g. enabling mDNS reflection in a future integration). The contract: `{ service, action }`; `micrond` runs `systemctl <action> <unit>` and returns the resulting `is-active` state.\n\n**Connectors must use `connector.service`, never `system.service`.** The two paths exist because connectors are driven by *untrusted* manifest data while the admin path is driven by an authenticated operator:\n\n| RPC | Caller | Unit set |\n| :--- | :--- | :--- |\n| `system.service` | the Services page / page-header widget | full `SERVICE_UNITS` whitelist (an operator may legitimately restart `nftables`) |\n| `connector.service` | connector engine only | strict `CONNECTOR_SAFE_UNITS` allowlist — default deny; `nftables`, `unbound`, `strongswan`, `wireguard`, `keepalived`, FRR and every other infrastructure daemon are refused with no command run |\n\nThis is a separate method rather than a `scope` flag, because a caller that can set a flag can also clear it — only a distinct method name makes the restriction non-bypassable by connector-supplied data. The connector adapter chooses the method; the manifest only chooses the service id.\n\n**Manifest form.** A `service` source declares exactly two target-specific keys:\n\n```jsonc\n{ \"id\": \"daemon\", \"target\": \"service\", \"service\": \"mdns-repeater\", \"action\": \"restart\" }\n```\n\n`action` defaults to `restart`. Any other key on the source — `method`, `rpc`, `unit`, `url` — is refused at load time, so manifest data can never select or influence the RPC.\n\n**Status: engine skeleton implemented.** `App\\Connectors\\Manifest` validates manifests against the closed enums above; `App\\Connectors\\ManifestRegistry` reads them from `app/Connectors/definitions/<id>/manifest.json`; `App\\Connectors\\ConnectorRunner` dispatches each source to its target adapter; and `App\\Connectors\\Targets\\ServiceTarget` is the adapter that calls `connector.service` (its RPC is a class constant, never manifest-derived). The path is reachable through `php spark micron:connector-sync <connector-id>`. Fetch/parse/stage/promote and the `dnsbl` / `addressgroup` / `pki` adapters remain Phase 1+.\n\n### 9.4 Target: PKI deployment (`pki`)\nWrite an issued certificate/key to the service's configured path and reload the dependent daemon. Specified here for completeness; implemented in Phase 3.\n\n**The issuance half now exists, but not as a connector.** ACME / Let's Encrypt is implemented in the PKI module itself — `app/Libraries/Acme.php` (RFC 8555 client) and `app/Libraries/AcmeManager.php` (account, orders, renewal, storage), driven from `/certificates` and by the scheduled `micron:acme-renew`; see the Module Reference §2.24. It writes its result into `pki_authorities` / `pki_certificates` and reloads through the existing `cert.reload` RPC, which is where every other consumer of a certificate already reads from.\n\nWhat remains unimplemented here is the *connector* form: a manifest-declared source whose data is deployed to an arbitrary service path as a target. A connector is the right shape when the certificate comes from a subscribed external feed and its destination is declared in a manifest; it is the wrong shape for the case above, where the appliance is the ACME client and the destination is the PKI store.\n\n---\n\n## 10. IPC Surface (micrond RPCs)\n\nAll RPCs follow the existing dotted-namespace convention and dispatch (`rpc_<method with dots as underscores>`).\n\n| RPC | Purpose | Priority |\n| :--- | :--- | :--- |\n| `dnsbl.apply` | Write/validate/reload the Unbound blocklist include file | **P0** (completes stub) |\n| `dnsbl.update` | Alias/back-compat for the six existing call sites | **P0** (completes stub) |\n| `system.service` | Whitelisted `systemctl start/stop/restart` (admin path) | **P0** (completes stub) |\n| `connector.service` | `systemctl start/stop/restart` limited to `CONNECTOR_SAFE_UNITS` (connector path) | **P0** (F2 hardening) |\n| `addressgroup.sync` | Write local feed file + refresh nftables set | **P1** |\n| `connector.status` | Report applied feed freshness and set sizes | **P1** |\n| `pki.deploy` | Install a certificate/key and reload its consumer | **P2** |\n\n**Hardening rules for all new RPCs** (matching `_run`'s existing design):\n- argv lists only — never a shell, never string interpolation into a command.\n- Artifact paths are fixed or validated against a whitelist; a connector-supplied filename is never used as a path component.\n- Service names are validated against `system_services`; feed/group names against `^[A-Za-z0-9_]{1,64}$`.\n- Every RPC returns structured `{ success, steps, warnings }` and reports partial failures rather than masking them (the pattern already used by `multicast.apply`).\n\n---\n\n## 11. Permissions & RBAC\n\nNew permission keys, seeded in the `permissions` catalog under a **Connectors** module, following the existing `module` grouping:\n\n| Key | Label |\n| :--- | :--- |\n| `connectors.view` | View Connectors & Their Status |\n| `connectors.manage` | Configure & Enable Connectors |\n| `connectors.sync` | Trigger a Connector Sync |\n| `connectors.secrets.manage` | Manage Connector Credentials |\n| `connectors.rotate` | Rotate the Connector Master Key |\n\nRoutes use the existing `permission:` filter, e.g. a group filter of `permission:connectors.view` with per-action overrides — identical to the multicast and services groups. The **Sync now** action requires `connectors.sync`, so an operator can view status without being able to cause outbound fetches.\n\n---\n\n## 12. Management UI & Registration\n\n### 12.1 Pages\n- **Connectors** (`/connectors`) — catalog of available connectors, install/enable state, last-sync status per instance.\n- **Connector detail** (`/connectors/<instance>`) — manifest-driven form: options from `options`, secret inputs from `auth.fields` (masked), sync schedule, sources with per-source freshness and entry counts, and a **Sync now** button.\n\n### 12.2 Registration (the dynamic part)\nToday routes (`app/Config/Routes.php`) and navigation (`app/Views/layouts/main.php`) are static. Connectors do **not** need dynamic route registration: the two pages above are static, and a connector is *data*, not a new page. What is dynamic is narrower:\n\n- the **catalog** (which manifests exist) is read from `app/Connectors/definitions/`,\n- the **instance list** is a table,\n- the **page-header service widget** can render related daemons using the now-supported label override, e.g. `ServiceStatus::widget(['igmpproxy','frr'], ['igmpproxy' => 'IGMP', 'frr' => 'PIM'])`.\n\nThis keeps the security surface small: no plugin can introduce a route or a permission at runtime.\n\n### 12.3 Audit\nEvery state change writes an `audit_logs` row (`action`, `action_type`, `target`, `old_state`, `new_state`). **Do not use a `details` column** — it does not exist. The controllers that did (`Cron`, `Services`, `Siem`, `Snmp`, `Dashboard`, `RepoDriftCommand`) silently swallowed the failure and recorded nothing; they now write `new_state`, insert a database-generated key rather than a hex `id`, and supply the `admin_user`/`client_ip`/`action_type`/`target_resource` columns the table requires — all of it enforced by `tests/app/Models/ModelSchemaConsistencyTest.php`.\n\n---\n\n## 13. Security Model\n\n| Risk | Mitigation |\n| :--- | :--- |\n| **Arbitrary code execution via a \"plugin\"** | Manifests are static, first-party, and contained to a closed parser enumeration. No dynamic route, no dynamic permission, no executable descriptor fetched at runtime. No package installation. |\n| **Credential leakage** | Secrets encrypted at rest, key outside the DB, never returned to the browser, never logged, never sent to `micrond`. |\n| **SSRF via a feed URL** | **Implemented:** every connector fetch passes through `App\\Libraries\\ConnectorEgressGuard` — https-only scheme allowlist, resolve-once-and-pin against an internal-address denylist, per-hop redirect validation (auth stripped cross-origin, refused when sensitive), and compressed/decompressed/ratio caps. `App\\Connectors\\Targets\\FetchTarget` is the only connector code that reaches the network. Applies to manifest-defined *and* operator-supplied URLs: a manual `dns_feeds` URL is rejected at entry with `checkSyntax()` and fetched on sync only through `ManualFeedIngestor` (same guard), so an operator cannot reintroduce the surface the manifest allowlist closes. |\n| **Root daemon abuse** | `micrond` receives normalised data and fixed arguments; artifact paths are whitelisted; service names come from `system_services`. |\n| **Poisoned / malformed feed** | Parse → validate → stage → promote. Invalid entries are dropped and counted; a wholly failed parse leaves the previous artifact live. |\n| **Supply chain (later package manager)** | Deferred to Phase 4, and if ever built, restricted to a curated signed repository with pinned versions — never arbitrary package names. |\n| **Resource exhaustion** | Per-source size caps, timeouts, redirect caps, and a single-flight lock per instance. |\n| **Stale threat data mistaken for current** | Freshness is explicit: `last_updated`, per-source counters, and a UI staleness badge. Filtering fails *open on freshness* but the operator is told. |\n\n> **See also:** [Connector Threat Model](MICRONOS_CONNECTOR_THREAT_MODEL.html) — adversarial analysis of the master key, the SSRF boundary, and the blast radius of a compromised connector. It raises several **requirements** that must be implemented before the corresponding phases ship. The connector-safe systemd unit allowlist (F2), the fetch egress guard (F3/F5) and the backup key policy (F6) are now implemented; a fresh GCM nonce per secret write (F4) is guaranteed by `SecretsVault`, whose full CRUD/rotation still lands with the connector engine.\n\n---\n\n## 14. Failure Handling, Idempotency & Limits\n\n- **Single-flight:** one advisory lock per instance prevents overlapping cron ticks.\n- **Idempotent apply:** targets are keyed by name (`feed_*`, `group_*`); re-applying the same artifact is a no-op detected by content hash.\n- **Partial success:** one failing source does not fail the whole instance; the run is logged `partial` and the failing source is marked, while other sources promote normally.\n- **Retry:** bounded (e.g. 3 attempts with backoff) inside a run; no unbounded retry loop across ticks.\n- **Limits (defaults):** 32 MB per source, 30 s connect / 120 s total, 5 redirects, 2,000,000 entries parsed per source, TLS verification mandatory.\n- **Rollback:** DNS and address-group targets keep the previous artifact file; invalid new content triggers restore-then-report. Extending `SafeTransactionManager` beyond nftables is part of Phase 2.\n- **Offline behaviour:** an unreachable source is not an error for filtering — the previous dataset remains in force and only the freshness badge changes.\n\n---\n\n## 15. Reference Connectors\n\n### 15.1 Q-Feeds (Threat Intelligence) — Phase 2 pilot\n- **Auth:** bearer API token (`tip.qfeeds.com` → Manage API Keys).\n- **Targets:** IP feeds → `addressgroup` (`__qfeeds_malware_ip`); domain feeds → `dnsbl`.\n- **Options:** register domain feeds, allowlist domains, source networks, destination address / NXDOMAIN.\n- **Why first:** it exercises the credential store, the scheduler, and both principal targets, while reusing `dns_feeds` and `firewall_address_groups` — and it completes the DNSBL ingest path that is currently stubbed.\n- **Note:** requires a (free or paid) subscription; the connector must not attempt to auto-provision an account. Per-list licence/update status is displayed, read-only.\n\n### 15.2 abuse.ch / URLhaus — Phase 1 (validation only)\nAlready seeded as a manual `dns_feeds` row pointing at `https://urlhaus.abuse.ch/downloads/hostfile/`. Modelling it as a manifest connector (`format: hostfile`, target `dnsbl`) is the **cheapest possible integration test** of the engine, with no credentials required.\n\n### 15.3 Non-connector contrast: LLDP, iperf3, darkstat\nThese are **daemon apps**, not connectors — they contribute a service and a config file, not fetched policy data. They belong to the same eventual plugin surface but are served by a different (service-install) mechanism, and are listed here to keep the two categories from being conflated. That mechanism is now specified in the [Plugin & Package Manager Specification](MICRONOS_PLUGIN_AND_PACKAGE_MANAGER_SPECIFICATION.html): LLDP, iperf3, darkstat and Lightsquid are Class B (distro/first-party) plugins, while ZeroTier and NetBird are Class C (third-party repository/agent).\n\n---\n\n## 16. Phased Implementation Roadmap\n\n**Phase 0 — Close the stubs (prerequisite).** — **status: implemented** (`tests/test_micrond_phase0.py`)\n`system.service` and `dnsbl.update` / `dnsbl.apply` now exist in `micrond`:\n- `system.service` resolves the `system_services` id through a static `SERVICE_UNITS` whitelist, accepts only `start` / `stop` / `restart`, and reports the real post-action `systemctl is-active` state.\n- `dnsbl.*` reads only from the staging directory `/var/lib/micron/dnsbl` (a caller-supplied path must resolve inside it), validates hostnames, compiles `/etc/unbound/micron-blocklist.conf`, runs `unbound-checkconf`, restores the previous blocklist on failure, and then reloads Unbound. An empty result that was not explicitly requested is a **no-op** so a missing staging directory can never wipe live data.\n\nStill outstanding for the control plane (Phase 1): PHP does not yet stage blocklist artifacts or pass `domains`/`overrides`, so on real hardware `dnsbl.update` currently resolves to the safe `noop` path; and `unbound.conf` does not yet `include:` the compiled blocklist file.\n\n**Phase 1 — Engine + unauthenticated pilot.** — **status: skeleton implemented**\nManifest loader + schema validation and the `service` target adapter exist (`App\\Connectors\\*`, exercised by `tests/app/Libraries/ConnectorEngineTest.php` and reachable via `php spark micron:connector-sync`), which puts the F2 `connector.service` allowlist on a live code path. The `dnsbl` / `addressgroup` / `pki` sources are fetched and staged through the egress guard (`App\\Libraries\\ConnectorEgressGuard`, `App\\Connectors\\Targets\\FetchTarget`), which puts the F3/F5 SSRF controls on a live code path too.\n**Parsing is implemented** (`App\\Connectors\\FeedParser`): every format in the closed enum (`plain-domain-list`, `plain-ip-list`, `hostfile`, `json-ip-list`, `json-domain-list`, `csv`, `rfc1035-spf`) turns the staged artifact into a canonical typed set (domains or CIDRs) with per-entry validation, accurate drop counts and an entry cap, and `FetchTarget` refuses a target/type mismatch (domains for `dnsbl`, addresses for `addressgroup`) and retains only the validated `.set`. Verified by `tests/app/Connectors/FeedParserTest.php` and `tests/app/Connectors/FetchTargetTest.php`.\nStill to do: `connector_instances`, `connector_sync_log`, `connector_targets`; **apply/promote** of the typed set (`dnsbl.apply`, `addressgroup.sync`, `pki.deploy`) and the health/freshness UI; pilot with abuse.ch URLhaus (no credentials). Proves fetch → parse → stage → apply → audit end to end.\n\n**Phase 2 — Secrets + address groups.**\n`SecretsVault` (AES-256-GCM, key at `/etc/micron/secrets.key`, rotation), `addressgroup.sync`, `firewall_address_groups.managed_by`, and the Q-Feeds pilot.\n\n**Phase 3 — More targets and connectors.**\n`pki.deploy` (the connector target; ACME issuance itself shipped earlier in the PKI module — §9.4); Lightsquid (report/cron, no daemon); status/freshness UI; extend `SafeTransactionManager` rollback to DNS and sets.\n\n**Phase 4 — (Separate decision) Package manager.**\nOnly if desired later: a curated, signed repository with pinned versions, explicit capability grants, and full audit — explicitly **not** arbitrary `apt install` from the web UI. Tier-C connectors (ZeroTier, NetBird) land here because they require third-party apt repositories and account provisioning. The full design — plugin bundles, the curated/pinned package manager, per-plugin capability grants, transactional install/rollback, and the ZeroTier/NetBird/Lightsquid/iperf3/darkstat/LLDP catalogue — is specified in the [Plugin & Package Manager Specification](MICRONOS_PLUGIN_AND_PACKAGE_MANAGER_SPECIFICATION.html).\n\n---\n\n## 17. Risks & Open Questions\n\n1. **`dnsbl-update` divergence.** The `cron_dnsbl_update` job points at `/usr/local/bin/dnsbl-update`, which is not in this repository. Phase 0 must reconcile the intended ingest path (external script vs. native `dnsbl.apply` RPC) rather than adding a third variant.\n2. **Master-key bootstrap.** Where exactly the key is created, backed up, and restored is a real operational decision; losing it means re-entering every credential. Recommend including it in the encrypted backup payload, excluded from plaintext exports.\n3. **`dns_feeds` vs. connector ownership.** Manual feeds and connector-owned feeds share a table; the `connector_instance_id` marker must be enforced by the UI so a connector does not silently overwrite a hand-written feed.\n4. **Unbound blocklist scale.** Very large domain sets need the include-file/bloom approach; the exact Unbound directive form should be settled in Phase 1 against a large real feed.\n5. **Freshness semantics.** \"Stale but applied\" is the safe default; the notification/escalation policy (badge, dashboard alert, SNMP trap) is undecided.\n\n---\n\n## Appendix A — Manifest JSON Schema\n\n```jsonc\n{\n  \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n  \"type\": \"object\",\n  \"required\": [\"schema\", \"id\", \"name\", \"version\", \"sources\"],\n  \"properties\": {\n    \"schema\":      { \"const\": 1 },\n    \"id\":          { \"type\": \"string\", \"pattern\": \"^[a-z0-9][a-z0-9-]{1,63}$\" },\n    \"name\":        { \"type\": \"string\" },\n    \"vendor\":      { \"type\": \"string\" },\n    \"version\":     { \"type\": \"string\" },\n    \"description\": { \"type\": \"string\" },\n    \"category\":    { \"type\": \"string\" },\n    \"icon\":        { \"type\": \"string\" },\n    \"includes\":    { \"type\": \"array\", \"items\": { \"type\": \"string\" } },\n\n    \"auth\": {\n      \"type\": \"object\",\n      \"properties\": {\n        \"type\": { \"enum\": [\"none\", \"bearer\", \"basic\", \"header\", \"query\"] },\n        \"fields\": {\n          \"type\": \"array\",\n          \"items\": {\n            \"type\": \"object\",\n            \"required\": [\"key\", \"label\"],\n            \"properties\": {\n              \"key\":    { \"type\": \"string\" },\n              \"label\":  { \"type\": \"string\" },\n              \"secret\": { \"type\": \"boolean\", \"default\": false },\n              \"help\":   { \"type\": \"string\" }\n            }\n          }\n        }\n      }\n    },\n\n    \"options\": {\n      \"type\": \"array\",\n      \"items\": {\n        \"type\": \"object\",\n        \"required\": [\"key\", \"type\"],\n        \"properties\": {\n          \"key\":     { \"type\": \"string\" },\n          \"type\":    { \"enum\": [\"bool\", \"string\", \"int\", \"list\", \"select\"] },\n          \"default\": {},\n          \"label\":   { \"type\": \"string\" },\n          \"choices\": { \"type\": \"array\" }\n        }\n      }\n    },\n\n    \"schedule\": { \"type\": \"object\", \"properties\": { \"default\": { \"type\": \"string\" } } },\n\n    \"sources\": {\n      \"type\": \"array\",\n      \"minItems\": 1,\n      \"items\": {\n        \"type\": \"object\",\n        // Required keys are target-dependent: fetch targets (dnsbl,\n        // addressgroup, pki) need `url` + `format`; a service target needs\n        // `service` (+ optional `action`). Keys outside the target's own set\n        // are refused, so a service source can never carry `url`, and no\n        // source may name an RPC.\n        \"required\": [\"id\", \"target\"],\n        \"properties\": {\n          \"id\":      { \"type\": \"string\" },\n          \"target\":  { \"enum\": [\"dnsbl\", \"addressgroup\", \"service\", \"pki\"] },\n          \"url\":     { \"type\": \"string\", \"format\": \"uri\" },\n          \"format\":  { \"enum\": [\"plain-ip-list\", \"plain-domain-list\", \"hostfile\",\n                                \"json-ip-list\", \"json-domain-list\", \"csv\", \"rfc1035-spf\"] },\n          \"service\": { \"type\": \"string\", \"description\": \"system_services id; target=service only\" },\n          \"action\":  { \"enum\": [\"start\", \"stop\", \"restart\"], \"description\": \"target=service only; default restart\" },\n          \"group_name\": { \"type\": \"string\" },\n          \"feed_name\":  { \"type\": \"string\" },\n          \"category\":   { \"type\": \"string\" }\n        }\n      }\n    },\n\n    \"status_url\": { \"type\": \"string\", \"format\": \"uri\" },\n    \"docs_url\":   { \"type\": \"string\", \"format\": \"uri\" },\n    \"permissions\": { \"type\": \"array\", \"items\": { \"type\": \"string\" } }\n  }\n}\n```\n\n## Appendix B — DDL\n\nIllustrative SQLite-compatible DDL; the implementation ships as CI4 forge migrations, matching the existing migration style.\n\n```sql\n-- 1. Configured connector instances ----------------------------------------\nCREATE TABLE connector_instances (\n    id                VARCHAR(36)  PRIMARY KEY,\n    connector_id      VARCHAR(64)  NOT NULL,\n    name              VARCHAR(128) NOT NULL,\n    enabled           TINYINT(1)   NOT NULL DEFAULT 0,\n    settings          TEXT,                          -- JSON: manifest option values\n    schedule_override VARCHAR(64),\n    last_sync_at      DATETIME,\n    last_status       VARCHAR(16)  NOT NULL DEFAULT 'never',\n    last_message      TEXT,\n    created_at        DATETIME,\n    updated_at        DATETIME\n);\nCREATE INDEX idx_connector_instances_connector ON connector_instances (connector_id);\n\n-- 2. Encrypted secrets (one row per secret field per instance) --------------\nCREATE TABLE connector_secrets (\n    id          VARCHAR(36) PRIMARY KEY,\n    instance_id VARCHAR(36) NOT NULL,\n    field_key   VARCHAR(64) NOT NULL,\n    ciphertext  TEXT        NOT NULL,   -- base64(AES-256-GCM)\n    nonce       VARCHAR(32) NOT NULL,   -- base64, 12 bytes\n    tag         VARCHAR(32) NOT NULL,   -- base64, 16 bytes\n    key_version INTEGER     NOT NULL DEFAULT 1,\n    created_at  DATETIME,\n    rotated_at  DATETIME,\n    UNIQUE (instance_id, field_key)\n);\n\n-- 3. Sync run history -------------------------------------------------------\nCREATE TABLE connector_sync_log (\n    id          INTEGER     PRIMARY KEY AUTOINCREMENT,\n    instance_id VARCHAR(36) NOT NULL,\n    source_id   VARCHAR(64),\n    started_at  DATETIME,\n    finished_at DATETIME,\n    status      VARCHAR(16) NOT NULL DEFAULT 'running',  -- success | failed | partial | running\n    items_in    INTEGER     NOT NULL DEFAULT 0,\n    items_out   INTEGER     NOT NULL DEFAULT 0,\n    bytes_in    INTEGER     NOT NULL DEFAULT 0,\n    message     TEXT\n);\nCREATE INDEX idx_connector_sync_log_instance ON connector_sync_log (instance_id, started_at DESC);\n\n-- 4. Bindings from a connector source to the local object it owns -----------\nCREATE TABLE connector_targets (\n    id          VARCHAR(36)  PRIMARY KEY,\n    instance_id VARCHAR(36)  NOT NULL,\n    source_id   VARCHAR(64)  NOT NULL,\n    target_type VARCHAR(16)  NOT NULL,   -- dnsbl | addressgroup | service\n    target_ref  VARCHAR(128) NOT NULL,   -- feed id / group id\n    managed     TINYINT(1)   NOT NULL DEFAULT 1,\n    created_at  DATETIME,\n    updated_at  DATETIME,\n    UNIQUE (instance_id, source_id)\n);\n\n-- 5. Extensions to existing tables ------------------------------------------\nALTER TABLE dns_feeds\n    ADD COLUMN connector_instance_id VARCHAR(36);\nALTER TABLE dns_feeds\n    ADD COLUMN source_id VARCHAR(64);\n\nALTER TABLE firewall_address_groups\n    ADD COLUMN managed_by VARCHAR(36);   -- connector instance id, NULL = manual\n\n-- 6. Permissions to seed (permissions table, module \"Connectors\") ----------\n--   connectors.view            | View Connectors & Their Status\n--   connectors.manage          | Configure & Enable Connectors\n--   connectors.sync            | Trigger a Connector Sync\n--   connectors.secrets.manage  | Manage Connector Credentials\n--   connectors.rotate          | Rotate the Connector Master Key\n```\n\n---\n\n*This is a design specification. No implementation code is included, and no application files are modified by this document.*\n";
+    
+    // Theme Presets Management
+    const LIGHT_THEMES = ['light', 'solar', 'mint', 'paper'];
+    function setThemePreset(theme) {
+      document.documentElement.dataset.theme = theme;
+      document.documentElement.dataset.mode = LIGHT_THEMES.includes(theme) ? 'light' : 'dark';
+      try {
+        localStorage.setItem('micron_docs_theme', theme);
+      } catch (e) {}
+      const sel = document.getElementById('themePresetSelect');
+      if (sel) sel.value = theme;
+    }
+
+    try {
+      const savedTheme = localStorage.getItem('micron_docs_theme') || 'dark';
+      setThemePreset(savedTheme);
+    } catch (e) {
+      setThemePreset('dark');
+    }
+
+    // Configure marked with highlight.js
+    marked.setOptions({
+      highlight: function(code, lang) {
+        if (lang && hljs.getLanguage(lang)) {
+          return hljs.highlight(code, { language: lang }).value;
+        }
+        return hljs.highlightAuto(code).value;
+      },
+      breaks: false,
+      gfm: true
+    });
+
+    const rendered = marked.parse(rawMarkdown);
+    document.getElementById('markdown-body').innerHTML = rendered;
+
+    // Generate Dynamic TOC with IDs
+    const headings = document.getElementById('markdown-body').querySelectorAll('h2, h3');
+    const tocContainer = document.getElementById('toc-container');
+    
+    headings.forEach(heading => {
+      const text = heading.textContent;
+      const base = text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+      let slug = base;
+      for (let n = 2; document.getElementById(slug); n++) {
+        slug = base + '-' + n;
+      }
+      heading.id = slug;
+      
+      const link = document.createElement('a');
+      link.href = '#' + slug;
+      link.textContent = text;
+      link.dataset.title = text.toLowerCase();
+      if (heading.tagName.toLowerCase() === 'h3') {
+        link.classList.add('h3-link');
+      }
+      tocContainer.appendChild(link);
+    });
+
+    // Add Copy Buttons to Pre blocks
+    document.querySelectorAll('#markdown-body pre').forEach(pre => {
+      const copyBtn = document.createElement('button');
+      copyBtn.className = 'code-copy-btn';
+      copyBtn.innerHTML = '<svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg> Copy';
+      copyBtn.onclick = () => {
+        const codeText = pre.querySelector('code')?.innerText || pre.innerText;
+        navigator.clipboard.writeText(codeText);
+        copyBtn.innerHTML = '✔ Copied!';
+        setTimeout(() => {
+          copyBtn.innerHTML = '<svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg> Copy';
+        }, 2000);
+      };
+      pre.appendChild(copyBtn);
+    });
+
+    // TOC Filter
+    function filterToc(query) {
+      query = (query || '').toLowerCase().trim();
+      document.querySelectorAll('#toc-container a').forEach(a => {
+        if (!query || a.dataset.title.includes(query)) {
+          a.style.display = 'block';
+        } else {
+          a.style.display = 'none';
+        }
+      });
+    }
+
+    // Scrollspy for TOC highlight
+    const tocLinks = Array.from(tocContainer.querySelectorAll('a'));
+    function syncTocActive() {
+      const scrollPos = window.scrollY + 120;
+      let activeHeading = null;
+      headings.forEach(h => {
+        if (h.offsetTop <= scrollPos) {
+          activeHeading = h;
+        }
+      });
+      if (activeHeading) {
+        tocLinks.forEach(link => {
+          link.classList.toggle('active', link.getAttribute('href') === '#' + activeHeading.id);
+        });
+      }
+    }
+    window.addEventListener('scroll', syncTocActive, { passive: true });
+    syncTocActive();
+  </script>
+</body>
+</html>

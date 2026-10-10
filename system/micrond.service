@@ -1,0 +1,22 @@
+[Unit]
+Description=MicronOS System IPC Daemon (micrond)
+Documentation=https://github.com/micronos/micronos
+After=network.target local-fs.target
+Before=php8.4-fpm.service php-fpm.service php8.3-fpm.service apache2.service
+
+[Service]
+Type=notify
+User=root
+Group=root
+WorkingDirectory=/usr/local/micron/system/micrond
+ExecStart=/usr/bin/python3 /usr/local/micron/system/micrond/micrond.py
+Restart=always
+RestartSec=3s
+WatchdogSec=30s
+KillMode=process
+StandardOutput=journal
+StandardError=journal
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW CAP_SYS_ADMIN
+
+[Install]
+WantedBy=multi-user.target

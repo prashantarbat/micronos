@@ -1,0 +1,40 @@
+{
+    "schema": 1,
+    "id": "nat64",
+    "name": "NAT64 / DNS64",
+    "version": "1.0.0",
+    "class": "B",
+    "vendor": "Micron Network Systems",
+    "description": "NAT64 translation and DNS64 synthesis for IPv6-only networks. tayga, Debian's userspace NAT64 translator (no kernel module), maps a NAT64 prefix onto an IPv4 dynamic pool, and Unbound synthesises AAAA records so IPv6-only clients can reach IPv4-only hosts. Installing the plugin only places the packages: configuration is applied from the plugin page, where the translator and resolver configuration are validated and applied with rollback on failure (unbound-checkconf gates the DNS64 half, and the firewall compiler emits forwarding for the translator interface while the plugin is enabled).",
+    "requires": {
+        "packages": ["tayga"],
+        "repos": [],
+        "kernel_modules": [],
+        "binaries": ["/usr/sbin/tayga"]
+    },
+    "provides": {
+        "services": ["tayga"],
+        "menu": [
+            { "path": "/plugins/nat64", "label": "NAT64 / DNS64", "permission": "plugins.view" }
+        ],
+        "status_source": "rpc:plugin.nat64.status"
+    },
+    "capabilities": [
+        "system.service:tayga",
+        "root.rpc:plugin.status",
+        "root.rpc:plugin.nat64.apply",
+        "root.rpc:plugin.nat64.status",
+        "fs.write:/etc/tayga.conf",
+        "fs.write:/etc/systemd/system/micron-nat64-net.service",
+        "fs.write:/etc/unbound/unbound.conf.d/micron-nat64.conf",
+        "fs.write:/var/lib/micron/plugins/nat64",
+        "firewall.rules"
+    ],
+    "lifecycle": [
+        { "step": "install", "action": "apt.install", "packages": ["tayga"] },
+        { "step": "enable", "action": "system.enable", "unit": "tayga" },
+        { "step": "start", "action": "system.start", "unit": "tayga" },
+        { "step": "data", "action": "dir.ensure", "path": "/var/lib/micron/plugins/nat64" },
+        { "step": "uninstall", "action": "apt.remove", "packages": ["tayga"] }
+    ]
+}

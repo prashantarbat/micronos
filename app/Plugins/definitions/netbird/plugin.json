@@ -1,0 +1,40 @@
+{
+    "schema": 1,
+    "id": "netbird",
+    "name": "NetBird Mesh VPN",
+    "version": "0.1.0",
+    "class": "C",
+    "vendor": "NetBird GmbH (packaged by Micron Network Systems)",
+    "description": "WireGuard-based overlay network agent. Joins the appliance to a NetBird deployment so peers can reach it — and, with routes, so it can reach them. Installs from the vendor's own apt repository, registers the peer with a vendor-operated (or self-hosted) management service, and changes the routing of live traffic. Class C: read the consent notice before installing.",
+    "requires": {
+        "packages": ["netbird"],
+        "repos": ["netbird"],
+        "kernel_modules": [],
+        "binaries": ["/usr/bin/netbird"]
+    },
+    "provides": {
+        "services": ["netbird"],
+        "menu": [
+            { "path": "/plugins/netbird", "label": "NetBird Mesh VPN", "permission": "plugins.view" }
+        ],
+        "status_source": "rpc:plugin.netbird.status"
+    },
+    "capabilities": [
+        "system.service:netbird",
+        "net.raw",
+        "firewall.ifgroup:wt+",
+        "fs.write:/etc/netbird",
+        "root.rpc:plugin.status",
+        "root.rpc:plugin.netbird.status",
+        "root.rpc:plugin.netbird.up",
+        "root.rpc:plugin.netbird.down",
+        "root.rpc:plugin.netbird.enroll"
+    ],
+    "lifecycle": [
+        { "step": "install", "action": "apt.install", "packages": ["netbird"] },
+        { "step": "enable", "action": "system.enable", "unit": "netbird" },
+        { "step": "start", "action": "system.start", "unit": "netbird" },
+        { "step": "uninstall", "action": "system.stop", "unit": "netbird" },
+        { "step": "uninstall", "action": "apt.remove", "packages": ["netbird"] }
+    ]
+}

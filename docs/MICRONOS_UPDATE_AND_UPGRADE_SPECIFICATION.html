@@ -1,0 +1,880 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark" data-mode="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Micron Firewall OS (MicronOS) — Update & Upgrade Mechanism Specification</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <style>
+    /* ============================================================
+       THEME PRESETS: 9 MicronOS Schemes (Dark + Light)
+       ============================================================ */
+    :root, [data-theme="dark"] {
+      --bg-primary: #070b14;
+      --bg-secondary: #0d1220;
+      --bg-tertiary: #111827;
+      --card-bg: rgba(17, 24, 39, 0.7);
+      --card-border: rgba(255, 255, 255, 0.08);
+      --card-border-bright: rgba(255, 255, 255, 0.14);
+      --text-main: #f1f5f9;
+      --text-muted: #94a3b8;
+      --accent-cyan: #00d4ff;
+      --accent-cyan-dim: rgba(0, 212, 255, 0.15);
+      --accent-deep: #0096c7;
+      --accent-purple: #7c3aed;
+      --accent-emerald: #10b981;
+      --accent-amber: #f59e0b;
+      --accent-rose: #ef4444;
+      --code-bg: #0d1220;
+      --sidebar-w: 320px;
+    }
+
+    [data-theme="midnight"] {
+      --bg-primary: #090712;
+      --bg-secondary: #110f1e;
+      --bg-tertiary: #16132a;
+      --card-bg: rgba(22, 19, 42, 0.75);
+      --card-border: rgba(139, 92, 246, 0.12);
+      --card-border-bright: rgba(139, 92, 246, 0.22);
+      --text-main: #ede9fe;
+      --text-muted: #a1a1b5;
+      --accent-cyan: #a78bfa;
+      --accent-cyan-dim: rgba(167, 139, 250, 0.15);
+      --accent-deep: #7c3aed;
+      --accent-purple: #c084fc;
+      --accent-emerald: #34d399;
+      --accent-amber: #fbbf24;
+      --accent-rose: #f87171;
+      --code-bg: #110f1e;
+    }
+
+    [data-theme="ocean"] {
+      --bg-primary: #030f14;
+      --bg-secondary: #071820;
+      --bg-tertiary: #0c202a;
+      --card-bg: rgba(12, 32, 42, 0.75);
+      --card-border: rgba(45, 212, 191, 0.12);
+      --card-border-bright: rgba(45, 212, 191, 0.22);
+      --text-main: #f0fdfa;
+      --text-muted: #99f6e4;
+      --accent-cyan: #2dd4bf;
+      --accent-cyan-dim: rgba(45, 212, 191, 0.15);
+      --accent-deep: #0f766e;
+      --accent-purple: #818cf8;
+      --accent-emerald: #34d399;
+      --accent-amber: #fbbf24;
+      --accent-rose: #f87171;
+      --code-bg: #071820;
+    }
+
+    [data-theme="forest"] {
+      --bg-primary: #050f08;
+      --bg-secondary: #0a170e;
+      --bg-tertiary: #0e2014;
+      --card-bg: rgba(14, 32, 20, 0.75);
+      --card-border: rgba(74, 222, 128, 0.12);
+      --card-border-bright: rgba(74, 222, 128, 0.22);
+      --text-main: #f0fdf4;
+      --text-muted: #bbf7d0;
+      --accent-cyan: #4ade80;
+      --accent-cyan-dim: rgba(74, 222, 128, 0.15);
+      --accent-deep: #15803d;
+      --accent-purple: #a78bfa;
+      --accent-emerald: #22c55e;
+      --accent-amber: #fbbf24;
+      --accent-rose: #f87171;
+      --code-bg: #0a170e;
+    }
+
+    [data-theme="slate"] {
+      --bg-primary: #0a0d12;
+      --bg-secondary: #111520;
+      --bg-tertiary: #161b28;
+      --card-bg: rgba(22, 27, 40, 0.75);
+      --card-border: rgba(100, 116, 139, 0.14);
+      --card-border-bright: rgba(100, 116, 139, 0.24);
+      --text-main: #e2e8f0;
+      --text-muted: #94a3b8;
+      --accent-cyan: #94a3b8;
+      --accent-cyan-dim: rgba(148, 163, 184, 0.15);
+      --accent-deep: #475569;
+      --accent-purple: #818cf8;
+      --accent-emerald: #34d399;
+      --accent-amber: #fbbf24;
+      --accent-rose: #f87171;
+      --code-bg: #111520;
+    }
+
+    /* Shared light mode base */
+    [data-mode="light"] {
+      --bg-primary: #f1f5f9;
+      --bg-secondary: #ffffff;
+      --bg-tertiary: #f8fafc;
+      --card-bg: #ffffff;
+      --card-border: rgba(0, 0, 0, 0.08);
+      --card-border-bright: rgba(0, 0, 0, 0.15);
+      --text-main: #0f172a;
+      --text-muted: #64748b;
+      --accent-cyan: #0284c7;
+      --accent-cyan-dim: rgba(2, 132, 199, 0.10);
+      --accent-deep: #0369a1;
+      --accent-purple: #7c3aed;
+      --accent-emerald: #059669;
+      --accent-amber: #d97706;
+      --accent-rose: #dc2626;
+      --code-bg: #f8fafc;
+    }
+
+    /* Solar Amber (warm cream) */
+    [data-theme="solar"] {
+      --bg-primary: #fdf7ee;
+      --bg-secondary: #ffffff;
+      --bg-tertiary: #fffaf3;
+      --card-bg: #ffffff;
+      --card-border: rgba(146, 94, 28, 0.14);
+      --card-border-bright: rgba(146, 94, 28, 0.25);
+      --text-main: #3b2410;
+      --text-muted: #7c5a34;
+      --accent-cyan: #ea580c;
+      --accent-cyan-dim: rgba(234, 88, 12, 0.12);
+      --accent-deep: #c2410c;
+      --accent-purple: #9333ea;
+      --accent-emerald: #0f766e;
+      --accent-amber: #b45309;
+      --accent-rose: #dc2626;
+      --code-bg: #fbf0e0;
+    }
+
+    /* Mint Breeze (cool teal) */
+    [data-theme="mint"] {
+      --bg-primary: #f0fdf9;
+      --bg-secondary: #ffffff;
+      --bg-tertiary: #f6fefb;
+      --card-bg: #ffffff;
+      --card-border: rgba(13, 120, 100, 0.14);
+      --card-border-bright: rgba(13, 120, 100, 0.25);
+      --text-main: #0b3b34;
+      --text-muted: #3f6f66;
+      --accent-cyan: #0d9488;
+      --accent-cyan-dim: rgba(13, 148, 136, 0.12);
+      --accent-deep: #0f766e;
+      --accent-purple: #7c3aed;
+      --accent-emerald: #047857;
+      --accent-amber: #b45309;
+      --accent-rose: #dc2626;
+      --code-bg: #e3f9f2;
+    }
+
+    /* Paper Ink (neutral paper) */
+    [data-theme="paper"] {
+      --bg-primary: #f7f7f8;
+      --bg-secondary: #ffffff;
+      --bg-tertiary: #fbfbfc;
+      --card-bg: #ffffff;
+      --card-border: rgba(15, 23, 42, 0.10);
+      --card-border-bright: rgba(15, 23, 42, 0.20);
+      --text-main: #0f172a;
+      --text-muted: #64748b;
+      --accent-cyan: #4f46e5;
+      --accent-cyan-dim: rgba(79, 70, 229, 0.10);
+      --accent-deep: #4338ca;
+      --accent-purple: #7c3aed;
+      --accent-emerald: #047857;
+      --accent-amber: #b45309;
+      --accent-rose: #dc2626;
+      --code-bg: #f0f0f3;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background-color: var(--bg-primary);
+      color: var(--text-main);
+      line-height: 1.65;
+      display: flex;
+      min-height: 100vh;
+      overflow-x: hidden;
+      transition: background-color 0.2s ease, color 0.2s ease;
+    }
+
+    /* Scrollbars */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--card-border-bright); border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--accent-cyan); }
+
+    /* ============================================================
+       FULLPAGE SIDEBAR NAVIGATION
+       ============================================================ */
+    aside.sidebar {
+      width: var(--sidebar-w);
+      background-color: var(--bg-secondary);
+      border-right: 1px solid var(--card-border);
+      position: fixed;
+      top: 0; bottom: 0; left: 0;
+      height: 100vh;
+      max-height: 100vh;
+      overflow: hidden;
+      padding: 1.25rem 1rem 1rem 1rem;
+      display: flex;
+      flex-direction: column;
+      z-index: 100;
+      box-shadow: 2px 0 12px rgba(0, 0, 0, 0.15);
+      transition: background-color 0.2s ease, border-color 0.2s ease;
+    }
+
+    .sidebar-top {
+      flex: 0 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .brand-box {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding-bottom: 0.85rem;
+      border-bottom: 1px solid var(--card-border);
+    }
+    .brand-logo {
+      width: 38px;
+      height: 38px;
+      background: linear-gradient(135deg, var(--accent-cyan), var(--accent-deep));
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 1.2rem;
+      color: #fff;
+      box-shadow: 0 4px 12px var(--accent-cyan-dim);
+    }
+    .brand-text h2 {
+      font-size: 1.02rem;
+      font-weight: 700;
+      color: var(--text-main);
+      letter-spacing: -0.02em;
+    }
+    .brand-text p {
+      font-size: 0.72rem;
+      color: var(--accent-cyan);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .doc-nav-links {
+      display: flex;
+      flex-direction: column;
+      gap: 0.3rem;
+      padding-bottom: 0.85rem;
+      border-bottom: 1px solid var(--card-border);
+    }
+    .doc-nav-links a {
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-decoration: none;
+      padding: 0.45rem 0.65rem;
+      border-radius: 7px;
+      transition: all 0.18s ease;
+      display: flex;
+      align-items: center;
+      gap: 0.55rem;
+    }
+    .doc-nav-links a:hover {
+      color: var(--text-main);
+      background: var(--bg-tertiary);
+    }
+    .doc-nav-links a.active {
+      color: var(--accent-cyan);
+      background: var(--accent-cyan-dim);
+      border-left: 3px solid var(--accent-cyan);
+      font-weight: 700;
+    }
+
+    .toc-header-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .toc-title {
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--accent-cyan);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .toc-search {
+      width: 100%;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--card-border-bright);
+      border-radius: 7px;
+      padding: 7px 10px;
+      font-size: 0.78rem;
+      color: var(--text-main);
+      outline: none;
+      font-family: inherit;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    .toc-search:focus {
+      border-color: var(--accent-cyan);
+      box-shadow: 0 0 0 3px var(--accent-cyan-dim);
+    }
+
+    /* Dedicated scrollable TOC list filling full viewport */
+    nav.toc-nav {
+      flex: 1 1 0;
+      min-height: 0;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+      padding-top: 0.4rem;
+      padding-right: 4px;
+      scrollbar-width: thin;
+    }
+    nav.toc-nav a {
+      font-size: 0.79rem;
+      color: var(--text-muted);
+      text-decoration: none;
+      padding: 0.4rem 0.6rem;
+      border-radius: 6px;
+      transition: all 0.15s ease;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: block;
+      line-height: 1.35;
+    }
+    nav.toc-nav a:hover {
+      color: var(--text-main);
+      background: var(--bg-tertiary);
+    }
+    nav.toc-nav a.active {
+      color: var(--accent-cyan);
+      background: var(--accent-cyan-dim);
+      font-weight: 600;
+    }
+    nav.toc-nav a.h3-link {
+      padding-left: 1.25rem;
+      font-size: 0.74rem;
+      opacity: 0.85;
+    }
+
+    /* Pinned Sidebar Footer (Theme Preset Switcher) */
+    .sidebar-foot {
+      flex: 0 0 auto;
+      padding-top: 0.75rem;
+      border-top: 1px solid var(--card-border);
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+    }
+    .theme-select-label {
+      font-size: 0.68rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+    }
+    .theme-select {
+      width: 100%;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--card-border-bright);
+      border-radius: 6px;
+      padding: 6px 10px;
+      font-size: 0.78rem;
+      color: var(--text-main);
+      outline: none;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .theme-select:focus {
+      border-color: var(--accent-cyan);
+    }
+
+    /* ============================================================
+       MAIN CONTENT
+       ============================================================ */
+    main.main-content {
+      margin-left: var(--sidebar-w);
+      flex: 1;
+      padding: 2.5rem 3.5rem 5rem 3.5rem;
+      max-width: 1200px;
+    }
+
+    .doc-header {
+      margin-bottom: 2.5rem;
+      padding-bottom: 1.5rem;
+      border-bottom: 1px solid var(--card-border);
+    }
+    .doc-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 0.25rem 0.75rem;
+      border-radius: 9999px;
+      background: var(--accent-cyan-dim);
+      color: var(--accent-cyan);
+      border: 1px solid var(--accent-cyan);
+      margin-bottom: 0.75rem;
+    }
+    .doc-header h1 {
+      font-size: 2.2rem;
+      font-weight: 800;
+      color: var(--text-main);
+      letter-spacing: -0.03em;
+      margin-bottom: 0.5rem;
+      line-height: 1.2;
+    }
+    .doc-header p {
+      font-size: 1.05rem;
+      color: var(--text-muted);
+    }
+
+    /* Markdown Styling */
+    #markdown-body {
+      color: var(--text-main);
+      font-size: 0.95rem;
+    }
+    #markdown-body h1, #markdown-body h2, #markdown-body h3, #markdown-body h4 {
+      color: var(--text-main);
+      font-weight: 700;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      letter-spacing: -0.02em;
+      scroll-margin-top: 2rem;
+    }
+    #markdown-body h2 {
+      font-size: 1.45rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 1px solid var(--card-border);
+      margin-top: 2.5rem;
+      color: var(--accent-cyan);
+    }
+    #markdown-body h3 {
+      font-size: 1.2rem;
+      color: var(--text-main);
+    }
+    #markdown-body h4 {
+      font-size: 1rem;
+      color: var(--text-muted);
+    }
+    #markdown-body p {
+      margin-bottom: 1rem;
+      line-height: 1.7;
+    }
+    #markdown-body ul, #markdown-body ol {
+      margin-bottom: 1.25rem;
+      padding-left: 1.5rem;
+    }
+    #markdown-body li {
+      margin-bottom: 0.4rem;
+      line-height: 1.6;
+    }
+    #markdown-body a {
+      color: var(--accent-cyan);
+      text-decoration: none;
+      font-weight: 500;
+    }
+    #markdown-body a:hover {
+      text-decoration: underline;
+    }
+
+    /* ============================================================
+       CODE BLOCKS: Adaptive Theme Presets (Light & Dark)
+       ============================================================ */
+    #markdown-body code {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.85em;
+      background: var(--code-bg);
+      color: var(--accent-cyan);
+      padding: 0.2em 0.45em;
+      border-radius: 5px;
+      border: 1px solid var(--card-border-bright);
+      font-weight: 600;
+    }
+    #markdown-body pre {
+      background: var(--code-bg);
+      border: 1px solid var(--card-border-bright);
+      border-radius: 10px;
+      padding: 1.25rem;
+      overflow-x: auto;
+      margin-bottom: 1.5rem;
+      position: relative;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    }
+    #markdown-body pre code {
+      background: transparent !important;
+      padding: 0 !important;
+      border: none !important;
+      color: var(--text-main) !important;
+      font-size: 0.85rem;
+      line-height: 1.65;
+    }
+
+    /* Theme-adaptive syntax highlighting tokens */
+    #markdown-body pre code.hljs { background: transparent !important; padding: 0 !important; }
+    .hljs-keyword, .hljs-selector-tag, .hljs-subst, .hljs-doctag { color: var(--accent-cyan) !important; font-weight: 600; }
+    .hljs-string, .hljs-title, .hljs-title.function_, .hljs-section, .hljs-attribute, .hljs-literal,
+    .hljs-template-tag, .hljs-template-variable, .hljs-type, .hljs-addition { color: var(--accent-emerald) !important; }
+    .hljs-comment, .hljs-quote, .hljs-deletion, .hljs-meta { color: var(--text-muted) !important; font-style: italic; }
+    .hljs-number, .hljs-regexp, .hljs-link { color: var(--accent-amber) !important; }
+    .hljs-variable, .hljs-params, .hljs-attr { color: var(--text-main) !important; }
+    .hljs-built_in, .hljs-builtin-name, .hljs-symbol, .hljs-bullet { color: var(--accent-purple) !important; font-weight: 600; }
+
+    /* Copy Button */
+    .code-copy-btn {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      background: var(--bg-secondary);
+      border: 1px solid var(--card-border-bright);
+      border-radius: 6px;
+      color: var(--text-muted);
+      font-size: 0.72rem;
+      padding: 4px 8px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      transition: all 0.15s ease;
+      font-family: inherit;
+    }
+    .code-copy-btn:hover {
+      background: var(--accent-cyan);
+      color: #fff;
+      border-color: var(--accent-cyan);
+    }
+
+    #markdown-body table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 1.75rem;
+      background: var(--card-bg);
+      border-radius: 10px;
+      overflow: hidden;
+      border: 1px solid var(--card-border);
+      font-size: 0.88rem;
+    }
+    #markdown-body th {
+      background: var(--bg-tertiary);
+      color: var(--text-main);
+      font-weight: 600;
+      text-align: left;
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid var(--card-border);
+    }
+    #markdown-body td {
+      padding: 0.65rem 1rem;
+      border-bottom: 1px solid var(--card-border);
+      color: var(--text-main);
+    }
+    #markdown-body tr:hover td {
+      background: var(--bg-tertiary);
+    }
+    #markdown-body blockquote {
+      border-left: 4px solid var(--accent-cyan);
+      background: var(--accent-cyan-dim);
+      padding: 0.85rem 1.25rem;
+      border-radius: 0 8px 8px 0;
+      margin-bottom: 1.25rem;
+      color: var(--text-main);
+    }
+    #markdown-body hr {
+      border: none;
+      height: 1px;
+      background: var(--card-border);
+      margin: 2.5rem 0;
+    }
+
+    @media (max-width: 900px) {
+      aside.sidebar { display: none; }
+      main.main-content { margin-left: 0; padding: 1.5rem; }
+    }
+  </style>
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="sidebar-top">
+      <div class="brand-box">
+        <div class="brand-logo">M</div>
+        <div class="brand-text">
+          <h2>MicronOS Docs</h2>
+          <p>Enterprise Firewall</p>
+        </div>
+      </div>
+
+      <div class="doc-nav-links">
+        <a href="index.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
+          </svg>
+          Docs Portal Hub
+        </a>
+
+        <a href="MICRON_FIREWALL_OS_ARCHITECTURE.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/>
+          </svg>
+          Architecture Blueprint
+        </a>
+        <a href="MICRONOS_MODULE_REFERENCE.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/>
+          </svg>
+          Module Reference
+        </a>
+        <a href="STEP_BY_STEP_IMPLEMENTATION_PLAN.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/>
+          </svg>
+          Implementation Plan
+        </a>
+        <a href="ISO_CREATION_AND_INSTALLER_GUIDE.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/>
+          </svg>
+          ISO &amp; Installer Guide
+        </a>
+        <a href="SSLVPN_ZTNA_CLIENTLESS_GATEWAY_SPECIFICATION.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+          </svg>
+          SSL-VPN &amp; ZTNA Spec
+        </a>
+        <a href="MICRONOS_UPDATE_AND_UPGRADE_SPECIFICATION.html" class="active">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+          </svg>
+          Update &amp; Upgrade Spec
+        </a>
+        <a href="MICRONOS_PLUGIN_AND_PACKAGE_MANAGER_SPECIFICATION.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
+          </svg>
+          Plugin &amp; Package Manager
+        </a>
+        <a href="MICRONOS_CONNECTOR_ABSTRACTION_SPECIFICATION.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13.828 10.172a4 4 0 010 5.656l-4 4a4 4 0 11-5.656-5.656l1-1m9.656-2.344a4 4 0 00-5.656-5.656l-4 4a4 4 0 105.656 5.656l1-1"/>
+          </svg>
+          Connector Abstraction Spec
+        </a>
+        <a href="MICRONOS_CONNECTOR_THREAT_MODEL.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+          </svg>
+          Connector Threat Model
+        </a>
+        <a href="HYPERV_WIN11_DEVELOPMENT_AND_AI_COORDINATION_GUIDE.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
+          </svg>
+          Hyper-V &amp; AI Dev Guide
+        </a>
+        <a href="POWER_LOSS_RESILIENCE_AND_RECOVERY_ENGINEERING_SPECIFICATION.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+          </svg>
+          Power Resilience &amp; LKGC Spec
+        </a>
+        <a href="MICRONOS_BONDING_AND_WIRELESS_GUIDE.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13.828 10.172a4 4 0 010 5.656l-3 3a4 4 0 01-5.656-5.656l1.5-1.5m7.156-7.156a4 4 0 00-5.656 0l-3 3a4 4 0 000 5.656l1.5 1.5"/>
+          </svg>
+          Bonding &amp; Wi-Fi Guide
+        </a>
+        <a href="MICRONOS_ADVANCED_ROADMAP_SPECIFICATION.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+          </svg>
+          Advanced Roadmap Spec
+        </a>
+        <a href="MICRONOS_VERSIONING_AND_RELEASE_LIFECYCLE_SPECIFICATION.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"/>
+          </svg>
+          Versioning &amp; Release Spec
+        </a>
+        <a href="http://micronos.test/dashboard" target="_blank" style="color:var(--accent-cyan); background:var(--accent-cyan-dim);">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+          </svg>
+          Launch Appliance GUI &rarr;
+        </a>
+      </div>
+
+      <div class="toc-header-wrap">
+        <div class="toc-title">
+          <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h7"/>
+          </svg>
+          Table of Contents
+        </div>
+        <input type="text" id="toc-search" class="toc-search" placeholder="Filter sections (e.g. snmp, siem, nat)..." oninput="filterToc(this.value)">
+      </div>
+    </div>
+
+    <nav class="toc-nav" id="toc-container">
+      <!-- Generated dynamically -->
+    </nav>
+
+    <div class="sidebar-foot">
+      <label for="themePresetSelect" class="theme-select-label">Theme Preset</label>
+      <select id="themePresetSelect" class="theme-select" onchange="setThemePreset(this.value)">
+        <optgroup label="Dark Themes">
+          <option value="dark">Dark Abyss</option>
+          <option value="midnight">Midnight</option>
+          <option value="ocean">Ocean Teal</option>
+          <option value="forest">Forest</option>
+          <option value="slate">Slate Grey</option>
+        </optgroup>
+        <optgroup label="Light Themes">
+          <option value="light">Light / Day</option>
+          <option value="solar">Solar Amber</option>
+          <option value="mint">Mint Breeze</option>
+          <option value="paper">Paper Ink</option>
+        </optgroup>
+      </select>
+    </div>
+  </aside>
+
+  <main class="main-content">
+    <div class="doc-header">
+      <span class="doc-badge">
+        <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+        </svg>
+        MicronOS Technical Manual
+      </span>
+      <h1>Micron Firewall OS (MicronOS) — Update & Upgrade Mechanism Specification</h1>
+      <p>Three-Plane Lifecycle Architecture: Content, Management-Plane and Platform Image Updates with A/B Slot Activation and Automatic Rollback</p>
+    </div>
+
+    <article id="markdown-body"></article>
+  </main>
+
+  <script>
+    const rawMarkdown = "# MicronOS — Update & Upgrade Mechanism Specification\n\n## Design Specification — Not Yet Implemented\n\n### Three-Plane Lifecycle: Content, Application and Platform Updates\n\n**Status:** Design specification. Nothing in this document is built yet — §3 records exactly what exists in the repository today.\n**Applies to:** Micron Firewall OS 2.x appliances (Debian 13 data plane + CodeIgniter 4 management plane)\n**Companion documents:** [Architecture Blueprint](MICRON_FIREWALL_OS_ARCHITECTURE.html) §6 & §20 · [ISO & Installer Guide](ISO_CREATION_AND_INSTALLER_GUIDE.html) §9 · [Module Reference](MICRONOS_MODULE_REFERENCE.html)\n\n---\n\n## 1. Purpose & Scope\n\nThis document defines how a MicronOS appliance receives changes after it has been installed: how update artifacts are published and verified, how they are applied, how a failed update is detected and reversed, and how the three very different kinds of change are kept from interfering with one another. **It describes a design target, not current behaviour** — the audit in §3 is the authoritative statement of what the appliance does today.\n\nIt covers the **push/pull update mechanism only**. It does not redefine configuration commit semantics (see Architecture §6, *Transactional Commit Engine*), backup/restore (`BackupEngine`, `RestoreManager`), or first-boot provisioning (`micron-firstboot.sh`).\n\n> **Read this first — two corrections to existing documents.** Sections 3.2 and 3.3 record claims in the Architecture Blueprint and Module Reference that do not match the repository, and which this specification supersedes.\n\n---\n\n## 2. Design Principles\n\n1. **Three planes, never one pipeline.** Content, application, and platform changes have different cadences, blast radii and rollback costs. Collapsing them forces every PHP bugfix through an image rebuild and a reboot.\n2. **The running system is never mutated in place.** An update is written beside the running version and activated by an atomic switch (symlink flip or boot slot).\n3. **Every update is verifiable and reversible.** Signed artifacts, a recorded pre-update snapshot, and an automatic fall back to the previous known-good state.\n4. **Health is asserted, not assumed.** A new version only becomes permanent after an explicit post-update verification step passes. Silence is treated as failure.\n5. **The database is the source of truth; the daemon is the only privileged actor.** All update actions are driven from the web UI through `micrond` over the existing Unix-socket JSON-RPC bridge. The PHP layer remains unprivileged.\n6. **An appliance that cannot reach the internet must still be updatable.** Signed bundles are equally valid from a USB device as from a channel endpoint.\n\n---\n\n## 3. Current-State Audit\n\nEverything below was verified against the repository, not inferred.\n\n### 3.1 What exists today\n\n| Capability | Reality | Location |\n| :--- | :--- | :--- |\n| Spark command layer | 8 commands, three of which are directly reusable as update primitives | `app/Commands/` |\n| Post-update verification primitive | `VerifySystem` — verifies compilers, daemons and engines | `app/Commands/VerifySystem.php` |\n| Pre-migrate snapshot primitive | `BackupCreate` — atomic configuration backup archive | `app/Commands/BackupCreate.php` |\n| Migration integrity guard | `MigrateResync` — repairs migration-history rows | `app/Commands/MigrateResync.php` |\n| Content feed synchronisation | `SyncServices` (public prefix/geo feeds), `ResolveObjects` | `app/Commands/` |\n| Content auto-update flags | `auto_update` columns on `ids_settings` and the webfilter category tables | migrations `000071`, `000072` |\n| Signature update (in-app) | ClamAV signature update endpoint on the Web Filter antivirus panel | `app/Controllers/WebFilter.php` |\n| Config rollback engine | Commit Watchdog Pattern — stage → compile-test → apply → 60 s confirm-or-revert | Architecture §6 |\n| Privileged transport | `IpcClient` → `/run/micron/micrond.sock`; mock layer for Windows dev | `app/Libraries/IpcClient.php` |\n| Reboot RPC | `system.reboot` exists (mock: 3 s delay) and is wrapped by `CommandDispatcher` | `IpcClient.php:311` |\n\n### 3.2 Correction — the A/B scheme was documented but not built\n\nArchitecture §20 and Installer Guide §9 present **dual A/B root slots as an operating feature**. Three separate realities had to be reconciled:\n\n- **The guide's embedded installer** ([ISO & Installer Guide](ISO_CREATION_AND_INSTALLER_GUIDE.html) §9) created a `ROOT_B` partition but never formatted, mounted or referenced it, and installed GRUB with no slot selector.\n- **The repository's actual installer** — `installer/install.sh`, the file that runs on an appliance — was further from A/B still: a **single** root partition (`ESP` + swap + `MicronOS Root`) and **no data partition at all**, so neither a second slot nor a persistent layer existed.\n- Architecture §20's \"three-minute bootloader fallback\" therefore had nothing to fall back from or to.\n\n> **Update — Phase 0 (see §13) is implemented.** `installer/install.sh` now provisions the full A/B layout: slot B is created, formatted and labelled, listed in `fstab` by UUID as `noauto`, seeded into a GRUB environment block, and adopted after a verified boot by `micron-healthcheck`. The audit above is retained because it is what the pre-Phase-0 code did, and because the guide's embedded script remains an older variant — **`installer/install.sh` is authoritative**. What is *not* yet built is everything downstream of the slot: no updater writes an image into slot B (Phase 3), and no daemon-side logic consumes the slot state, so slot B stays empty until that lands.\n\n### 3.3 Correction — there is no Updates settings surface\n\nThe Module Reference lists, under *System Settings & Appearance* (2.27):\n\n> `| Updates | Firmware update channel, auto-update window |`\n\n**No such settings exist.** There is no `update_channel`, `auto_update_window`, `os_version` or `app_version` column in any migration, no Updates tab or field in `app/Views/system/index.php`, no update route in `app/Config/Routes.php`, and no `system.update` method in `IpcClient`. The only `auto_update` columns that exist belong to the **content plane** (`ids_settings`, webfilter category tables) and are unrelated to firmware.\n\nThe claim has been corrected in the Module Reference to read as *planned*, pointing here.\n\n### 3.4 The coupling problem\n\nThe installer deploys the application to **`/usr/local/micron`**, with the web server rooted at `/usr/local/micron/public` ([ISO guide §4.1](ISO_CREATION_AND_INSTALLER_GUIDE.html), [§6.1](ISO_CREATION_AND_INSTALLER_GUIDE.html)) — that is, on the **read-only root filesystem**. Consequently an application-only fix (a template typo, a controller bug) today requires building and shipping a complete platform image and rebooting the branch appliance. This is the single strongest justification for splitting plane B from plane C, and is why §5 relocates the application tree.\n\n---\n\n## 4. The Three Planes\n\n| | **Plane A — Content** | **Plane B — Management** | **Plane C — Platform** |\n| :--- | :--- | :--- | :--- |\n| **Changes** | ClamAV signatures, Suricata rules, blocklists, GeoIP/prefix feeds, tzdata, CA bundles | CodeIgniter application code, views, assets, DB schema | Kernel, base OS packages, FRR, nftables, Squid, Kea, Unbound, php-fpm/nginx |\n| **Artifact** | Signed ZIP/tarball per feed | Signed application tarball | Signed RAUC bundle (`.raucb`) containing a SquashFS root image |\n| **Cadence** | hourly → daily | weekly → on demand | quarterly, or on CVE |\n| **Activation** | atomic file swap | symlink flip + `php-fpm` reload | write inactive slot, reboot, mark good |\n| **Rollback** | re-download previous set | symlink flip back + DB restore | boot the previous slot |\n| **Reboot** | no | no | yes |\n| **Privilege** | `micrond` | `micrond` | `micrond` |\n| **Blast radius** | low | medium (UI/API only) | total |\n\nOrdering rule: **platform (C) → management (B) → content (A)**, and never run two planes concurrently. A plane C update implies a known-good plane B release; the appliance refuses to boot a slot whose recorded plane B version is incompatible with the platform's declared minimum.\n\n---\n\n## 5. Plane B — Management-Plane (Application) Updates\n\n### 5.1 Relocating the application tree\n\nThe application moves off the read-only root into the persistent DATA partition, versioned by directory, and is addressed through a stable symlink:\n\n```\n/var/lib/micron/                     ← DATA partition (persistent, writable)\n├── app/\n│   ├── releases/\n│   │   ├── 2.4.0/                   ← complete application tree, immutable once activated\n│   │   ├── 2.4.1/\n│   │   └── 2.4.2/                   ← staged, not yet active\n│   ├── current -> releases/2.4.1    ← atomic activation target\n│   └── previous -> releases/2.4.0   ← one-step rollback target\n├── backups/                         ← BackupCreate archives, pre-update snapshots\n├── bundles/                         ← staged download area for all three planes\n├── updates.db                       ← plane A/B/C history (see §8)\n└── micron_config.db                 ← the configuration database\n```\n\nnginx's `root` and php-fpm's `chdir` are pointed at `/var/lib/micron/app/current/public`. Activation is `ln -sfn` + `systemctl reload php8.3-fpm` — a single atomic operation with no window in which the tree is partially written.\n\n**Retention:** keep the running release plus the previous two; prune older ones after a successful verification, never during an update window.\n\n### 5.2 Update flow\n\n| # | Step | Detail | On failure |\n| :--- | :--- | :--- | :--- |\n| 1 | **Check** | `micron-update check --plane=app` fetches `manifest.json`, verifies its signature, compares semver to the running version and gates on `min_platform` / `min_schema` / `max_schema`. | Log, surface \"check failed\", no state change. |\n| 2 | **Stage** | Download the tarball into `bundles/`, verify SHA-256 and signature, unpack into `releases/<version>/`. The running release is untouched. | Delete the partial directory; report. |\n| 3 | **Verify tree** | Compare the unpacked file list against the manifest; run `php spark` boot check and `VerifySystem`. | Discard the staged release. |\n| 4 | **Snapshot** | `php spark micron:backup:create --tag=pre-2.4.2` → `backups/`. Also record the current release symlink targets in `updates.db`. | Abort before any switch. |\n| 5 | **Migrate** | `php spark migrate` executed against the *staged* release while the old one serves traffic, using the schema gates from step 1. | Restore the snapshot, discard, abort. |\n| 6 | **Activate** | `current` symlink flipped to the new release; `php-fpm` reloaded. | Flip back immediately. |\n| 7 | **Smoke test** | Authenticate, load the dashboard, confirm the compiled ruleset matches the pre-update output, confirm `micrond` IPC round-trips. | Auto-rollback (§5.3). |\n| 8 | **Commit** | Record success in `updates.db`, prune old releases, emit an audit entry. | — |\n\nSteps 4–7 are the existing Commit Watchdog Pattern (Architecture §6) applied to a code deployment rather than a config change: same stage / verify / activate / confirm shape, with `BackupCreate` and `VerifySystem` supplying the snapshot and the health assertion.\n\n### 5.3 Automatic rollback\n\nA rollback is triggered when any of these occur inside the smoke-test window:\n\n- the health endpoint does not answer within 30 s of the `php-fpm` reload;\n- `VerifySystem` reports a failure;\n- any request returns a 500 in the first 60 s of traffic;\n- the operator does not confirm within the commit deadline (same 60 s convention as §6).\n\nRollback = restore the DB snapshot from step 4, re-point `current` at `previous`, reload `php-fpm`, record a `rolled_back` history row, and raise an alert. Because the previous release directory was never modified, this is a symlink flip and a restore — seconds, not minutes.\n\n### 5.4 Schema compatibility rules\n\n- Migrations must remain **immutable and idempotent** — the existing migration set already satisfies this, which is what makes an N-1 rollback safe without ever needing a `down()` in anger.\n- An application release declares `min_schema` and `max_schema`; the updater refuses to activate a release whose schema requirements exceed the platform's bundled migration runner.\n- Support **N-1 compatibility**: a release must run against the schema of its predecessor and its successor's predecessor. Enforce with a `schema_lock` table row written by every migration batch.\n- Never roll back across a schema boundary without restoring the snapshot. A symlink rollback alone is only safe when `min_schema`/`max_schema` overlap; the updater checks this and falls back to the full restore path when they do not.\n\n### 5.5 Semantic Versioning & Release Channels (`MAJOR.MINOR.PATCH`)\n\nMicron OS strictly follows a 3-part versioning standard:\n\n$$\\mathbf{MAJOR}.\\mathbf{MINOR}.\\mathbf{PATCH}$$\n\n*(e.g., `2.4.56`, `0.1.23`, `2.2.11`)*\n\n1. **Second Digit (Minor) — Release Channel Rule:**\n   - **Odd number (`1, 3, 5, ...`)** $\\rightarrow$ **Development Version** (e.g. `0.1.23`, `1.1.24`, `2.3.56`). Used for active development, nightly builds, and testing.\n   - **Even number (`0, 2, 4, ...`)** $\\rightarrow$ **Stable Version** (e.g. `0.2.0`, `2.2.11`, `2.4.12`). Used for production-hardened releases and enterprise LTS deployments.\n2. **Third Digit (Patch) — Incremental Edits:**\n   - Represents incremental edits, builds, or configuration revisions performed on the project (`.56`, `.12`, `.11`, `.24`, `.23`).\n   - Increments with each confirmed commit/edit via `AppVersion::incrementPatch()`.\n3. **Project Starting Baseline:**\n   - The initial version starts at **`0.1.23`** (Development version, since minor digit `1` is odd).\n4. **Project Name:** Strictly **\"Micron OS\"** (with space), never \"MicronOS\".\n5. **Reference Specification:** See [Semantic Versioning & Release Lifecycle Specification](MICRONOS_VERSIONING_AND_RELEASE_LIFECYCLE_SPECIFICATION.html) for complete architectural and runtime details.\n\n---\n\n## 6. Plane C — Platform (Image) Updates\n\n### 6.1 What the installer must provide first\n\nThree prerequisites. **All three are implemented** (Phase 0, §13); the design of each is recorded here because Phase 3's updater depends on their exact contract.\n\n1. **Slot B formatted and addressable** — `mkfs.ext4 -F -L MICRON_ROOT_B`, plus an `fstab` entry by UUID at `/mnt/micron-slot-b` marked `noauto,nofail`. `noauto` is deliberate: an image being written into the slot must never be half-mounted by the running system. *(implemented in [install.sh](../installer/install.sh))*\n2. **Boot-slot selector** — a GRUB environment block holding `micron_active_slot`, `micron_a_ok`, `micron_b_ok`, `micron_a_fail`, `micron_b_fail`, read by `/etc/grub.d/09_micron_slots` (so it sorts before `10_linux` and its menuentry is the default). *(implemented in [09_micron_slots](../installer/grub.d/09_micron_slots))*. Two deliberate design decisions: the block is GRUB's own `grubenv` format written by a plain shell helper rather than `grub-editenv`, so the installer can seed it before GRUB exists in the target; and the selector performs **no arithmetic**, because GRUB script has no reliable integer maths. Counters therefore live in the health check, and GRUB only answers *\"is the preferred slot proven, and if not, is the other one?\"*.\n3. **Health-check unit** — `micron-healthcheck.service`, running once per boot, is the *only* code permitted to mark a slot good. *(implemented in [micron-healthcheck](../installer/micron-healthcheck))*\n\nA slot with no good mark is never promoted, and when nothing is marked good the selector still boots the active slot — so a fresh install and a doubly-failed appliance both stay reachable while the failure is recorded.\n\n**Still outstanding on the daemon side:** `micrond` must begin pinging the hardware watchdog only *after* the health check passes (§6.2). That ordering lives in the daemon and is not part of Phase 0.\n\n### 6.2 Boot and activation flow\n\n```\n                    PUBLISH (CI, offline signing key)\n                    rootfs → squashfs → signed .raucb\n                                │\n                                ▼\n  ┌──────────────────────────────────────────────────────────────┐\n  │ micron-update stage --plane=platform                         │\n  │  verify signature → hash → write to the INACTIVE slot        │\n  │  record desired version + attempts_left = 3 in slot env      │\n  └───────────────────────────┬──────────────────────────────────┘\n                              ▼\n  ┌──────────────────────────────────────────────────────────────┐\n  │ micron-update apply → set active_slot=other → reboot         │\n  └───────────────────────────┬──────────────────────────────────┘\n                              ▼\n  ┌──────────────────────────────────────────────────────────────┐\n  │ GRUB bootchooser reads slot env, boots the marked slot       │\n  └───────────────────────────┬──────────────────────────────────┘\n                              ▼\n        ┌─────────────────────────────────────────────┐\n        │ micron-healthcheck.service (new slot)       │\n        │  • nginx answers /healthz                   │\n        │  • micrond IPC round-trips                  │\n        │  • frr + nftables rulesets loaded           │\n        │  • VerifySystem passes                      │\n        │  • schema migration completed               │\n        │  • management connectivity preserved        │\n        └───────────────┬─────────────────────────────┘\n                pass ───┴─── fail\n                  │            │\n      slot_X_ok=true│            │ attempts_left-- ; on reaching 0,\n      commit        │            │ clear slot_X_ok → GRUB falls back\n      release notes │            │ to the previous slot automatically\n                    ▼            ▼\n```\n\nDesign notes:\n\n- The health check reuses the **WAN-preservation rule from Architecture §6**: the appliance must still be reachable on the management interface after the update, otherwise the new version is treated as failed even if its own services started. A platform update that isolates the branch is exactly the failure this exists to prevent.\n- `attempts_left` starts at 3 so a transient crash-loop does not permanently discard a good image.\n- The `micrond` hardware-watchdog ping (Architecture §20, every 15 s to `/dev/watchdog`) must begin **only after** `micron-healthcheck` passes; pinging early would let a broken slot look alive.\n- The read-only root means a slot can be verified byte-for-byte before it is ever booted.\n\n### 6.3 RAUC bundle contents\n\n```ini\n# manifest.raucm (indicative)\n[update]\ncompatible=micronos-2-x86-64\nversion=2.5.0\ndescription=MicronOS 2.5.0 platform image\n\n[bundle]\nformat=verity\n\n[image.rootfs]\nfilename=rootfs.squashfs\n\n[image.bootloader]\nfilename=bootloader.tar          # GRUB bootchooser env defaults\n```\n\nAdditional metadata travels in a signed sidecar consumed by `micron-update`: `min_platform`, `min_schema`, `app_version_recommended`, `release_notes_url`, `rollback_safe=true|false`.\n\n### 6.4 Why RAUC\n\nThe installer already uses **GRUB2** and already sketches two equal-sized root partitions, which is precisely the shape RAUC targets; it is the mainstream choice for this class of device and supports GRUB `bootchooser` natively. Alternatives considered:\n\n| Option | Verdict |\n| :--- | :--- |\n| **SWUpdate** | Viable, but its strength is dual-copy handler configuration; it brings no boot-slot semantics we get free from GRUB `bootchooser`. |\n| **Mender / Balena** | End-to-end platform including a hosted server. More operational surface than a branch firewall needs, and it introduces a third-party dependency in the update trust path. |\n| **OSTree / rpm-ostree** | Attractive image model, but a fundamental change to how the base OS is composed and booted — too large a step for a design already shipping SquashFS + GRUB. |\n\nRAUC adds only the bundle format, signature verification, and the slot bookkeeping — the boot machinery is ours and already planned.\n\n---\n\n## 7. Plane A — Content Updates\n\nContent updates are frequent, small, and never reboot. They are consolidated behind one library and one timer so that signing, retry, telemetry and history are shared instead of re-implemented per feed.\n\n| Feed | Source | Consumer | Existing hook |\n| :--- | :--- | :--- | :--- |\n| Public prefix feeds / geo | Internet Service DB providers | `ResolveObjects`, address objects | `SyncServices` |\n| Suricata rulesets | Emerging Threats / custom | `SuricataCompiler` | `ids_settings.auto_update` |\n| Web category blocklists | Shallalist / UT1 / URLhaus | Squid ACLs | webfilter category `auto_update` |\n| Antivirus signatures | ClamAV mirrors | `c-icap` / `clamav-daemon` | Web Filter AV panel |\n| GeoIP databases | MaxMind | address objects | — |\n| Timezones | IANA tzdata | base OS | — |\n\nRules:\n\n- Download to `bundles/<feed>-<timestamp>.<ext>` on DATA, verify checksum and (where available) signature, **then** swap the live file into place with a rename — consumers never observe a partial file.\n- Keep the previous set for one cycle so a corrupt feed can be reverted without re-downloading.\n- A content update must never require a service restart beyond the consumer itself (`squid -k reconfigure`, `suricatasc -c reload-rules`).\n- Record every run in `updates.db` and honour a maintenance window / bandwidth ceiling, because branch links are the scarce resource.\n\n---\n\n## 8. Data Model\n\nNew table, owned by the update subsystem and read by the System UI:\n\n```\nupdate_history\n  id                INTEGER PK\n  plane             TEXT     -- content | app | platform\n  target_version    TEXT\n  from_version      TEXT\n  slot              TEXT     -- NULL | a | b\n  status            TEXT     -- checking | staged | applying | active\n                             -- | rolled_back | failed\n  artifact_sha256   TEXT\n  signature_state   TEXT     -- verified | unsigned | invalid\n  started_at        TEXT\n  finished_at       TEXT\n  detail            TEXT     -- JSON: gate results, health-check output, error\n```\n\nPlus two small files rather than tables, because they must be readable before the database is mounted: the **slot env file** (§6.1) and `schema_lock` (§5.4).\n\n---\n\n## 9. Trust Model\n\n| Concern | Rule |\n| :--- | :--- |\n| **Signing** | Ed25519 or RSA-4096 over the manifest; the private key never exists on an appliance. |\n| **Verification key** | Public key baked into the read-only root at image build time. Rotating it is itself a platform update. |\n| **Distinct keys** | The update signing key is **separate** from the TLS/interception PKI (`pki_authorities`) and from the config-backup encryption key. Compromise of one must not grant the other. |\n| **Transport** | HTTPS with certificate pinning; a LAN mirror is supported but must present the same signed artifacts. |\n| **Downgrade** | Refused unless `--allow-downgrade` **and** the target's `min_schema`/`max_schema` admit the current database. |\n| **Replay** | Manifest carries `issued_at`; the updater rejects manifests older than the applied version's issue date. |\n| **Audit** | Every check, stage, apply and rollback writes an `audit_logs` row. |\n| **Privilege** | The web layer never writes to a slot, never formats, never reboots; it emits RPC and renders state. |\n\n---\n\n## 10. Control Interface\n\n### 10.1 RPC (daemon side, over `/run/micron/micrond.sock`)\n\n| Method | Purpose |\n| :--- | :--- |\n| `system.update.check` | Fetch + verify manifest, return available versions per plane. |\n| `system.update.stage` | Download and verify; write the inactive target. |\n| `system.update.apply` | Activate (symlink flip + reload, or slot flag + reboot). |\n| `system.update.rollback` | Revert the last activation and restore the snapshot. |\n| `system.update.status` | Current plane versions, slot state, `attempts_left`, history tail. |\n| `system.content.sync` | Trigger a content-plane refresh for named feeds. |\n\n`system.update` is the name already reserved in the Architecture command table; `system.reboot` (implemented) is used by `apply` for the platform plane.\n\n### 10.2 Web surface\n\n- **System → Updates** (the settings surface the Module Reference currently describes but does not exist): installed versions per plane, channel selector, maintenance window, check/stage/apply/rollback actions, live progress, history table.\n- **Dashboard**: an update-available badge tied to the existing banner mechanism.\n- Permissions: a new `system.updates.manage` for actions; `system.updates.view` to see status. Both gated by the existing `permission:` route filter.\n\n---\n\n## 11. Failure Modes\n\n| Failure | Detection | Response |\n| :--- | :--- | :--- |\n| Corrupt download | SHA-256 mismatch | Discard, retry up to 3× with backoff, then report. |\n| Invalid/absent signature | Verification step | Hard refuse; never fall back to unsigned. |\n| Schema gate mismatch | Manifest vs `schema_lock` | Refuse activation; tell the operator which platform version is required. |\n| Migration failure | `spark migrate` non-zero | Restore snapshot; leave the running release active. |\n| Bad application release | Smoke test / 500s / timeout | Automatic symlink + snapshot rollback (§5.3). |\n| Bad platform image | `micron-healthcheck` failure | Attempts decrement; GRUB falls back to the previous slot. |\n| Loss of management connectivity | Post-update reachability probe | Treated as failure even if services report healthy. |\n| Power loss mid-write | Slot written then marked; activation is a single flag | Slot is never marked good, so it is discarded on next boot. |\n| Watchdog reboot loop | Boot counter | After 3 failed attempts the slot is abandoned and support is notified. |\n| Air-gapped branch | No channel reachable | USB bundle path uses the identical verification chain. |\n\n---\n\n## 12. Delivery, Channels & Fleet\n\n- **Channels:** `stable`, `candidate`, `lab`. An appliance pins one; the channel selector in System → Updates changes it (audited).\n- **Staged rollout:** the fleet controller may command cohorts — canary → 10 % → 50 % → 100 % — with automatic halt on the first health-check failure. Canary appliances are expected to be lab units, never the only uplink at a critical site.\n- **Offline:** a `.raucb` or app tarball on USB is verified against the same baked-in key; the operator is shown the version, signature state and hash before they can apply it.\n- **Fleet reporting:** appliances POST `{uuid, channel, plane versions, slot state, health}` to a controller; the controller never pushes arbitrary commands, only \"which version to pull\".\n- **Factory reset** is distinct from rollback: it clears the DATA partition and returns to the factory slot image, and it is never an implicit consequence of a failed update.\n\n---\n\n## 13. Implementation Roadmap\n\nEach phase is independently useful and independently testable.\n\n**Phase 0 — Make A/B real (prerequisite). ✅ Implemented.**\n`installer/install.sh` partitions `ESP` + swap + `ROOT_A` + `ROOT_B` + `DATA`, formats and labels every slot, mounts `DATA` at `/var/lib/micron`, writes the five-entry `fstab`, installs the slot selector as `/etc/grub.d/09_micron_slots`, seeds the `grubenv` block, and installs + enables the health-check service. Slot B is deliberately left **empty** — it is the target an update writes to, not a clone of slot A.\n*Acceptance:* covered by [tests/installer/phase0_slot_b_test.sh](../tests/installer/phase0_slot_b_test.sh) (49 assertions, wired into PHPUnit as `Phase0SlotBTest`): the scripts parse, the slot helper's invariants hold (including a 1024-byte block after every write), the installer provisions and formats slot B and lists it as `noauto`, the emitted GRUB fragment boots both slots by UUID with no arithmetic and falls back when the preferred slot is unproven, and the health check promotes a verified slot, counts failures, abandons a slot after three failed boots, and starts an activated slot unverified.\n*Not verified here:* the actual partition/mkfs/grub-install run and a real reboot cycle, which need appliance hardware or a VM. The arithmetic of the disk-size preflight and the layout is checked, but no disk was partitioned.\n\n**Phase 1 — Application-plane updater.**\nRelocate the app tree to `/var/lib/micron/app/releases/`, add `micron-update check|stage|apply|rollback --plane=app`, wire `BackupCreate` / `MigrateResync` / `VerifySystem` into the flow.\n*Acceptance:* a deliberately broken release is automatically rolled back within 60 s with the database restored; a good release activates without a reboot and with no dropped requests.\n\n**Phase 2 — Health check + rollback proof.**\n`micron-healthcheck.service`, watchdog-ping ordering, three-attempt exhaustion.\n*Acceptance:* an intentionally unbootable slot falls back on the first boot; a slot that boots but fails the reachability probe also falls back.\n\n**Phase 3 — Platform-plane updater.**\nRAUC integration, bundle signing in CI, `system.update.*` RPC, `updates.db`.\n*Acceptance:* a signed bundle upgrades a QEMU appliance across a minor version and rolls back cleanly when the health check is forced to fail; an unsigned bundle is rejected.\n\n**Phase 4 — Content consolidation + fleet.**\nUnify feed updaters, add the maintenance window, channel selector, System → Updates UI, and optional fleet reporting.\n\nPhases 0–2 deliver the resilience the Architecture document already claims. Phases 3–4 deliver the mechanism.\n\n---\n\n## 14. Document Corrections Applied\n\nThis specification supersedes the following statements in the existing documents, which have been amended to match reality:\n\n| Document | Previous claim | Corrected to |\n| :--- | :--- | :--- |\n| Architecture §20 | Dual A/B slots and a 3-minute bootloader fallback described as operating | Stated as the target design, with the installer gap and a cross-reference here |\n| Module Reference §2.27 | \"Updates — firmware update channel, auto-update window\" listed as an existing settings category | Marked planned, pointing here; the only `auto_update` columns that exist are content-plane |\n| ISO & Installer Guide §9 | Partition table presented as a working dual-slot scheme | Annotated with the actual installer behaviour (`ROOT_B` partitioned but not formatted, mounted or selected) |\n\n---\n\n*Micron Firewall OS — Update & Upgrade Mechanism Specification*\n";
+    
+    // Theme Presets Management
+    const LIGHT_THEMES = ['light', 'solar', 'mint', 'paper'];
+    function setThemePreset(theme) {
+      document.documentElement.dataset.theme = theme;
+      document.documentElement.dataset.mode = LIGHT_THEMES.includes(theme) ? 'light' : 'dark';
+      try {
+        localStorage.setItem('micron_docs_theme', theme);
+      } catch (e) {}
+      const sel = document.getElementById('themePresetSelect');
+      if (sel) sel.value = theme;
+    }
+
+    try {
+      const savedTheme = localStorage.getItem('micron_docs_theme') || 'dark';
+      setThemePreset(savedTheme);
+    } catch (e) {
+      setThemePreset('dark');
+    }
+
+    // Configure marked with highlight.js
+    marked.setOptions({
+      highlight: function(code, lang) {
+        if (lang && hljs.getLanguage(lang)) {
+          return hljs.highlight(code, { language: lang }).value;
+        }
+        return hljs.highlightAuto(code).value;
+      },
+      breaks: false,
+      gfm: true
+    });
+
+    const rendered = marked.parse(rawMarkdown);
+    document.getElementById('markdown-body').innerHTML = rendered;
+
+    // Generate Dynamic TOC with IDs
+    const headings = document.getElementById('markdown-body').querySelectorAll('h2, h3');
+    const tocContainer = document.getElementById('toc-container');
+    
+    headings.forEach(heading => {
+      const text = heading.textContent;
+      const base = text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+      let slug = base;
+      for (let n = 2; document.getElementById(slug); n++) {
+        slug = base + '-' + n;
+      }
+      heading.id = slug;
+      
+      const link = document.createElement('a');
+      link.href = '#' + slug;
+      link.textContent = text;
+      link.dataset.title = text.toLowerCase();
+      if (heading.tagName.toLowerCase() === 'h3') {
+        link.classList.add('h3-link');
+      }
+      tocContainer.appendChild(link);
+    });
+
+    // Add Copy Buttons to Pre blocks
+    document.querySelectorAll('#markdown-body pre').forEach(pre => {
+      const copyBtn = document.createElement('button');
+      copyBtn.className = 'code-copy-btn';
+      copyBtn.innerHTML = '<svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg> Copy';
+      copyBtn.onclick = () => {
+        const codeText = pre.querySelector('code')?.innerText || pre.innerText;
+        navigator.clipboard.writeText(codeText);
+        copyBtn.innerHTML = '✔ Copied!';
+        setTimeout(() => {
+          copyBtn.innerHTML = '<svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg> Copy';
+        }, 2000);
+      };
+      pre.appendChild(copyBtn);
+    });
+
+    // TOC Filter
+    function filterToc(query) {
+      query = (query || '').toLowerCase().trim();
+      document.querySelectorAll('#toc-container a').forEach(a => {
+        if (!query || a.dataset.title.includes(query)) {
+          a.style.display = 'block';
+        } else {
+          a.style.display = 'none';
+        }
+      });
+    }
+
+    // Scrollspy for TOC highlight
+    const tocLinks = Array.from(tocContainer.querySelectorAll('a'));
+    function syncTocActive() {
+      const scrollPos = window.scrollY + 120;
+      let activeHeading = null;
+      headings.forEach(h => {
+        if (h.offsetTop <= scrollPos) {
+          activeHeading = h;
+        }
+      });
+      if (activeHeading) {
+        tocLinks.forEach(link => {
+          link.classList.toggle('active', link.getAttribute('href') === '#' + activeHeading.id);
+        });
+      }
+    }
+    window.addEventListener('scroll', syncTocActive, { passive: true });
+    syncTocActive();
+  </script>
+</body>
+</html>

@@ -1,0 +1,880 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark" data-mode="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Micron Firewall OS (MicronOS) — Step-by-Step Implementation Plan</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <style>
+    /* ============================================================
+       THEME PRESETS: 9 MicronOS Schemes (Dark + Light)
+       ============================================================ */
+    :root, [data-theme="dark"] {
+      --bg-primary: #070b14;
+      --bg-secondary: #0d1220;
+      --bg-tertiary: #111827;
+      --card-bg: rgba(17, 24, 39, 0.7);
+      --card-border: rgba(255, 255, 255, 0.08);
+      --card-border-bright: rgba(255, 255, 255, 0.14);
+      --text-main: #f1f5f9;
+      --text-muted: #94a3b8;
+      --accent-cyan: #00d4ff;
+      --accent-cyan-dim: rgba(0, 212, 255, 0.15);
+      --accent-deep: #0096c7;
+      --accent-purple: #7c3aed;
+      --accent-emerald: #10b981;
+      --accent-amber: #f59e0b;
+      --accent-rose: #ef4444;
+      --code-bg: #0d1220;
+      --sidebar-w: 320px;
+    }
+
+    [data-theme="midnight"] {
+      --bg-primary: #090712;
+      --bg-secondary: #110f1e;
+      --bg-tertiary: #16132a;
+      --card-bg: rgba(22, 19, 42, 0.75);
+      --card-border: rgba(139, 92, 246, 0.12);
+      --card-border-bright: rgba(139, 92, 246, 0.22);
+      --text-main: #ede9fe;
+      --text-muted: #a1a1b5;
+      --accent-cyan: #a78bfa;
+      --accent-cyan-dim: rgba(167, 139, 250, 0.15);
+      --accent-deep: #7c3aed;
+      --accent-purple: #c084fc;
+      --accent-emerald: #34d399;
+      --accent-amber: #fbbf24;
+      --accent-rose: #f87171;
+      --code-bg: #110f1e;
+    }
+
+    [data-theme="ocean"] {
+      --bg-primary: #030f14;
+      --bg-secondary: #071820;
+      --bg-tertiary: #0c202a;
+      --card-bg: rgba(12, 32, 42, 0.75);
+      --card-border: rgba(45, 212, 191, 0.12);
+      --card-border-bright: rgba(45, 212, 191, 0.22);
+      --text-main: #f0fdfa;
+      --text-muted: #99f6e4;
+      --accent-cyan: #2dd4bf;
+      --accent-cyan-dim: rgba(45, 212, 191, 0.15);
+      --accent-deep: #0f766e;
+      --accent-purple: #818cf8;
+      --accent-emerald: #34d399;
+      --accent-amber: #fbbf24;
+      --accent-rose: #f87171;
+      --code-bg: #071820;
+    }
+
+    [data-theme="forest"] {
+      --bg-primary: #050f08;
+      --bg-secondary: #0a170e;
+      --bg-tertiary: #0e2014;
+      --card-bg: rgba(14, 32, 20, 0.75);
+      --card-border: rgba(74, 222, 128, 0.12);
+      --card-border-bright: rgba(74, 222, 128, 0.22);
+      --text-main: #f0fdf4;
+      --text-muted: #bbf7d0;
+      --accent-cyan: #4ade80;
+      --accent-cyan-dim: rgba(74, 222, 128, 0.15);
+      --accent-deep: #15803d;
+      --accent-purple: #a78bfa;
+      --accent-emerald: #22c55e;
+      --accent-amber: #fbbf24;
+      --accent-rose: #f87171;
+      --code-bg: #0a170e;
+    }
+
+    [data-theme="slate"] {
+      --bg-primary: #0a0d12;
+      --bg-secondary: #111520;
+      --bg-tertiary: #161b28;
+      --card-bg: rgba(22, 27, 40, 0.75);
+      --card-border: rgba(100, 116, 139, 0.14);
+      --card-border-bright: rgba(100, 116, 139, 0.24);
+      --text-main: #e2e8f0;
+      --text-muted: #94a3b8;
+      --accent-cyan: #94a3b8;
+      --accent-cyan-dim: rgba(148, 163, 184, 0.15);
+      --accent-deep: #475569;
+      --accent-purple: #818cf8;
+      --accent-emerald: #34d399;
+      --accent-amber: #fbbf24;
+      --accent-rose: #f87171;
+      --code-bg: #111520;
+    }
+
+    /* Shared light mode base */
+    [data-mode="light"] {
+      --bg-primary: #f1f5f9;
+      --bg-secondary: #ffffff;
+      --bg-tertiary: #f8fafc;
+      --card-bg: #ffffff;
+      --card-border: rgba(0, 0, 0, 0.08);
+      --card-border-bright: rgba(0, 0, 0, 0.15);
+      --text-main: #0f172a;
+      --text-muted: #64748b;
+      --accent-cyan: #0284c7;
+      --accent-cyan-dim: rgba(2, 132, 199, 0.10);
+      --accent-deep: #0369a1;
+      --accent-purple: #7c3aed;
+      --accent-emerald: #059669;
+      --accent-amber: #d97706;
+      --accent-rose: #dc2626;
+      --code-bg: #f8fafc;
+    }
+
+    /* Solar Amber (warm cream) */
+    [data-theme="solar"] {
+      --bg-primary: #fdf7ee;
+      --bg-secondary: #ffffff;
+      --bg-tertiary: #fffaf3;
+      --card-bg: #ffffff;
+      --card-border: rgba(146, 94, 28, 0.14);
+      --card-border-bright: rgba(146, 94, 28, 0.25);
+      --text-main: #3b2410;
+      --text-muted: #7c5a34;
+      --accent-cyan: #ea580c;
+      --accent-cyan-dim: rgba(234, 88, 12, 0.12);
+      --accent-deep: #c2410c;
+      --accent-purple: #9333ea;
+      --accent-emerald: #0f766e;
+      --accent-amber: #b45309;
+      --accent-rose: #dc2626;
+      --code-bg: #fbf0e0;
+    }
+
+    /* Mint Breeze (cool teal) */
+    [data-theme="mint"] {
+      --bg-primary: #f0fdf9;
+      --bg-secondary: #ffffff;
+      --bg-tertiary: #f6fefb;
+      --card-bg: #ffffff;
+      --card-border: rgba(13, 120, 100, 0.14);
+      --card-border-bright: rgba(13, 120, 100, 0.25);
+      --text-main: #0b3b34;
+      --text-muted: #3f6f66;
+      --accent-cyan: #0d9488;
+      --accent-cyan-dim: rgba(13, 148, 136, 0.12);
+      --accent-deep: #0f766e;
+      --accent-purple: #7c3aed;
+      --accent-emerald: #047857;
+      --accent-amber: #b45309;
+      --accent-rose: #dc2626;
+      --code-bg: #e3f9f2;
+    }
+
+    /* Paper Ink (neutral paper) */
+    [data-theme="paper"] {
+      --bg-primary: #f7f7f8;
+      --bg-secondary: #ffffff;
+      --bg-tertiary: #fbfbfc;
+      --card-bg: #ffffff;
+      --card-border: rgba(15, 23, 42, 0.10);
+      --card-border-bright: rgba(15, 23, 42, 0.20);
+      --text-main: #0f172a;
+      --text-muted: #64748b;
+      --accent-cyan: #4f46e5;
+      --accent-cyan-dim: rgba(79, 70, 229, 0.10);
+      --accent-deep: #4338ca;
+      --accent-purple: #7c3aed;
+      --accent-emerald: #047857;
+      --accent-amber: #b45309;
+      --accent-rose: #dc2626;
+      --code-bg: #f0f0f3;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background-color: var(--bg-primary);
+      color: var(--text-main);
+      line-height: 1.65;
+      display: flex;
+      min-height: 100vh;
+      overflow-x: hidden;
+      transition: background-color 0.2s ease, color 0.2s ease;
+    }
+
+    /* Scrollbars */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--card-border-bright); border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--accent-cyan); }
+
+    /* ============================================================
+       FULLPAGE SIDEBAR NAVIGATION
+       ============================================================ */
+    aside.sidebar {
+      width: var(--sidebar-w);
+      background-color: var(--bg-secondary);
+      border-right: 1px solid var(--card-border);
+      position: fixed;
+      top: 0; bottom: 0; left: 0;
+      height: 100vh;
+      max-height: 100vh;
+      overflow: hidden;
+      padding: 1.25rem 1rem 1rem 1rem;
+      display: flex;
+      flex-direction: column;
+      z-index: 100;
+      box-shadow: 2px 0 12px rgba(0, 0, 0, 0.15);
+      transition: background-color 0.2s ease, border-color 0.2s ease;
+    }
+
+    .sidebar-top {
+      flex: 0 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .brand-box {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding-bottom: 0.85rem;
+      border-bottom: 1px solid var(--card-border);
+    }
+    .brand-logo {
+      width: 38px;
+      height: 38px;
+      background: linear-gradient(135deg, var(--accent-cyan), var(--accent-deep));
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 1.2rem;
+      color: #fff;
+      box-shadow: 0 4px 12px var(--accent-cyan-dim);
+    }
+    .brand-text h2 {
+      font-size: 1.02rem;
+      font-weight: 700;
+      color: var(--text-main);
+      letter-spacing: -0.02em;
+    }
+    .brand-text p {
+      font-size: 0.72rem;
+      color: var(--accent-cyan);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .doc-nav-links {
+      display: flex;
+      flex-direction: column;
+      gap: 0.3rem;
+      padding-bottom: 0.85rem;
+      border-bottom: 1px solid var(--card-border);
+    }
+    .doc-nav-links a {
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-decoration: none;
+      padding: 0.45rem 0.65rem;
+      border-radius: 7px;
+      transition: all 0.18s ease;
+      display: flex;
+      align-items: center;
+      gap: 0.55rem;
+    }
+    .doc-nav-links a:hover {
+      color: var(--text-main);
+      background: var(--bg-tertiary);
+    }
+    .doc-nav-links a.active {
+      color: var(--accent-cyan);
+      background: var(--accent-cyan-dim);
+      border-left: 3px solid var(--accent-cyan);
+      font-weight: 700;
+    }
+
+    .toc-header-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .toc-title {
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--accent-cyan);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .toc-search {
+      width: 100%;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--card-border-bright);
+      border-radius: 7px;
+      padding: 7px 10px;
+      font-size: 0.78rem;
+      color: var(--text-main);
+      outline: none;
+      font-family: inherit;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    .toc-search:focus {
+      border-color: var(--accent-cyan);
+      box-shadow: 0 0 0 3px var(--accent-cyan-dim);
+    }
+
+    /* Dedicated scrollable TOC list filling full viewport */
+    nav.toc-nav {
+      flex: 1 1 0;
+      min-height: 0;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+      padding-top: 0.4rem;
+      padding-right: 4px;
+      scrollbar-width: thin;
+    }
+    nav.toc-nav a {
+      font-size: 0.79rem;
+      color: var(--text-muted);
+      text-decoration: none;
+      padding: 0.4rem 0.6rem;
+      border-radius: 6px;
+      transition: all 0.15s ease;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: block;
+      line-height: 1.35;
+    }
+    nav.toc-nav a:hover {
+      color: var(--text-main);
+      background: var(--bg-tertiary);
+    }
+    nav.toc-nav a.active {
+      color: var(--accent-cyan);
+      background: var(--accent-cyan-dim);
+      font-weight: 600;
+    }
+    nav.toc-nav a.h3-link {
+      padding-left: 1.25rem;
+      font-size: 0.74rem;
+      opacity: 0.85;
+    }
+
+    /* Pinned Sidebar Footer (Theme Preset Switcher) */
+    .sidebar-foot {
+      flex: 0 0 auto;
+      padding-top: 0.75rem;
+      border-top: 1px solid var(--card-border);
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+    }
+    .theme-select-label {
+      font-size: 0.68rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+    }
+    .theme-select {
+      width: 100%;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--card-border-bright);
+      border-radius: 6px;
+      padding: 6px 10px;
+      font-size: 0.78rem;
+      color: var(--text-main);
+      outline: none;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .theme-select:focus {
+      border-color: var(--accent-cyan);
+    }
+
+    /* ============================================================
+       MAIN CONTENT
+       ============================================================ */
+    main.main-content {
+      margin-left: var(--sidebar-w);
+      flex: 1;
+      padding: 2.5rem 3.5rem 5rem 3.5rem;
+      max-width: 1200px;
+    }
+
+    .doc-header {
+      margin-bottom: 2.5rem;
+      padding-bottom: 1.5rem;
+      border-bottom: 1px solid var(--card-border);
+    }
+    .doc-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 0.25rem 0.75rem;
+      border-radius: 9999px;
+      background: var(--accent-cyan-dim);
+      color: var(--accent-cyan);
+      border: 1px solid var(--accent-cyan);
+      margin-bottom: 0.75rem;
+    }
+    .doc-header h1 {
+      font-size: 2.2rem;
+      font-weight: 800;
+      color: var(--text-main);
+      letter-spacing: -0.03em;
+      margin-bottom: 0.5rem;
+      line-height: 1.2;
+    }
+    .doc-header p {
+      font-size: 1.05rem;
+      color: var(--text-muted);
+    }
+
+    /* Markdown Styling */
+    #markdown-body {
+      color: var(--text-main);
+      font-size: 0.95rem;
+    }
+    #markdown-body h1, #markdown-body h2, #markdown-body h3, #markdown-body h4 {
+      color: var(--text-main);
+      font-weight: 700;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      letter-spacing: -0.02em;
+      scroll-margin-top: 2rem;
+    }
+    #markdown-body h2 {
+      font-size: 1.45rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 1px solid var(--card-border);
+      margin-top: 2.5rem;
+      color: var(--accent-cyan);
+    }
+    #markdown-body h3 {
+      font-size: 1.2rem;
+      color: var(--text-main);
+    }
+    #markdown-body h4 {
+      font-size: 1rem;
+      color: var(--text-muted);
+    }
+    #markdown-body p {
+      margin-bottom: 1rem;
+      line-height: 1.7;
+    }
+    #markdown-body ul, #markdown-body ol {
+      margin-bottom: 1.25rem;
+      padding-left: 1.5rem;
+    }
+    #markdown-body li {
+      margin-bottom: 0.4rem;
+      line-height: 1.6;
+    }
+    #markdown-body a {
+      color: var(--accent-cyan);
+      text-decoration: none;
+      font-weight: 500;
+    }
+    #markdown-body a:hover {
+      text-decoration: underline;
+    }
+
+    /* ============================================================
+       CODE BLOCKS: Adaptive Theme Presets (Light & Dark)
+       ============================================================ */
+    #markdown-body code {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.85em;
+      background: var(--code-bg);
+      color: var(--accent-cyan);
+      padding: 0.2em 0.45em;
+      border-radius: 5px;
+      border: 1px solid var(--card-border-bright);
+      font-weight: 600;
+    }
+    #markdown-body pre {
+      background: var(--code-bg);
+      border: 1px solid var(--card-border-bright);
+      border-radius: 10px;
+      padding: 1.25rem;
+      overflow-x: auto;
+      margin-bottom: 1.5rem;
+      position: relative;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    }
+    #markdown-body pre code {
+      background: transparent !important;
+      padding: 0 !important;
+      border: none !important;
+      color: var(--text-main) !important;
+      font-size: 0.85rem;
+      line-height: 1.65;
+    }
+
+    /* Theme-adaptive syntax highlighting tokens */
+    #markdown-body pre code.hljs { background: transparent !important; padding: 0 !important; }
+    .hljs-keyword, .hljs-selector-tag, .hljs-subst, .hljs-doctag { color: var(--accent-cyan) !important; font-weight: 600; }
+    .hljs-string, .hljs-title, .hljs-title.function_, .hljs-section, .hljs-attribute, .hljs-literal,
+    .hljs-template-tag, .hljs-template-variable, .hljs-type, .hljs-addition { color: var(--accent-emerald) !important; }
+    .hljs-comment, .hljs-quote, .hljs-deletion, .hljs-meta { color: var(--text-muted) !important; font-style: italic; }
+    .hljs-number, .hljs-regexp, .hljs-link { color: var(--accent-amber) !important; }
+    .hljs-variable, .hljs-params, .hljs-attr { color: var(--text-main) !important; }
+    .hljs-built_in, .hljs-builtin-name, .hljs-symbol, .hljs-bullet { color: var(--accent-purple) !important; font-weight: 600; }
+
+    /* Copy Button */
+    .code-copy-btn {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      background: var(--bg-secondary);
+      border: 1px solid var(--card-border-bright);
+      border-radius: 6px;
+      color: var(--text-muted);
+      font-size: 0.72rem;
+      padding: 4px 8px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      transition: all 0.15s ease;
+      font-family: inherit;
+    }
+    .code-copy-btn:hover {
+      background: var(--accent-cyan);
+      color: #fff;
+      border-color: var(--accent-cyan);
+    }
+
+    #markdown-body table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 1.75rem;
+      background: var(--card-bg);
+      border-radius: 10px;
+      overflow: hidden;
+      border: 1px solid var(--card-border);
+      font-size: 0.88rem;
+    }
+    #markdown-body th {
+      background: var(--bg-tertiary);
+      color: var(--text-main);
+      font-weight: 600;
+      text-align: left;
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid var(--card-border);
+    }
+    #markdown-body td {
+      padding: 0.65rem 1rem;
+      border-bottom: 1px solid var(--card-border);
+      color: var(--text-main);
+    }
+    #markdown-body tr:hover td {
+      background: var(--bg-tertiary);
+    }
+    #markdown-body blockquote {
+      border-left: 4px solid var(--accent-cyan);
+      background: var(--accent-cyan-dim);
+      padding: 0.85rem 1.25rem;
+      border-radius: 0 8px 8px 0;
+      margin-bottom: 1.25rem;
+      color: var(--text-main);
+    }
+    #markdown-body hr {
+      border: none;
+      height: 1px;
+      background: var(--card-border);
+      margin: 2.5rem 0;
+    }
+
+    @media (max-width: 900px) {
+      aside.sidebar { display: none; }
+      main.main-content { margin-left: 0; padding: 1.5rem; }
+    }
+  </style>
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="sidebar-top">
+      <div class="brand-box">
+        <div class="brand-logo">M</div>
+        <div class="brand-text">
+          <h2>MicronOS Docs</h2>
+          <p>Enterprise Firewall</p>
+        </div>
+      </div>
+
+      <div class="doc-nav-links">
+        <a href="index.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
+          </svg>
+          Docs Portal Hub
+        </a>
+
+        <a href="MICRON_FIREWALL_OS_ARCHITECTURE.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/>
+          </svg>
+          Architecture Blueprint
+        </a>
+        <a href="MICRONOS_MODULE_REFERENCE.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/>
+          </svg>
+          Module Reference
+        </a>
+        <a href="STEP_BY_STEP_IMPLEMENTATION_PLAN.html" class="active">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/>
+          </svg>
+          Implementation Plan
+        </a>
+        <a href="ISO_CREATION_AND_INSTALLER_GUIDE.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/>
+          </svg>
+          ISO &amp; Installer Guide
+        </a>
+        <a href="SSLVPN_ZTNA_CLIENTLESS_GATEWAY_SPECIFICATION.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+          </svg>
+          SSL-VPN &amp; ZTNA Spec
+        </a>
+        <a href="MICRONOS_UPDATE_AND_UPGRADE_SPECIFICATION.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+          </svg>
+          Update &amp; Upgrade Spec
+        </a>
+        <a href="MICRONOS_PLUGIN_AND_PACKAGE_MANAGER_SPECIFICATION.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
+          </svg>
+          Plugin &amp; Package Manager
+        </a>
+        <a href="MICRONOS_CONNECTOR_ABSTRACTION_SPECIFICATION.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13.828 10.172a4 4 0 010 5.656l-4 4a4 4 0 11-5.656-5.656l1-1m9.656-2.344a4 4 0 00-5.656-5.656l-4 4a4 4 0 105.656 5.656l1-1"/>
+          </svg>
+          Connector Abstraction Spec
+        </a>
+        <a href="MICRONOS_CONNECTOR_THREAT_MODEL.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+          </svg>
+          Connector Threat Model
+        </a>
+        <a href="HYPERV_WIN11_DEVELOPMENT_AND_AI_COORDINATION_GUIDE.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
+          </svg>
+          Hyper-V &amp; AI Dev Guide
+        </a>
+        <a href="POWER_LOSS_RESILIENCE_AND_RECOVERY_ENGINEERING_SPECIFICATION.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+          </svg>
+          Power Resilience &amp; LKGC Spec
+        </a>
+        <a href="MICRONOS_BONDING_AND_WIRELESS_GUIDE.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13.828 10.172a4 4 0 010 5.656l-3 3a4 4 0 01-5.656-5.656l1.5-1.5m7.156-7.156a4 4 0 00-5.656 0l-3 3a4 4 0 000 5.656l1.5 1.5"/>
+          </svg>
+          Bonding &amp; Wi-Fi Guide
+        </a>
+        <a href="MICRONOS_ADVANCED_ROADMAP_SPECIFICATION.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+          </svg>
+          Advanced Roadmap Spec
+        </a>
+        <a href="MICRONOS_VERSIONING_AND_RELEASE_LIFECYCLE_SPECIFICATION.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"/>
+          </svg>
+          Versioning &amp; Release Spec
+        </a>
+        <a href="http://micronos.test/dashboard" target="_blank" style="color:var(--accent-cyan); background:var(--accent-cyan-dim);">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+          </svg>
+          Launch Appliance GUI &rarr;
+        </a>
+      </div>
+
+      <div class="toc-header-wrap">
+        <div class="toc-title">
+          <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h7"/>
+          </svg>
+          Table of Contents
+        </div>
+        <input type="text" id="toc-search" class="toc-search" placeholder="Filter sections (e.g. snmp, siem, nat)..." oninput="filterToc(this.value)">
+      </div>
+    </div>
+
+    <nav class="toc-nav" id="toc-container">
+      <!-- Generated dynamically -->
+    </nav>
+
+    <div class="sidebar-foot">
+      <label for="themePresetSelect" class="theme-select-label">Theme Preset</label>
+      <select id="themePresetSelect" class="theme-select" onchange="setThemePreset(this.value)">
+        <optgroup label="Dark Themes">
+          <option value="dark">Dark Abyss</option>
+          <option value="midnight">Midnight</option>
+          <option value="ocean">Ocean Teal</option>
+          <option value="forest">Forest</option>
+          <option value="slate">Slate Grey</option>
+        </optgroup>
+        <optgroup label="Light Themes">
+          <option value="light">Light / Day</option>
+          <option value="solar">Solar Amber</option>
+          <option value="mint">Mint Breeze</option>
+          <option value="paper">Paper Ink</option>
+        </optgroup>
+      </select>
+    </div>
+  </aside>
+
+  <main class="main-content">
+    <div class="doc-header">
+      <span class="doc-badge">
+        <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+        </svg>
+        MicronOS Technical Manual
+      </span>
+      <h1>Micron Firewall OS (MicronOS) — Step-by-Step Implementation Plan</h1>
+      <p>From Local CodeIgniter 4 Scaffolding to Bootable Appliance ISO</p>
+    </div>
+
+    <article id="markdown-body"></article>
+  </main>
+
+  <script>
+    const rawMarkdown = "# Micron Firewall OS (MicronOS)\n## Step-by-Step Implementation & Engineering Execution Plan\n### Actionable Development Blueprint: From Local CodeIgniter 4 Scaffolding to Bootable Appliance ISO\n\n---\n\n## Table of Contents\n1. [Execution Overview & Development Philosophy](#1-execution-overview--development-philosophy)\n2. [Phase 0: Developer Workspace & Toolchain Setup (Windows / Laragon)](#2-phase-0-developer-workspace--toolchain-setup-windows--laragon)\n3. [Phase 1: CodeIgniter 4 Framework Scaffolding & Dual-DB Initialization](#3-phase-1-codeigniter-4-framework-scaffolding--dual-db-initialization)\n4. [Phase 2: Database Migrations & Relational Seeders (SQLite & MySQL)](#4-phase-2-database-migrations--relational-seeders-sqlite--mysql)\n5. [Phase 3: The IPC Daemon (`micrond`) & Communication Bridge](#5-phase-3-the-ipc-daemon-micrond--communication-bridge)\n6. [Phase 4: Web UI Management Interface & Responsive Design System](#6-phase-4-web-ui-management-interface--responsive-design-system)\n7. [Phase 5: Network Engine & nftables Compiler Implementation](#7-phase-5-network-engine--nftables-compiler-implementation)\n8. [Phase 6: Enterprise Identity (LDAP / Active Directory) & 2FA Setup](#8-phase-6-enterprise-identity-ldap--active-directory--2fa-setup)\n9. [Phase 7: Road Warrior VPNs (OpenVPN Dynamic Challenge & WireGuard 2FA)](#9-phase-7-road-warrior-vpns-openvpn-dynamic-challenge--wireguard-2fa)\n10. [Phase 8: Next-Gen Web Filtering & Squid TPROXY Integration](#10-phase-8-next-gen-web-filtering--squid-tproxy-integration)\n11. [Phase 9: Encrypted Backup & Restore Engine (with NIC Remapper)](#11-phase-9-encrypted-backup--restore-engine-with-nic-remapper)\n12. [Phase 10: Linux Appliance Verification in Virtual Lab (QEMU / Proxmox)](#12-phase-10-linux-appliance-verification-in-virtual-lab-qemu--proxmox)\n13. [Phase 11: ISO Compilation & Physical Hardware Deployment](#13-phase-11-iso-compilation--physical-hardware-deployment)\n14. [Phase 12: WAN Access, PPPoE & Subscriber Management](#14-phase-12-wan-access-pppoe--subscriber-management)\n15. [Quality Assurance Checklist & Go-Live Criteria](#15-quality-assurance-checklist--go-live-criteria)\n\n---\n\n## 1. Execution Overview & Development Philosophy\n\nBuilding **Micron Firewall OS** does not require building an operating system from scratch on day one. We follow a **modular, test-driven bottom-up execution strategy**:\n\n```\n┌────────────────────────────────────────────────────────────────────────┐\n│                     DEVELOPMENT PROGRESSION PHASES                     │\n├────────────────────────────────────────────────────────────────────────┤\n│ STEP 1: Control Plane in Laragon (PHP 8.3 / CodeIgniter 4 / SQLite)     │\n│         Scaffold web app, migrations, dual-DB abstraction, UI dashboard│\n├────────────────────────────────────────────────────────────────────────┤\n│ STEP 2: IPC & Simulation Layer                                         │\n│         Build JSON-RPC mock client to simulate micrond on Windows      │\n├────────────────────────────────────────────────────────────────────────┤\n│ STEP 3: Linux Integration in Virtual Machine (Debian 13 minimal)       │\n│         Run micrond natively, bind Unix Domain Socket, test nftables   │\n├────────────────────────────────────────────────────────────────────────┤\n│ STEP 4: Advanced Services (Squid TPROXY, WireGuard, OpenVPN 2FA, FRR)   │\n│         Implement service compilers and live service reloads           │\n├────────────────────────────────────────────────────────────────────────┤\n│ STEP 5: ISO Packaging & Hardware Installer                             │\n│         Run Debian live-build to generate bootable hybrid ISO          │\n└────────────────────────────────────────────────────────────────────────┘\n```\n\n---\n\n## 2. Phase 0: Developer Workspace & Toolchain Setup (Windows / Laragon)\n\nYour current environment is **Windows with Laragon** at `d:\\laragon\\www\\micronos`. We will build the entire management plane locally first.\n\n### 2.1 Verify Local Dependencies\nOpen PowerShell or Laragon Terminal:\n```powershell\n# 1. Verify PHP 8.2 or 8.3\nphp -v\n\n# 2. Verify Composer is available\ncomposer -V\n\n# 3. Verify SQLite extension is enabled in PHP\nphp -m | Select-String -Pattern \"sqlite\", \"pdo_sqlite\", \"pdo_mysql\", \"curl\", \"mbstring\", \"openssl\", \"ldap\"\n```\n\nIf `php_ldap` or `php_sqlite3` are disabled, open `C:\\laragon\\bin\\php\\php-8.x\\php.ini` and uncomment:\n```ini\nextension=ldap\nextension=sqlite3\nextension=pdo_sqlite\nextension=pdo_mysql\nextension=openssl\nextension=curl\nextension=fileinfo\n```\n\n---\n\n## 3. Phase 1: CodeIgniter 4 Framework Scaffolding & Dual-DB Initialization\n\nInitialize CodeIgniter 4 directly into `d:\\laragon\\www\\micronos`:\n\n### 3.1 Install CodeIgniter 4 AppStarter\nRun in PowerShell:\n```powershell\ncd d:\\laragon\\www\\micronos\n\n# Install CI4 without overwriting existing docs\ncomposer create-project codeigniter4/appstarter temp_ci --no-install\nCopy-Item -Path \"temp_ci\\*\" -Destination \".\\\" -Recurse -Force\nRemove-Item -Path \"temp_ci\" -Recurse -Force\n\n# Install Composer dependencies\ncomposer install\n```\n\n### 3.2 Configure Environment File (`.env`)\nCopy `env` to `.env`:\n```powershell\nCopy-Item env .env\n```\n\nConfigure `.env` for development:\n```ini\nCI_ENVIRONMENT = development\n\n# Base URL for Laragon virtual host\napp.baseURL = 'http://micronos.test/'\n\n# Primary Database Group: SQLite 3 for Appliance Mode\ndatabase.default.hostname = localhost\ndatabase.default.database = WRITEPATH . 'micron_config.db'\ndatabase.default.DBDriver = SQLite3\ndatabase.default.DBPrefix = ''\n\n# Secondary Database Group: MySQL 8.4 for Enterprise / Central NOC Mode\ndatabase.enterprise.hostname = 127.0.0.1\ndatabase.enterprise.database = micronos_central\ndatabase.enterprise.username = root\ndatabase.enterprise.password = \ndatabase.enterprise.DBDriver = MySQLi\ndatabase.enterprise.DBPrefix = ''\ndatabase.enterprise.port     = 3306\n```\n\n### 3.3 Test Local Web Server\nEnsure Laragon starts Apache/Nginx. Open `http://micronos.test` in your browser. The default CodeIgniter 4 welcome screen will appear.\n\n---\n\n## 4. Phase 2: Database Migrations & Relational Seeders (SQLite & MySQL)\n\nWe will implement database migrations so that the exact same database schema runs seamlessly on both SQLite (appliance edge) and MySQL (enterprise cluster).\n\n### 4.1 Generate Database Migrations\nRun in terminal:\n```powershell\nphp spark make:migration CreateInterfacesTable\nphp spark make:migration CreateFirewallRulesTable\nphp spark make:migration CreateNatRulesTable\nphp spark make:migration CreateUsersAnd2faTable\nphp spark make:migration CreateLdapServersTable\nphp spark make:migration CreateOpenvpnServersTable\nphp spark make:migration CreateWireguardTunnelsTable\nphp spark make:migration CreateWebfilterSettingsTable\nphp spark make:migration CreateSystemBackupsTable\nphp spark make:migration CreateAuditLogsTable\nphp spark make:migration CreateConfigTransactionsTable\n```\n\n### 4.2 Populate Interfaces Migration Example\nEdit `app/Database/Migrations/*_CreateInterfacesTable.php`:\n```php\n<?php\n\nnamespace App\\Database\\Migrations;\n\nuse CodeIgniter\\Database\\Migration;\n\nclass CreateInterfacesTable extends Migration\n{\n    public function up()\n    {\n        $this->forge->addField([\n            'id' => [\n                'type'       => 'VARCHAR',\n                'constraint' => 32,\n            ],\n            'name' => [\n                'type'       => 'VARCHAR',\n                'constraint' => 64,\n            ],\n            'physical_device' => [\n                'type'       => 'VARCHAR',\n                'constraint' => 32,\n            ],\n            'enabled' => [\n                'type'       => 'TINYINT',\n                'constraint' => 1,\n                'default'    => 1,\n            ],\n            'ip_assignment_type' => [\n                'type'       => 'VARCHAR',\n                'constraint' => 16, // 'static', 'dhcp', 'pppoe'\n            ],\n            'ipv4_address' => [\n                'type'       => 'VARCHAR',\n                'constraint' => 45,\n                'null'       => true,\n            ],\n            'ipv4_netmask' => [\n                'type'       => 'INT',\n                'null'       => true,\n            ],\n            'ipv4_gateway' => [\n                'type'       => 'VARCHAR',\n                'constraint' => 45,\n                'null'       => true,\n            ],\n            'mtu' => [\n                'type'       => 'INT',\n                'default'    => 1500,\n            ],\n            'vlan_tag' => [\n                'type'       => 'INT',\n                'null'       => true,\n            ],\n            'created_at' => [\n                'type'    => 'DATETIME',\n                'null'    => true,\n            ],\n            'updated_at' => [\n                'type'    => 'DATETIME',\n                'null'    => true,\n            ],\n        ]);\n        $this->forge->addKey('id', true);\n        $this->forge->createTable('interfaces');\n    }\n\n    public function down()\n    {\n        $this->forge->dropTable('interfaces');\n    }\n}\n```\n\n### 4.3 Run Migrations & Seed Default Appliance State\n```powershell\nphp spark migrate\n```\nCreate a seeder for the default break-glass admin (`admin` / `micron` with mandatory password change on first login) and initial WAN/LAN interfaces:\n```powershell\nphp spark make:seeder InitialApplianceSeeder\nphp spark db:seed InitialApplianceSeeder\n```\n\n---\n\n## 4.5 Phase 2.5: Role-Based Access Control (RBAC) Implementation\n\n### Status: COMPLETE\n\nMicronOS implements a full Role-Based Access Control (RBAC) system with dynamic custom role support.\n\n### 4.5.1 New Migrations (Runs After Phase 2)\n\n| Migration | Table | Purpose |\n| :-------- | :---- | :------ |\n| `000015` | `roles` | Stores built-in and custom roles (`is_system` flag protects built-ins) |\n| `000016` | `permissions` | Granular permission keys in dot-notation across all appliance modules (109 active permissions) |\n| `000017` | `role_permissions` | Pivot: role-permission with `granted` flag (deny-override model) |\n| `000018` | `user_roles` | Pivot: user-role with `assigned_by` for audit trail |\n| `000019` | `ipsec_tunnels` | strongSwan IKEv1/IKEv2 Site-to-Site & Mobile VPN configuration |\n\n### 4.5.2 Default Superadmin Account\n\n| Field    | Value                               |\n| :------- | :---------------------------------- |\n| Username | `Ministrator` *(case-insensitive)*   |\n| Password | `M1Cr0N` or `M1Cr0N80` (Argon2id)   |\n| Role     | `SuperAdmin` — all 109 permissions  |\n\n> [!NOTE]\n> Case-insensitive login matches `LOWER(username) = strtolower($username)`. Dual password validation allows seamless administrator authentication using either `M1Cr0N` or `M1Cr0N80`.\n\n### 4.5.3 Run RBAC Migrations & Seeder\n\n```powershell\n# Run all migrations (includes RBAC & IPsec tables)\nphp spark migrate\n\n# Seed initial appliance state + built-in roles & all 109 permissions\nphp spark db:seed InitialApplianceSeeder\nphp spark db:seed RolesPermissionsSeeder\n```\n\n### 4.5.4 Built-In System Roles\n\n| Role | Permissions | Use Case |\n| :--- | :---------: | :------- |\n| `SuperAdmin` | **All 109** | Break-glass full access |\n| `NetworkAdmin` | ~52 | Network engineers (Interfaces, Routing, WireGuard, IPsec, OpenVPN) |\n| `SecurityAdmin` | ~43 | Security operations / SOC (Firewall, WebFilter, IDS/IPS, IPsec) |\n| `Operator` | ~25 | NOC monitoring / read-only |\n| `VpnUser` | 2 | Remote workers, self-service only |\n\n### 4.5.5 Custom Role Examples\n\n```\nBranchManager  → interfaces.view + dhcp.view + diag.ping\nHelpDeskAgent  → users.view + vpn.openvpn.view + diag.logs.view\nNetworkAuditor → all *.view permissions (no edit/apply/delete)\n```\n\n### 4.5.6 Files Created\n\n| File | Purpose |\n| :--- | :------ |\n| `app/Filters/AuthFilter.php` | Session auth gate — globally applied (excludes `auth/*`) |\n| `app/Filters/PermissionFilter.php` | Route-level permission check with session cache |\n| `app/Models/RoleModel.php` | Role CRUD, permission sync, effective key resolution |\n| `app/Models/PermissionModel.php` | Permission catalog + session-cached `userCan()` |\n| `app/Config/Filters.php` | Registers `auth` + `permission` filter aliases |\n\n### 4.5.7 Using Permissions in Routes\n\n```php\n// app/Config/Routes.php\n$routes->group('firewall', ['filter' => 'auth'], function($r) {\n    $r->get('rules',        'Firewall::index',  ['filter' => 'permission:firewall.rules.view']);\n    $r->post('rules/store', 'Firewall::store',  ['filter' => 'permission:firewall.rules.edit']);\n    $r->delete('rules/(:segment)', 'Firewall::delete', ['filter' => 'permission:firewall.rules.delete']);\n});\n```\n\n### 4.5.8 Checking Permissions in Controllers and Views\n\n```php\n// In a controller method:\n$permModel = new \\App\\Models\\PermissionModel();\nif ($permModel->userCan(session('user_id'), 'firewall.rules.edit')) {\n    // show edit button / allow action\n}\n\n// In a CI4 view file:\n<?php if (service('session')->get('user_permissions')\n    && in_array('firewall.rules.edit', session('user_permissions'))): ?>\n    <button class=\"btn-edit\">Edit Rule</button>\n<?php endif; ?>\n```\n\n---\n\n## 5. Phase 3: The IPC Daemon (`micrond`) & Communication Bridge\n\nBecause Windows cannot execute native Linux `nftables` or bind Unix Domain Sockets directly, we build an **IPC Client Library with Automatic Mock Simulation** for local Windows development.\n\n### 5.1 Create IPC Client Library (`app/Libraries/IpcClient.php`)\n```php\n<?php\n\nnamespace App\\Libraries;\n\nclass IpcClient\n{\n    protected string $socketPath = '/run/micron/micrond.sock';\n    protected bool $isWindows;\n\n    public function __construct()\n    {\n        $this->isWindows = (DIRECTORY_SEPARATOR === '\\\\');\n    }\n\n    public function call(string $method, array $params = []): array\n    {\n        $payload = [\n            'jsonrpc' => '2.0',\n            'method'  => $method,\n            'params'  => $params,\n            'id'      => microtime(true),\n        ];\n\n        // Windows Mock Mode (Logs IPC payload to file for inspection)\n        if ($this->isWindows) {\n            log_message('info', '[MOCK IPC] ' . json_encode($payload));\n            return [\n                'status'  => 'success',\n                'mock'    => true,\n                'message' => 'Simulated execution on Windows host.',\n                'applied' => true\n            ];\n        }\n\n        // Linux Production Mode (Unix Domain Socket)\n        $socket = @fsockopen('unix://' . $this->socketPath);\n        if (!$socket) {\n            throw new \\RuntimeException(\"Cannot connect to micrond daemon at {$this->socketPath}\");\n        }\n\n        fwrite($socket, json_encode($payload) . \"\\n\");\n        $response = fgets($socket);\n        fclose($socket);\n\n        return json_decode($response, true)['result'] ?? [];\n    }\n}\n```\n\n---\n\n## 6. Phase 4: Web UI Management Interface & Responsive Design System\n\nBuild the modern, sleek, high-contrast dark dashboard inspired by enterprise networking consoles.\n\n### 6.1 View Layout Blueprint (`app/Views/layouts/main.php`)\n- **Left Sidebar:** Sticky navigation covering Dashboard, Interfaces, Firewall Rules, NAT, Routing, Web Proxy, VPN (WireGuard / OpenVPN), Identity / 2FA, System Backup, and Diagnostics.\n- **Top Bar:** Hostname, appliance uptime, CPU/RAM usage meters, WAN status badges, Commit Watchdog pending notification, and Admin profile dropdown.\n- **Main Viewport:** High-density responsive tables, live SVG packet counters, and drag-and-drop rule reordering.\n\n### 6.2 Implement Dashboard Controller (`app/Controllers/Dashboard.php`)\nQueries interface statuses, active WireGuard handshakes, and system loads, rendering the live telemetry screen.\n\n---\n\n## 7. Phase 5: Network Engine & nftables Compiler Implementation\n\nThe core duty of MicronOS is translating database records into deterministic `/etc/nftables.conf` files.\n\n### 7.1 Implement Compiler Library (`app/Libraries/ConfigCompiler.php`)\n```php\n<?php\n\nnamespace App\\Libraries;\n\nuse App\\Models\\InterfaceModel;\nuse App\\Models\\RuleModel;\nuse App\\Models\\NatModel;\n\nclass ConfigCompiler\n{\n    public function compileNftables(): string\n    {\n        $interfaceModel = new InterfaceModel();\n        $ruleModel      = new RuleModel();\n        $natModel       = new NatModel();\n\n        $interfaces = $interfaceModel->where('enabled', 1)->findAll();\n        $rules      = $ruleModel->where('enabled', 1)->orderBy('sequence', 'ASC')->findAll();\n        $natRules   = $natModel->where('enabled', 1)->findAll();\n\n        $out = \"# Generated by Micron Firewall OS\\n\";\n        $out .= \"flush ruleset\\n\\n\";\n\n        // Define Fast-Path Flowtable\n        $devList = implode(', ', array_map(fn($i) => $i['physical_device'], $interfaces));\n        $out .= \"table inet filter {\\n\";\n        $out .= \"    flowtable ft_fastpath {\\n\";\n        $out .= \"        hook ingress priority 0\\n\";\n        $out .= \"        devices = { {$devList} }\\n\";\n        $out .= \"    }\\n\\n\";\n\n        // Filter Chains (Input, Forward, Output)\n        $out .= \"    chain input {\\n\";\n        $out .= \"        type filter hook input priority 0; policy drop;\\n\";\n        $out .= \"        iif \\\"lo\\\" accept\\n\";\n        $out .= \"        ct state established,related accept\\n\";\n        $out .= \"        ct state invalid drop\\n\";\n        $out .= \"        tcp dport { 80, 443 } accept\\n\"; // Web GUI\n        $out .= \"        icmp type echo-request accept\\n\";\n        $out .= \"    }\\n\\n\";\n\n        $out .= \"    chain forward {\\n\";\n        $out .= \"        type filter hook forward priority 0; policy drop;\\n\";\n        $out .= \"        ip protocol { tcp, udp } flow offload @ft_fastpath\\n\";\n        $out .= \"        ct state established,related accept\\n\";\n\n        // Render dynamic user rules\n        foreach ($rules as $r) {\n            $proto = $r['protocol'] !== 'any' ? \"{$r['protocol']} \" : \"\";\n            $src   = $r['source_value'] !== 'any' ? \"ip saddr {$r['source_value']} \" : \"\";\n            $dst   = $r['dest_value'] !== 'any' ? \"ip daddr {$r['dest_value']} \" : \"\";\n            $dport = !empty($r['dest_port']) ? \"dport {$r['dest_port']} \" : \"\";\n            $action = $r['action'] === 'pass' ? 'accept' : 'drop';\n\n            $out .= \"        {$src}{$dst}{$proto}{$dport}{$action}\\n\";\n        }\n\n        $out .= \"    }\\n\";\n        $out .= \"}\\n\";\n\n        return $out;\n    }\n}\n```\n\n---\n\n## 8. Phase 6: Enterprise Identity (LDAP / Active Directory & RADIUS) & External Group RBAC Mapping\n\n### 8.1 Active Directory & LDAP Enterprise Authentication Service (`app/Libraries/LdapAuthService.php`)\n- **Direct Directory Connectivity**: Connects to domain controllers via `ldaps://` (port 636) or StartTLS (`ldap://` port 389) with configurable socket timeout.\n- **Directory Schema Presets**: Supports Active Directory (`sAMAccountName`, `userPrincipalName`, `memberOf`) and OpenLDAP / RFC 4519 (`uid`, `member`, `posixAccount`).\n- **Resilience & Local Fallback**: Implements multi-server failover. If domain controllers are unreachable, `fallback_local = 1` preserves access for local break-glass administrators.\n- **Interactive Directory Test Tool**: Exposes `POST /system/ldap/test` and `POST /system/ldap/search` for real-time bind verification and user attribute inspection from the GUI.\n\n### 8.2 Enterprise RADIUS Protocol Client & Accounting Service (`app/Libraries/RadiusAuthService.php`)\n- **RFC 2865 AAA Engine**: Builds raw binary `Access-Request` datagrams over UDP port 1812 containing User-Name, User-Password (PAP, CHAP, or MS-CHAPv2), NAS-IP-Address, and NAS-Identifier.\n- **Response Validation**: Validates 16-byte MD5 response authenticators against the configured shared secret to protect against replay attacks.\n- **Authorization Attribute Parsing**: Extracts RFC standard attributes (`Filter-Id`, `Class`) and Vendor-Specific Attributes (VSA) to determine remote group memberships.\n- **RFC 2866 Accounting**: Supports session accounting over UDP port 1813 with Start, Stop, and Interim-Update packet dispatches.\n- **Packet Diagnostic Probe**: Exposes `POST /system/radius/test` to verify shared secret accuracy and response code evaluation from the UI.\n\n### 8.3 External Group-to-Role Mapping Engine (`app/Models/AuthGroupMappingModel.php` & `/roles/group-mappings`)\n- **Database Schema**: Implements `auth_group_mappings` table linking external AD/LDAP and RADIUS group strings to internal MicronOS roles (`roles.id`).\n- **Priority-Weighted Conflict Resolution**: Resolves overlapping group memberships deterministically by evaluating rules in ascending priority order (`priority ASC`), assigning the highest-privileged matched role.\n- **Centralized Administration**: Dedicated UI in **Roles & Permissions > External Group Mappings** (`/roles/group-mappings`) with inline CRUD modals and server affinity toggles.\n\n### 8.4 Users & Identities Federation & Directory Importer (`/users`)\n- **Multi-Source Inventory**: Tracks user origins (`auth_source`: `local`, `ldap`, `radius`) with live UI distribution counters and quick filter pills.\n- **Cached Directory Attributes**: Stores user Distinguished Name (`ldap_dn`) and resolved group membership (`external_group`) in the `users` table for audit logging.\n- **Relaxed Password Hashing**: External directory users bypass local password hashing requirements, delegating authentication directly to upstream identity providers.\n- **Directory User Import Wizard**: Provides `POST /users/import-ldap` to query remote directories, preview discovered accounts, and enroll selected users with pre-assigned roles.\n\n### 8.5 Dynamic Delegated Authentication & Just-In-Time (JIT) Provisioning (`app/Controllers/Auth.php`)\n- **Automated Delegation Cascade**: Evaluates local credentials for local users, or delegates to `LdapAuthService` / `RadiusAuthService` for directory accounts.\n- **Just-In-Time (JIT) Auto-Provisioning**: Discovers and auto-creates user records upon first successful authentication, binding the identity to the role resolved by the group mapping engine.\n- **Session Permissions Hydration**: Resolves the union of all 109 RBAC permissions into the session array (`user_permissions`), delivering zero-DB-query authorization checks throughout the session lifecycle.\n- **Comprehensive Audit Trail**: Emits structured login events into `audit_logs` capturing client IP, username, authentication source, and timestamp.\n\n### 8.6 Implement RFC 6238 TOTP Engine (`app/Libraries/TotpEngine.php`)\n- Generates 160-bit Base32 secret keys.\n- Renders QR code for Google Authenticator / Microsoft Authenticator enrollment.\n- Validates 6-digit rolling codes with clock drift allowance (window $\\pm 1$ step).\n- Stores secrets encrypted with AES-256-GCM.\n\n---\n\n## 9. Phase 7: Road Warrior VPNs (OpenVPN Dynamic Challenge & WireGuard 2FA)\n\n### 9.1 OpenVPN Road Warrior Configuration\n1. Scaffold `VpnOpenvpn.php` controller.\n2. Build client bundle generator:\n   - Exports `.ovpn` file containing embedded `<ca>`, `<cert>`, `<key>`, and `<tls-crypt>` tags.\n   - Embeds `auth-user-pass` and `static-challenge \"Enter 2FA Code\" 1` for dynamic two-factor authentication.\n\n### 9.2 WireGuard Ephemeral Captive Lease Engine\n1. Scaffold `VpnWireguard.php` controller for managing server public/private keys.\n2. Build `VpnUserPortal.php`:\n   - Remote worker connects WireGuard client.\n   - Visits `https://vpn.corp.micronos.internal`.\n   - Authenticates via AD + 2FA.\n   - System adds IP to `active_vpn_users` set in `nftables` with an 8-hour timeout.\n\n### 9.3 strongSwan IPsec / IKEv2 Engine (Site-to-Site & Mobile)\n1. **strongSwan swanctl Integration:**\n   - Generates `/etc/swanctl/conf.d/micronos-ipsec.conf` dynamically from SQLite `ipsec_tunnels` table.\n   - Supports Phase 1 IKE proposals: `aes256gcm16-prfsha384-ecp384`, `aes256-sha256-modp2048`, `chacha20poly1305-prfsha512-curve25519`.\n   - Supports Phase 2 Child SA (ESP) proposals: `aes256gcm16-ecp384`, `aes256-sha256-modp2048`, `chacha20poly1305-curve25519`.\n2. **Tunnel Operational Modes:**\n   - **Site-to-Site Policy & Route-based VTI (`xfrm0` / `vti0`):** Encrypts traffic between headquarters and branch offices with dynamic routing over BGP/OSPF via FRR.\n   - **Mobile IKEv2 Road Warrior:** Native Apple iOS/macOS and Windows 10/11 native client support with EAP-MSCHAPv2 / RADIUS authentication.\n3. **Daemon Control & Telemetry:**\n   - Queries `swanctl --list-sas` and `swanctl --list-conns` via `micrond` IPC bridge to render active cryptographic SA states in the UI.\n\n---\n\n## 10. Phase 8: Next-Gen Web Filtering & Squid TPROXY Integration\n\n1. **Squid Configuration Writer:** Generates `/etc/squid/squid.conf` with explicit (`3128`) and TPROXY ports (`3129` HTTP, `3130` HTTPS).\n2. **TLS SNI Peek & Splice:** Configures `ssl_bump peek step1; ssl_bump splice all` so non-corporate BYOD endpoints are filtered without root certificate deployment.\n3. **C-ICAP / ClamAV Antivirus Scanner:** Enables real-time streaming file payload scans with recursive archive unpacking.\n4. **Blocklist Ingestion Service:** Pulls Shallalist / UT1 category tarballs, compiles them into SQLite domain lookup tables.\n5. **Turnkey WPAD & PAC Auto-Discovery Service (`app/Controllers/Webfilter.php`):**\n   - Serves dynamic `/wpad.dat` and `/proxy.pac` with `application/x-ns-proxy-autoconfig` MIME-type.\n   - Generates JavaScript proxy rules with RFC 1918 private subnet bypass and primary/secondary proxy failover.\n   - Integrates with Kea DHCP (Option 252) and Unbound DNS (`wpad.<search-domain>`).\n\n---\n\n## 11. Phase 9: Encrypted Backup & Restore Engine (with NIC Remapper)\n\n**Built as:** `App\\Libraries\\BackupEngine` (plus `App\\Controllers\\Backup` for the upload/download side). Two deliberate departures from this plan are recorded in architecture guide §17, because the plan's design was never implemented and §17 used to describe it as though it had been.\n\n1. **Backup Engine (`app/Libraries/BackupEngine.php`):**\n   - Implements **AES-256-GCM** encryption, with **PBKDF2-SHA256** (100 000 rounds, 16-byte salt) key derivation. Argon2id remains planned: it needs `ext-sodium` in the ISO package manifest.\n   - Packages the configuration as **one JSON document** — a `tables` map of rows plus a header and `hardware.interfaces` — written as `.mbk` plain, or wrapped in the `MICRON_ENC_V1` JSON envelope as `.mbk.enc`. There is no tar container, no SQL dump and no `secrets/` directory; key material is a `secrets.master_key` field inside the encrypted envelope.\n2. **Restore (`BackupEngine::restore()` and `App\\Controllers\\Backup`; there is no `RestoreManager`):**\n   - Decrypts through the envelope and validates the GCM authentication tag before anything is written.\n   - Supports an operator-supplied **old → new NIC map**, applied to `interfaces.physical_device`. Automatic mismatch detection exists (`BackupEngine::inspectHardwareDifferences()`) but is not wired to the UI yet.\n   - Restores inside a **single database transaction**, so a failure keeps the previous configuration. The **60-second commit watchdog around a restore is still planned** — a restore commits its database state and then asks the daemon to recompile (`system.commit`).\n\n---\n\n## 12. Phase 10: Linux Appliance Verification in Virtual Lab (QEMU / Proxmox)\n\nTo test the application in a real Linux kernel environment before compiling the final ISO:\n\n### 12.1 Deploy Debian 13 Minimal Test VM\n1. Create a minimal Debian 13 VM in VirtualBox, VMware, or Proxmox VE.\n2. Add 2 Network Adapters:\n   - Adapter 1: Bridged / NAT (Simulating WAN)\n   - Adapter 2: Host-Only / Internal Switch (Simulating LAN `192.168.1.0/24`)\n3. Clone your CodeIgniter 4 repository into `/usr/local/micron` (the path the appliance itself uses — see the ISO guide §4.1).\n4. Install Apache 2.4, PHP 8.4 FPM, SQLite3, and `nftables`.\n5. Run the application live: verify that clicking \"Apply\" in the Web UI triggers real `nftables` firewall rules!\n\n---\n\n## 13. Phase 11: ISO Compilation & Physical Hardware Deployment\n\nFollow the instructions in the [ISO & Installer Guide](ISO_CREATION_AND_INSTALLER_GUIDE.html) (`docs/ISO_CREATION_AND_INSTALLER_GUIDE.md` in the repository):\n1. Install `live-build` on the build machine.\n2. Stage the appliance overlay: `packaging/live-build/stage-overlay.sh` (run automatically by `auto/config` before `lb config`) installs the Terminal CLI and the **whole web application** from the repository into `config/includes.chroot/usr/local/micron`, replacing that tree rather than merging into it, so no hand-copied application can drift from the sources.\n3. Run `sudo lb build` to output `micronos-2.0.0-amd64.hybrid.iso`.\n4. Flash to a USB flash drive using Rufus or `dd`.\n5. Boot physical hardware (Intel/AMD multi-NIC mini PC or 1U server), complete the Ncurses installer, and log into `https://192.168.1.1`.\n\n---\n\n## 14. Phase 12: WAN Access, PPPoE & Subscriber Management\n\n### Status: COMPLETE\n\nThis phase adds the WAN-edge access layer: PPPoE client uplinks, a PPPoE subscriber access server (BRAS), and the authentication/policy engines behind it (RADIUS auth, RADIUS accounting, EAP-TLS), plus the Internet Service Database that keeps service-oriented address objects current.\n\n### 14.1 Migrations\n\n| Migration | Adds |\n| :--- | :--- |\n| `000055_AddPppoeClientAndServer` | `interfaces` PPPoE client columns; `pppoe_servers`, `pppoe_server_users`. |\n| `000056_SeedPppoeRedialCronJob` | `cron_pppoe_redial` scheduled task. |\n| `000057_AddRadiusAuthToPppoeServers` | RADIUS auth columns (server, port, secret, timeout, retries, NAS-ID, second server). |\n| `000058_AddRadiusAccountingToPppoeServers` | `radius_accounting`, `radius_acct_port`, `radius_acct_server`. |\n| `000059_AddEapTlsToPppoeServers` | `eap_tls` and the four certificate/key columns plus CRL. |\n| `000060_AddPppoeBackoffAndSessionHistory` | `pppoe_backoff_states`, `pppoe_session_history`. |\n| `000048`–`000053` | Internet Service Database tables and address-object `resolved_prefixes`. |\n\n### 14.2 Compiler (`app/Libraries/PppoeCompiler.php`)\n\n- `compileClientPeer()` / `compileClientSecrets()` — WAN PPPoE peer files and `chap-secrets`.\n- `compileServerOptions()` / `compileServerSecrets()` — BRAS options and subscriber secrets.\n- `compileRadiusServers()` / `compileRadiusClientConf()` / `radiusServerOptions()` — RADIUS plugin chain, `authserver`/`acctserver` lines, and the failover list.\n- `compileEapTlsServer()` / `eapTlsServerOptions()` / `eapTlsFiles()` / `validateEapTls()` — EAP-TLS secrets file, `require-eap`, PEM validation, and per-file paths.\n- `checkClientLinkHealth()` — health-aware redial decisions.\n\n> **Key correctness rules:** emit **no** `plugin eap-tls.so` line (EAP-TLS is compiled into pppd); load `radius.so` **before** `radattr.so`; only emit an `acctserver` line when accounting is enabled.\n\n### 14.3 Daemon (`system/micrond/micrond.py`)\n\n- `rpc_pppoe_apply` writes peer files, secrets (`0600`), RADIUS client config, EAP-TLS certificates (`0644`), keys (`0600`), and the `eaptls-server` secrets file, then starts concentrators.\n- `rpc_pppoe_redial` performs health-aware repair with a `force` override.\n- `rpc_pppoe_radius_test` / `rpc_pppoe_radius_status` back the RADIUS test tool and config view.\n- `_radius_attributes()` reads `/var/run/radattr.<iface>` for per-session reply attributes.\n\n### 14.4 Controllers, Commands & Views\n\n- `app/Controllers/Pppoe.php` — servers/users CRUD, `apply`, `testRadius`, `redial`, subscriber history.\n- `app/Commands/PppoeRedial.php` — `micron:pppoe-redial [--interface] [--down] [--force] [--ipc]`.\n- `app/Views/pppoe/index.php` + `_sessions.php` — server/subscriber modals, RADIUS/accounting/EAP-TLS fields, live sessions with attribute chips.\n- `app/Controllers/InternetServices.php` — service sync and address-object creation.\n- `app/Commands/SyncServices.php` / `ResolveObjects.php` — `micron:sync-services`, `micron:resolve-objects`.\n\n### 14.5 Verification\n\n- Unit tests: `PppoeCompilerTest`, `PppoeRadiusTest`, `RadiusAttributesTest`, `PppoeRedialMockTest`, `CronJobLogTest`, `PppoeEapTlsTest`.\n- RADIUS is exercised with a real `radclient` against a UDP responder (accept / reject / unreachable).\n- Live HTTP check of the `/pppoe` page confirms card states, modal field names, and live-session attribute rendering.\n\n---\n\n## 15. Quality Assurance Checklist & Go-Live Criteria\n\nBefore shipping Micron Firewall OS to production branch offices:\n\n- [ ] **Zero-Root Verification:** Verify `php-fpm` runs under `www-data` and cannot run root commands without `micrond`.\n- [ ] **Commit Watchdog Rollback:** Intentionally add a rule blocking port 443; verify that the system auto-recovers after 60 seconds without power cycling.\n- [ ] **Power Failure Resilience:** Pull the power plug during high web activity; verify that SQLite WAL journal mode recovers instantly on reboot without database corruption.\n- [ ] **Stateful HA Failover:** Initiate an active VoIP/SIP call or iperf3 TCP transfer; pull the WAN cable on Firewall A and verify Firewall B continues the stream via `conntrackd` without session reset.\n- [ ] **2FA Enforcement:** Verify that remote access VPN rejects connections if TOTP is incorrect, and logs an audit security event.\n- [ ] **Hardware NIC Remap:** Restore an Intel 4-port backup onto a Realtek appliance and confirm the remapping wizard maps all rules seamlessly.\n- [ ] **PPPoE WAN Redial:** Down a PPPoE uplink, run `micron:pppoe-redial`, and confirm only the failed link is rebuilt and healthy links are reported as skipped.\n- [ ] **RADIUS Auth & Accounting:** Exercise the RADIUS test tool; confirm Start/Stop accounting records arrive and that Interim-Update appears only when `Acct-Interim-Interval` is returned.\n- [ ] **EAP-TLS Coexistence:** On a server with PAP/CHAP enabled, confirm an EAP-TLS client authenticates while an existing CHAP subscriber still connects.\n- [ ] **Internet Service Resolution:** Run `micron:sync-services` and confirm a service-backed address object resolves to prefixes and that a policy referencing it compiles.\n\n---\n\n*Document Version:* 1.0.0 (Step-by-Step Implementation Guide)  \n*Project:* Micron Firewall OS (MicronOS)  \n*Next Step:* Begin Phase 1 (CodeIgniter 4 Scaffolding & Database Migrations)  \n";
+    
+    // Theme Presets Management
+    const LIGHT_THEMES = ['light', 'solar', 'mint', 'paper'];
+    function setThemePreset(theme) {
+      document.documentElement.dataset.theme = theme;
+      document.documentElement.dataset.mode = LIGHT_THEMES.includes(theme) ? 'light' : 'dark';
+      try {
+        localStorage.setItem('micron_docs_theme', theme);
+      } catch (e) {}
+      const sel = document.getElementById('themePresetSelect');
+      if (sel) sel.value = theme;
+    }
+
+    try {
+      const savedTheme = localStorage.getItem('micron_docs_theme') || 'dark';
+      setThemePreset(savedTheme);
+    } catch (e) {
+      setThemePreset('dark');
+    }
+
+    // Configure marked with highlight.js
+    marked.setOptions({
+      highlight: function(code, lang) {
+        if (lang && hljs.getLanguage(lang)) {
+          return hljs.highlight(code, { language: lang }).value;
+        }
+        return hljs.highlightAuto(code).value;
+      },
+      breaks: false,
+      gfm: true
+    });
+
+    const rendered = marked.parse(rawMarkdown);
+    document.getElementById('markdown-body').innerHTML = rendered;
+
+    // Generate Dynamic TOC with IDs
+    const headings = document.getElementById('markdown-body').querySelectorAll('h2, h3');
+    const tocContainer = document.getElementById('toc-container');
+    
+    headings.forEach(heading => {
+      const text = heading.textContent;
+      const base = text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+      let slug = base;
+      for (let n = 2; document.getElementById(slug); n++) {
+        slug = base + '-' + n;
+      }
+      heading.id = slug;
+      
+      const link = document.createElement('a');
+      link.href = '#' + slug;
+      link.textContent = text;
+      link.dataset.title = text.toLowerCase();
+      if (heading.tagName.toLowerCase() === 'h3') {
+        link.classList.add('h3-link');
+      }
+      tocContainer.appendChild(link);
+    });
+
+    // Add Copy Buttons to Pre blocks
+    document.querySelectorAll('#markdown-body pre').forEach(pre => {
+      const copyBtn = document.createElement('button');
+      copyBtn.className = 'code-copy-btn';
+      copyBtn.innerHTML = '<svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg> Copy';
+      copyBtn.onclick = () => {
+        const codeText = pre.querySelector('code')?.innerText || pre.innerText;
+        navigator.clipboard.writeText(codeText);
+        copyBtn.innerHTML = '✔ Copied!';
+        setTimeout(() => {
+          copyBtn.innerHTML = '<svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg> Copy';
+        }, 2000);
+      };
+      pre.appendChild(copyBtn);
+    });
+
+    // TOC Filter
+    function filterToc(query) {
+      query = (query || '').toLowerCase().trim();
+      document.querySelectorAll('#toc-container a').forEach(a => {
+        if (!query || a.dataset.title.includes(query)) {
+          a.style.display = 'block';
+        } else {
+          a.style.display = 'none';
+        }
+      });
+    }
+
+    // Scrollspy for TOC highlight
+    const tocLinks = Array.from(tocContainer.querySelectorAll('a'));
+    function syncTocActive() {
+      const scrollPos = window.scrollY + 120;
+      let activeHeading = null;
+      headings.forEach(h => {
+        if (h.offsetTop <= scrollPos) {
+          activeHeading = h;
+        }
+      });
+      if (activeHeading) {
+        tocLinks.forEach(link => {
+          link.classList.toggle('active', link.getAttribute('href') === '#' + activeHeading.id);
+        });
+      }
+    }
+    window.addEventListener('scroll', syncTocActive, { passive: true });
+    syncTocActive();
+  </script>
+</body>
+</html>

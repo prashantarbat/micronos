@@ -1,0 +1,35 @@
+{
+    "schema": 1,
+    "id": "ipv6-tunnel",
+    "name": "IPv6 6in4 Tunnel Broker",
+    "version": "1.0.0",
+    "class": "B",
+    "vendor": "Micron Network Systems",
+    "description": "Free IPv6 6in4 (SIT) tunnels from a tunnel broker such as tunnelbroker.net or route64.org. The broker hands you a client IPv6 address, a broker endpoint and a routed prefix; this plugin configures the kernel tunnel, addresses and routes from those values in a generated systemd unit, with no package to install. Optional endpoint updates follow Hurricane Electric's documented dyndns2 API: the update call sends this appliance's current public IPv4 address and its stored update key to the broker — a third-party service. Disabling the plugin tears the tunnel down and removes the unit.",
+    "requires": {
+        "packages": [],
+        "repos": [],
+        "kernel_modules": ["sit"],
+        "binaries": ["/usr/bin/ip"]
+    },
+    "provides": {
+        "services": [],
+        "menu": [
+            { "path": "/plugins/ipv6-tunnel", "label": "IPv6 Tunnel Broker", "permission": "plugins.view" }
+        ],
+        "status_source": "rpc:plugin.tunnel.status"
+    },
+    "capabilities": [
+        "root.rpc:plugin.status",
+        "root.rpc:plugin.tunnel.apply",
+        "root.rpc:plugin.tunnel.status",
+        "root.rpc:plugin.tunnel.update",
+        "fs.write:/etc/systemd/system/micron-6in4.service",
+        "fs.write:/var/lib/micron/plugins/ipv6-tunnel",
+        "kernel.module:sit",
+        "firewall.rules"
+    ],
+    "lifecycle": [
+        { "step": "data", "action": "dir.ensure", "path": "/var/lib/micron/plugins/ipv6-tunnel" }
+    ]
+}

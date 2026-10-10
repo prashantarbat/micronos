@@ -1,0 +1,179 @@
+#!/bin/bash
+# ==============================================================================
+# MicronOS Chroot Provisioning Hook
+# ==============================================================================
+set -e
+
+echo "===> [MicronOS Hook] Configuring Apache2, PHP-FPM, and Permissions..."
+
+# Enable Apache modules
+a2enmod rewrite ssl proxy_fcgi headers deflate
+
+# Configure Apache virtual host for MicronOS
+cat << 'EOF' > /etc/apache2/sites-available/micronos.conf
+<VirtualHost *:80>
+    ServerName micronos.local
+    DocumentRoot /usr/local/micron/public
+
+    <Directory /usr/local/micron/public>
+        Options -Indexes +FollowSymLinks
+        AllowOverride All
+        Require all granted
+    </Directory>
+
+    <FilesMatch \.php$>
+        SetHandler "proxy:unix:/run/php/php8.4-fpm.sock|fcgi://localhost"
+    </FilesMatch>
+
+    ErrorLog ${APACHE_LOG_DIR}/micron_error.log
+    CustomLog ${APACHE_LOG_DIR}/micron_access.log combined
+</VirtualHost>
+EOF
+
+a2dissite 000-default.conf || true
+a2ensite micronos.conf
+
+# Setup Micron directories
+mkdir -p /usr/local/micron/writable/cache
+mkdir -p /usr/local/micron/writable/logs
+mkdir -p /usr/local/micron/writable/session
+mkdir -p /usr/local/micron/writable/uploads
+mkdir -p /run/micron
+mkdir -p /etc/micron
+
+chown -R www-data:www-data /usr/local/micron/writable /run/micron
+chmod -R 775 /usr/local/micron/writable /run/micron
+
+# Enable services
+systemctl enable php8.4-fpm || systemctl enable php-fpm || true
+systemctl enable apache2
+systemctl enable nftables
+systemctl enable micrond || true
+systemctl enable ssh || true
+
+# Configure systemd hardware watchdog defaults (30s ping, 60s reboot limit)
+if [ -f /etc/systemd/system.conf ]; then
+    sed -i 's/^#*RuntimeWatchdogSec=.*/RuntimeWatchdogSec=30s/' /etc/systemd/system.conf || true
+    sed -i 's/^#*RebootWatchdogSec=.*/RebootWatchdogSec=60s/' /etc/systemd/system.conf || true
+fi
+
+# ---------------------------------------------------------------------------
+# A/B boot slot lifecycle assets
+# ---------------------------------------------------------------------------
+# The appliance installer (installer/install.sh) provisions ROOT_A + ROOT_B and
+# installs the slot helper, the health check and the GRUB slot selector from its
+# own directory. The live image therefore has to carry installer/; when it does
+# not (e.g. a build that only ships the application), the health-check unit is
+# skipped rather than leaving a dangling enablement.
+echo "===> [MicronOS Hook] Installing A/B boot slot assets..."
+
+mkdir -p /usr/local/micron/installer
+export PATH="$PATH:/usr/sbin:/sbin"  # systemctl location in minimal images
+
+if [ -f /usr/local/micron/installer/micron-healthcheck ] \
+   && [ -f /usr/local/micron/installer/micron-slot ]; then
+    chmod 0755 /usr/local/micron/installer/micron-slot \
+                /usr/local/micron/installer/micron-healthcheck
+else
+    echo "===> [MicronOS Hook] installer/ helpers absent from the image; slot features disabled"
+fi
+
+# Services that require disk/network provisioning before running should remain disabled
+# on the live installer ISO (they are configured and started on the installed appliance)
+systemctl disable unbound || true
+systemctl disable kea-dhcp4-server || true
+systemctl disable squid || true
+systemctl disable suricata || true
+systemctl disable watchdog || true
+
+if [ -f /usr/local/micron/installer/micron-healthcheck.service ]; then
+    install -m 0644 /usr/local/micron/installer/micron-healthcheck.service \
+            /etc/systemd/system/micron-healthcheck.service
+    # Deliberately NOT enabled in the live image — installer/install.sh enables it
+    # only on the target provisioned disk.
+fi
+
+# Mountpoint for the inactive root slot. It is never mounted at boot (the fstab
+# entry is `noauto`); the updater mounts it when it writes an image.
+mkdir -p /mnt/micron-slot-b
+
+# ---------------------------------------------------------------------------
+# Terminal CLI (microctl)
+# ---------------------------------------------------------------------------
+# The overlay stages /usr/local/bin/microctl from bin/microctl (see
+# packaging/live-build/stage-overlay.sh). The CLI resolves its application root
+# itself, so all this has to guarantee is that the command is present on root's
+# PATH and executable — including on a build whose overlay was staged by hand.
+echo "===> [MicronOS Hook] Installing the Terminal CLI (microctl)..."
+
+export PATH="$PATH:/usr/local/bin"
+
+if [ -f /usr/local/micron/bin/microctl ]; then
+    install -d /usr/local/bin
+    install -m 0755 /usr/local/micron/bin/microctl /usr/local/bin/microctl
+fi
+
+if [ -x /usr/local/bin/microctl ]; then
+    # Root's login shell sources /etc/bash_completion.d; the file staged under
+    # /usr/share/bash-completion/completions is picked up by bash-completion.
+    chmod 0755 /usr/local/bin/microctl
+    echo "===> [MicronOS Hook] microctl available at /usr/local/bin/microctl"
+else
+    echo "===> [MicronOS Hook] microctl absent from the image; console CLI disabled"
+fi
+
+# ---------------------------------------------------------------------------
+# Appliance User Setup & Sudoers Privileges
+# ---------------------------------------------------------------------------
+echo "===> [MicronOS Hook] Creating ministrator user and configuring sudoers..."
+
+# Set root password to M1Cr0N (identical to Web GUI default)
+echo "root:M1Cr0N" | chpasswd
+
+# Configure live-config to adopt ministrator as default live user
+mkdir -p /etc/live/config.conf.d
+cat << 'EOF' > /etc/live/config.conf.d/micronos.conf
+LIVE_USERNAME="ministrator"
+LIVE_USER_FULLNAME="Ministrator"
+LIVE_USER_DEFAULT_GROUPS="sudo,adm,systemd-journal,users"
+EOF
+
+# Create user ministrator with bash shell and administrative groups
+if ! id "ministrator" >/dev/null 2>&1; then
+    useradd -m -s /bin/bash -G sudo,adm,systemd-journal ministrator
+fi
+echo "ministrator:M1Cr0N" | chpasswd
+
+# Configure sudoers for ministrator (full sudo privilege)
+mkdir -p /etc/sudoers.d
+cat << 'EOF' > /etc/sudoers.d/99-ministrator
+ministrator ALL=(ALL:ALL) NOPASSWD:ALL
+EOF
+chmod 0440 /etc/sudoers.d/99-ministrator
+
+# Enable password authentication for SSH
+mkdir -p /etc/ssh/sshd_config.d
+cat << 'EOF' > /etc/ssh/sshd_config.d/99-micronos.conf
+PasswordAuthentication yes
+PermitRootLogin yes
+EOF
+
+# Configure systemd tty1 autologin for ministrator
+mkdir -p /etc/systemd/system/getty@tty1.service.d
+cat << 'EOF' > /etc/systemd/system/getty@tty1.service.d/autologin.conf
+[Service]
+ExecStart=
+ExecStart=-/sbin/agetty --autologin ministrator --noclear %I $TERM
+EOF
+
+# Initialize and seed SQLite database for out-of-the-box operation
+if [ -d /usr/local/micron ] && command -v php >/dev/null 2>&1; then
+    echo "===> [MicronOS Hook] Migrating and seeding SQLite database..."
+    cd /usr/local/micron
+    php spark migrate --all || true
+    php spark db:seed RolesPermissionsSeeder || true
+    chown -R www-data:www-data /usr/local/micron/writable
+    chmod -R 775 /usr/local/micron/writable
+fi
+
+echo "===> [MicronOS Hook] Setup complete!"

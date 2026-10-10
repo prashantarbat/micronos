@@ -1,0 +1,1773 @@
+<?= $this->extend('layouts/main') ?>
+<?= $this->section('content') ?>
+
+<!-- ── Page Header ── -->
+<div class="page-header animate-in">
+  <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:16px;">
+    <div>
+      <h1 class="page-title" style="display:flex; align-items:center; gap:10px;">
+        <svg width="26" height="26" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"/>
+        </svg>
+        Network Interfaces
+      </h1>
+      <p class="page-subtitle">Configure physical and virtual interfaces, link addressing, and traffic parameters</p>
+    </div>
+    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+      <?php if (session()->get('is_superadmin') || in_array('interfaces.edit', session()->get('permissions') ?? [])): ?>
+        <button type="button" class="btn btn-primary" onclick="openAddInterfaceModal()" style="display:inline-flex; align-items:center; gap:6px;">
+          <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+          </svg>
+          Add Interface / VLAN
+        </button>
+
+        <button type="button" class="btn btn-secondary" onclick="openAddBondModal()" style="display:inline-flex; align-items:center; gap:6px; background:rgba(59,130,246,0.15); color:#60a5fa; border:1px solid rgba(59,130,246,0.35);">
+          <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13.828 10.172a4 4 0 010 5.656l-3 3a4 4 0 01-5.656-5.656l1.5-1.5m7.156-7.156a4 4 0 00-5.656 0l-3 3a4 4 0 000 5.656l1.5 1.5"/>
+          </svg>
+          + New Bond (bond0)
+        </button>
+
+        <button type="button" class="btn btn-secondary" onclick="openConfigureWirelessModal()" style="display:inline-flex; align-items:center; gap:6px; background:rgba(236,72,153,0.15); color:#f472b6; border:1px solid rgba(236,72,153,0.35);">
+          <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0"/>
+          </svg>
+          + Setup Wi-Fi (wlan0)
+        </button>
+      <?php endif; ?>
+
+      <?php if (session()->get('is_superadmin') || in_array('interfaces.apply', session()->get('permissions') ?? [])): ?>
+        <form method="POST" action="<?= base_url('interfaces/apply') ?>" style="margin:0;">
+          <?= csrf_field() ?>
+          <button type="submit" class="btn btn-success" style="display:inline-flex; align-items:center; gap:6px;">
+            <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+            </svg>
+            Apply Changes
+          </button>
+        </form>
+      <?php endif; ?>
+    </div>
+  </div>
+</div>
+
+<?php if ($isMock ?? false): ?>
+  <div class="alert alert-info animate-in" style="margin-bottom:20px; background:rgba(6,182,212,0.1); border:1px solid rgba(6,182,212,0.3); border-radius:var(--radius-md); padding:12px 16px; display:flex; align-items:center; gap:12px;">
+    <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="color:var(--color-cyan); flex-shrink:0;">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+    </svg>
+    <div style="font-size:0.83rem; color:var(--text-secondary);">
+      Running in <strong style="color:var(--color-cyan);">Windows Simulation Mode</strong>. Live Linux network telemetry, LACP bond states, and Wi-Fi radiometrics are generated dynamically by the Micron OS IPC engine.
+    </div>
+  </div>
+<?php endif; ?>
+
+<!-- ── Top Feature Switcher Tabs ── -->
+<div style="display:flex; gap:10px; margin-bottom:20px; border-bottom:1px solid var(--color-border); padding-bottom:12px; flex-wrap:wrap;" class="animate-in">
+  <button type="button" class="btn btn-sm iface-nav-tab active" id="tabNavInterfaces" onclick="switchMainTab('interfaces', this)" style="display:inline-flex; align-items:center; gap:8px;">
+    <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"/>
+    </svg>
+    <span>Interfaces &amp; VLANs</span>
+    <span class="badge badge-muted" style="font-size:0.7rem; padding:2px 6px;"><?= count($interfaces) ?></span>
+  </button>
+
+  <button type="button" class="btn btn-sm iface-nav-tab btn-ghost" id="tabNavBonds" onclick="switchMainTab('bonds', this)" style="display:inline-flex; align-items:center; gap:8px;">
+    <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M13.828 10.172a4 4 0 010 5.656l-3 3a4 4 0 01-5.656-5.656l1.5-1.5m7.156-7.156a4 4 0 00-5.656 0l-3 3a4 4 0 000 5.656l1.5 1.5"/>
+    </svg>
+    <span>LACP Link Aggregation (<code>bond0</code>)</span>
+    <span class="badge" style="font-size:0.7rem; padding:2px 6px; background:rgba(59,130,246,0.2); color:#60a5fa;"><?= (int) ($summary['bonds'] ?? count($bonds ?? [])) ?></span>
+  </button>
+
+  <button type="button" class="btn btn-sm iface-nav-tab btn-ghost" id="tabNavWireless" onclick="switchMainTab('wireless', this)" style="display:inline-flex; align-items:center; gap:8px;">
+    <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0"/>
+    </svg>
+    <span>Wireless LAN (<code>wlan0</code>)</span>
+    <span class="badge" style="font-size:0.7rem; padding:2px 6px; background:rgba(236,72,153,0.2); color:#f472b6;"><?= (int) ($summary['wireless'] ?? count($wireless ?? [])) ?></span>
+  </button>
+</div>
+
+<!-- ── KPI Summary Cards ── -->
+<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:14px; margin-bottom:24px;" class="animate-in animate-in-delay-1">
+  <div class="card card-glass" style="padding:14px 18px;">
+    <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; font-weight:600; letter-spacing:0.04em;">Total Interfaces</div>
+    <div style="font-size:1.6rem; font-weight:700; color:var(--text-primary); margin-top:2px; font-family:var(--font-mono);"><?= (int) ($summary['total'] ?? 0) ?></div>
+    <div style="font-size:0.72rem; color:var(--text-secondary); margin-top:2px;">Configured in appliance</div>
+  </div>
+
+  <div class="card card-glass" style="padding:14px 18px; border-left:3px solid var(--color-emerald);">
+    <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; font-weight:600; letter-spacing:0.04em;">Links Up</div>
+    <div style="font-size:1.6rem; font-weight:700; color:var(--color-emerald); margin-top:2px; font-family:var(--font-mono); display:flex; align-items:center; gap:8px;">
+      <span class="pulse-dot" style="width:8px; height:8px;"></span>
+      <?= (int) ($summary['up'] ?? 0) ?>
+    </div>
+    <div style="font-size:0.72rem; color:var(--text-secondary); margin-top:2px;">Active & transmitting</div>
+  </div>
+
+  <div class="card card-glass" style="padding:14px 18px; border-left:3px solid var(--color-red);">
+    <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; font-weight:600; letter-spacing:0.04em;">Links Down</div>
+    <div style="font-size:1.6rem; font-weight:700; color:var(--color-red); margin-top:2px; font-family:var(--font-mono);"><?= (int) ($summary['down'] ?? 0) ?></div>
+    <div style="font-size:0.72rem; color:var(--text-secondary); margin-top:2px;">Disabled or no carrier</div>
+  </div>
+
+  <div class="card card-glass" style="padding:14px 18px; border-left:3px solid var(--color-cyan);">
+    <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; font-weight:600; letter-spacing:0.04em;">Physical NICs</div>
+    <div style="font-size:1.6rem; font-weight:700; color:var(--color-cyan); margin-top:2px; font-family:var(--font-mono);"><?= (int) ($summary['physical'] ?? 0) ?></div>
+    <div style="font-size:0.72rem; color:var(--text-secondary); margin-top:2px;">Hardware ports mapped</div>
+  </div>
+
+  <div class="card card-glass" style="padding:14px 18px; border-left:3px solid var(--color-purple);">
+    <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; font-weight:600; letter-spacing:0.04em;">802.1Q VLANs</div>
+    <div style="font-size:1.6rem; font-weight:700; color:var(--color-purple); margin-top:2px; font-family:var(--font-mono);"><?= (int) ($summary['vlan'] ?? 0) ?></div>
+    <div style="font-size:0.72rem; color:var(--text-secondary); margin-top:2px;">Virtual tagged subnets</div>
+  </div>
+
+  <div class="card card-glass" style="padding:14px 18px; border-left:3px solid #3b82f6; cursor:pointer;" onclick="switchMainTab('bonds', document.getElementById('tabNavBonds'))">
+    <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; font-weight:600; letter-spacing:0.04em;">LACP Bonds</div>
+    <div style="font-size:1.6rem; font-weight:700; color:#60a5fa; margin-top:2px; font-family:var(--font-mono);"><?= (int) ($summary['bonds'] ?? count($bonds ?? [])) ?></div>
+    <div style="font-size:0.72rem; color:var(--text-secondary); margin-top:2px;">802.3ad Trunk Links</div>
+  </div>
+
+  <div class="card card-glass" style="padding:14px 18px; border-left:3px solid #ec4899; cursor:pointer;" onclick="switchMainTab('wireless', document.getElementById('tabNavWireless'))">
+    <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; font-weight:600; letter-spacing:0.04em;">Wireless WLAN</div>
+    <div style="font-size:1.6rem; font-weight:700; color:#f472b6; margin-top:2px; font-family:var(--font-mono);"><?= (int) ($summary['wireless'] ?? count($wireless ?? [])) ?></div>
+    <div style="font-size:0.72rem; color:var(--text-secondary); margin-top:2px;">AP / Client Radios</div>
+  </div>
+</div>
+
+<!-- ============================================================
+     TAB 1: STANDARD INTERFACES & VLANS
+============================================================ -->
+<div id="tabPaneInterfaces" class="iface-main-tab-pane">
+
+<!-- ── Filter Tabs ── -->
+<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:18px; flex-wrap:wrap; gap:12px;">
+  <div style="display:flex; gap:8px;">
+    <button type="button" class="btn btn-sm iface-tab-btn active" data-filter="all" onclick="filterInterfaces('all', this)">
+      All Interfaces (<?= count($interfaces) ?>)
+    </button>
+    <button type="button" class="btn btn-sm iface-tab-btn btn-ghost" data-filter="physical" onclick="filterInterfaces('physical', this)">
+      Physical Ports (<?= (int) ($summary['physical'] ?? 0) ?>)
+    </button>
+    <button type="button" class="btn btn-sm iface-tab-btn btn-ghost" data-filter="vlan" onclick="filterInterfaces('vlan', this)">
+      802.1Q VLANs (<?= (int) ($summary['vlan'] ?? 0) ?>)
+    </button>
+  </div>
+  <div style="font-size:0.75rem; color:var(--text-muted);">
+    Total Throughput: <strong style="color:var(--text-primary); font-family:var(--font-mono);"><?= count($interfaces) ?> interfaces active</strong>
+  </div>
+</div>
+
+<!-- ── Interfaces Grid Cards ── -->
+<div id="interfacesGrid" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap:20px; margin-bottom:28px;" class="animate-in animate-in-delay-1">
+  <?php foreach ($interfaces as $if): ?>
+    <?php
+      $isUp = $if['is_up'] ?? false;
+      $isVlan = ($if['interface_type'] ?? '') === 'vlan';
+      $accentClass = ($if['name'] === 'WAN') ? 'cyan' : (($if['name'] === 'LAN') ? 'emerald' : ($isVlan ? 'purple' : 'amber'));
+      $typeFilter = $isVlan ? 'vlan' : 'physical';
+    ?>
+    <div class="card stat-card <?= $accentClass ?> iface-card-item" data-type="<?= $typeFilter ?>" style="display:flex; flex-direction:column; justify-content:space-between;">
+      <div>
+        <!-- Top header row -->
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:12px;">
+          <div>
+            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+              <span style="font-weight:700; font-size:1.15rem; color:var(--text-primary);"><?= esc($if['name']) ?></span>
+              <?php if ($isVlan): ?>
+                <span class="badge badge-purple" style="font-size:0.65rem; letter-spacing:0.04em;">VLAN <?= esc($if['vlan_tag']) ?></span>
+              <?php else: ?>
+                <span class="badge badge-cyan" style="font-size:0.65rem; letter-spacing:0.04em;">PHYSICAL</span>
+              <?php endif; ?>
+              <?php if (empty($if['enabled'])): ?>
+                <span class="badge badge-muted" style="font-size:0.65rem;">DISABLED</span>
+              <?php endif; ?>
+            </div>
+            <div style="display:flex; align-items:center; gap:6px; margin-top:3px;">
+              <span class="badge badge-muted" style="font-family:var(--font-mono); font-size:0.72rem;"><?= esc($if['physical_device']) ?></span>
+              <?php if ($isVlan && !empty($if['vlan_parent'])): ?>
+                <span style="font-size:0.7rem; color:var(--text-muted);">via <?= esc($if['vlan_parent']) ?></span>
+              <?php endif; ?>
+            </div>
+            <?php if (!empty($if['lldp_peer_label'])): ?>
+              <?php $peer = (array) ($if['lldp_peer'] ?? []); ?>
+              <div style="display:flex; align-items:center; gap:6px; margin-top:5px; font-size:0.7rem; color:var(--text-muted);"
+                   title="Discovered over LLDP<?= !empty($peer['mgmt_ip']) ? ' — management address ' . esc($peer['mgmt_ip']) : '' ?><?= !empty($peer['via']) ? ' (' . esc($peer['via']) . ')' : '' ?>">
+                <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="flex-shrink:0;">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M13.828 10.172a4 4 0 010 5.656l-3 3a4 4 0 01-5.656-5.656l1.5-1.5m7.156-7.156a4 4 0 00-5.656 0l-3 3a4 4 0 000 5.656l1.5 1.5"/>
+                </svg>
+                <span>Patched into <strong style="color:var(--text-secondary); font-family:var(--font-mono); font-weight:600;"><?= esc($if['lldp_peer_label']) ?></strong></span>
+              </div>
+            <?php endif; ?>
+          </div>
+
+          <div>
+            <?php if ($isUp && !empty($if['enabled'])): ?>
+              <span class="badge badge-success" style="display:inline-flex; align-items:center; gap:5px;">
+                <span class="pulse-dot"></span>
+                Link Up
+              </span>
+            <?php else: ?>
+              <span class="badge badge-danger">
+                Link Down
+              </span>
+            <?php endif; ?>
+          </div>
+        </div>
+
+        <?php if (!empty($if['description'])): ?>
+          <div style="font-size:0.75rem; color:var(--text-secondary); margin-bottom:8px; font-style:italic;">
+            <?= esc($if['description']) ?>
+          </div>
+        <?php endif; ?>
+
+        <!-- IP Addressing & Subnet -->
+        <div style="font-family:var(--font-mono); font-size:1.0rem; font-weight:700; color:var(--color-<?= $accentClass ?>); margin-bottom:10px;">
+          <?= esc($if['current_ip']) ?><?= !empty($if['ipv4_netmask']) ? '/' . esc($if['ipv4_netmask']) : '' ?>
+        </div>
+
+        <!-- Metric parameters grid -->
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:6px 12px; font-size:0.75rem; color:var(--text-secondary); margin-bottom:16px; background:rgba(0,0,0,0.15); padding:8px 12px; border-radius:var(--radius-sm); border:1px solid var(--border-subtle);">
+          <div>Mode: <strong style="color:var(--text-primary); text-transform:uppercase;"><?= esc($if['ip_assignment_type']) ?></strong></div>
+          <div>MTU: <strong style="color:var(--text-primary);"><?= esc($if['mtu']) ?></strong></div>
+          <?php if (!empty($if['mss_clamp'])): ?>
+            <div>MSS Clamp: <strong style="color:var(--color-amber);"><?= (int) $if['mss_clamp'] ?></strong></div>
+          <?php else: ?>
+            <div>Speed: <strong style="color:var(--text-primary);"><?= esc($if['speed']) ?></strong></div>
+          <?php endif; ?>
+          <div>Traffic: <strong style="color:var(--text-primary); font-family:var(--font-mono);">&darr;<?= esc($if['rx_human']) ?> &uarr;<?= esc($if['tx_human']) ?></strong></div>
+        </div>
+      </div>
+
+      <!-- Card footer actions -->
+      <div style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid var(--color-border); padding-top:12px; margin-top:4px;">
+        <span style="font-family:var(--font-mono); font-size:0.7rem; color:var(--text-muted);"><?= esc($if['mac']) ?></span>
+        <div style="display:flex; gap:6px; align-items:center;">
+          <!-- Quick Toggle Form -->
+          <?php if (session()->get('is_superadmin') || in_array('interfaces.edit', session()->get('permissions') ?? [])): ?>
+            <form method="POST" action="<?= base_url('interfaces/' . esc($if['id']) . '/toggle') ?>" style="margin:0;">
+              <?= csrf_field() ?>
+              <button type="submit" class="btn btn-ghost btn-sm" style="font-size:0.7rem; padding:2px 8px;" title="<?= !empty($if['enabled']) ? 'Disable interface' : 'Enable interface' ?>">
+                <?= !empty($if['enabled']) ? 'Disable' : 'Enable' ?>
+              </button>
+            </form>
+
+            <a href="<?= base_url('interfaces/edit/' . esc($if['id'])) ?>" class="btn btn-ghost btn-sm" style="font-size:0.72rem; padding:2px 8px;">
+              Configure
+            </a>
+
+            <?php if (!in_array(strtolower($if['id']), ['wan', 'lan'], true)): ?>
+              <button type="button" class="btn btn-ghost btn-sm" style="font-size:0.72rem; color:var(--color-red); padding:2px 6px;"
+                      onclick="confirmDeleteInterface('<?= esc($if['id']) ?>', '<?= esc($if['name']) ?>')" title="Delete Interface">
+                <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                </svg>
+              </button>
+            <?php endif; ?>
+          <?php endif; ?>
+        </div>
+      </div>
+    </div>
+  <?php endforeach; ?>
+</div>
+
+<!-- ── Detailed Interfaces Telemetry Table ── -->
+<div class="card card-glass animate-in animate-in-delay-2" style="margin-bottom:30px;">
+  <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
+    <span class="card-title" style="display:flex; align-items:center; gap:8px;">
+      <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 10h16M4 14h16M4 18h16"/>
+      </svg>
+      Interface Telemetry & Physical Link Assignments
+    </span>
+    <span style="font-size:0.72rem; color:var(--text-muted); font-family:var(--font-mono);">
+      <?= count($interfaces) ?> interface(s) loaded
+    </span>
+  </div>
+  <div style="overflow-x:auto;">
+    <table class="iface-table" style="width:100%;">
+      <thead>
+        <tr>
+          <th>Interface</th>
+          <th>Type</th>
+          <th>Device Binding</th>
+          <th>Status</th>
+          <th>IP Configuration</th>
+          <th>Gateway / Route</th>
+          <th>MTU / MSS</th>
+          <th>Throughput (Rx / Tx)</th>
+          <th style="text-align:right;">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        <?php foreach ($interfaces as $if): ?>
+          <?php $isVlan = ($if['interface_type'] ?? '') === 'vlan'; ?>
+          <tr class="iface-row-item" data-type="<?= $isVlan ? 'vlan' : 'physical' ?>">
+            <td>
+              <div style="font-weight:700; color:var(--text-primary); font-size:0.85rem;"><?= esc($if['name']) ?></div>
+              <?php if (!empty($if['description'])): ?>
+                <div style="font-size:0.7rem; color:var(--text-muted);"><?= esc($if['description']) ?></div>
+              <?php endif; ?>
+            </td>
+            <td>
+              <?php if ($isVlan): ?>
+                <span class="badge badge-purple" style="font-size:0.68rem;">802.1Q VLAN <?= esc($if['vlan_tag']) ?></span>
+              <?php else: ?>
+                <span class="badge badge-cyan" style="font-size:0.68rem;">PHYSICAL</span>
+              <?php endif; ?>
+            </td>
+            <td>
+              <span class="badge badge-muted" style="font-family:var(--font-mono); font-size:0.75rem;"><?= esc($if['physical_device']) ?></span>
+              <?php if ($isVlan && !empty($if['vlan_parent'])): ?>
+                <span style="font-size:0.7rem; color:var(--text-muted);">(&larr; <?= esc($if['vlan_parent']) ?>)</span>
+              <?php endif; ?>
+              <?php if (!empty($if['lldp_peer_label'])): ?>
+                <div style="font-size:0.68rem; color:var(--text-muted); margin-top:3px;"
+                     title="Remote chassis and port discovered over LLDP">
+                  &#8627; <span style="font-family:var(--font-mono); color:var(--text-secondary);"><?= esc($if['lldp_peer_label']) ?></span>
+                </div>
+              <?php endif; ?>
+            </td>
+            <td>
+              <?php if (!empty($if['is_up']) && !empty($if['enabled'])): ?>
+                <span class="badge badge-success" style="display:inline-flex; align-items:center; gap:5px; font-size:0.7rem;">
+                  <span class="pulse-dot"></span> Link Up
+                </span>
+              <?php else: ?>
+                <span class="badge badge-danger" style="font-size:0.7rem;">
+                  <?= empty($if['enabled']) ? 'Disabled' : 'Link Down' ?>
+                </span>
+              <?php endif; ?>
+            </td>
+            <td>
+              <div style="font-family:var(--font-mono); font-size:0.82rem; color:var(--text-primary);">
+                <?= esc($if['current_ip']) ?><?= !empty($if['ipv4_netmask']) ? '/' . esc($if['ipv4_netmask']) : '' ?>
+              </div>
+              <div style="font-size:0.68rem; color:var(--text-muted); text-transform:uppercase;">
+                <?= esc($if['ip_assignment_type']) ?>
+              </div>
+            </td>
+            <td style="font-family:var(--font-mono); font-size:0.78rem; color:var(--text-secondary);">
+              <?= !empty($if['ipv4_gateway']) ? esc($if['ipv4_gateway']) : ($if['ip_assignment_type'] === 'dhcp' ? 'Auto (DHCP)' : '—') ?>
+            </td>
+            <td style="font-family:var(--font-mono); font-size:0.75rem; color:var(--text-secondary);">
+              <div>MTU: <?= esc($if['mtu']) ?></div>
+              <?php if (!empty($if['mss_clamp'])): ?>
+                <div style="color:var(--color-amber);">MSS: <?= (int) $if['mss_clamp'] ?></div>
+              <?php endif; ?>
+            </td>
+            <td style="font-family:var(--font-mono); font-size:0.75rem;">
+              <span style="color:var(--color-emerald);">↓ <?= esc($if['rx_human']) ?></span> &nbsp;·&nbsp;
+              <span style="color:var(--color-cyan);">↑ <?= esc($if['tx_human']) ?></span>
+            </td>
+            <td style="text-align:right; white-space:nowrap;">
+              <?php if (session()->get('is_superadmin') || in_array('interfaces.edit', session()->get('permissions') ?? [])): ?>
+                <a href="<?= base_url('interfaces/edit/' . esc($if['id'])) ?>" class="btn btn-ghost btn-sm" style="font-size:0.72rem; padding:2px 8px;">
+                  Edit
+                </a>
+
+                <?php if (!in_array(strtolower($if['id']), ['wan', 'lan'], true)): ?>
+                  <button type="button" class="btn btn-ghost btn-sm" style="color:var(--color-red); font-size:0.72rem; padding:2px 6px;"
+                          onclick="confirmDeleteInterface('<?= esc($if['id']) ?>', '<?= esc($if['name']) ?>')" title="Delete Interface">
+                    Delete
+                  </button>
+                <?php endif; ?>
+              <?php endif; ?>
+            </td>
+          </tr>
+        <?php endforeach; ?>
+      </tbody>
+    </table>
+  </div>
+</div>
+</div> <!-- end #tabPaneInterfaces -->
+
+<!-- ============================================================
+     TAB 2: LACP LINK AGGREGATION (bond0)
+============================================================ -->
+<div id="tabPaneBonds" class="iface-main-tab-pane" style="display:none;">
+  <!-- Header / Action bar -->
+  <div class="card card-glass animate-in" style="padding:18px 22px; margin-bottom:20px; border-left:3px solid #3b82f6;">
+    <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:16px;">
+      <div>
+        <h2 style="font-size:1.15rem; font-weight:700; color:var(--text-primary); margin:0 0 6px 0; display:flex; align-items:center; gap:8px;">
+          <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="color:#60a5fa;">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13.828 10.172a4 4 0 010 5.656l-3 3a4 4 0 01-5.656-5.656l1.5-1.5m7.156-7.156a4 4 0 00-5.656 0l-3 3a4 4 0 000 5.656l1.5 1.5"/>
+          </svg>
+          Link Aggregation Groups &amp; IEEE 802.3ad LACP
+        </h2>
+        <p style="font-size:0.82rem; color:var(--text-secondary); margin:0; max-width:850px; line-height:1.5;">
+          Combine multiple physical Ethernet ports (e.g. <code>eth1</code> + <code>eth2</code> or <code>enp1s0</code> + <code>enp2s0</code>) into high-bandwidth virtual trunk interfaces (<code>bond0</code>) with automatic failover. Micron OS kernel bonding operates dynamically with IEEE 802.3ad LACP 1-second fast heartbeats and Layer 2+3 transmit hashing.
+        </p>
+      </div>
+      <div>
+        <?php if (session()->get('is_superadmin') || in_array('interfaces.edit', session()->get('permissions') ?? [])): ?>
+          <button type="button" class="btn btn-primary" onclick="openAddBondModal()" style="display:inline-flex; align-items:center; gap:6px;">
+            <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+            </svg>
+            Create Bond Interface
+          </button>
+        <?php endif; ?>
+      </div>
+    </div>
+  </div>
+
+  <?php if (empty($bonds)): ?>
+    <div class="card card-glass animate-in" style="padding:48px 24px; text-align:center; border:1px dashed var(--color-border-bright);">
+      <div style="width:56px; height:56px; border-radius:50%; background:rgba(59,130,246,0.1); color:#60a5fa; display:flex; align-items:center; justify-content:center; margin:0 auto 16px;">
+        <svg width="28" height="28" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M13.828 10.172a4 4 0 010 5.656l-3 3a4 4 0 01-5.656-5.656l1.5-1.5m7.156-7.156a4 4 0 00-5.656 0l-3 3a4 4 0 000 5.656l1.5 1.5"/>
+        </svg>
+      </div>
+      <h3 style="font-size:1.1rem; font-weight:700; color:var(--text-primary); margin-bottom:8px;">No LACP Bonds Configured</h3>
+      <p style="font-size:0.83rem; color:var(--text-secondary); max-width:540px; margin:0 auto 20px; line-height:1.5;">
+        Link Aggregation Groups allow bundling two or more physical network adapters into a single logical channel for multi-gigabit throughput and instant link redundancy.
+      </p>
+      <?php if (session()->get('is_superadmin') || in_array('interfaces.edit', session()->get('permissions') ?? [])): ?>
+        <button type="button" class="btn btn-primary" onclick="openAddBondModal()" style="display:inline-flex; align-items:center; gap:6px;">
+          <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+          </svg>
+          Configure First Bond (bond0)
+        </button>
+      <?php endif; ?>
+    </div>
+  <?php else: ?>
+    <!-- Bond cards grid -->
+    <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(360px, 1fr)); gap:20px; margin-bottom:28px;" class="animate-in">
+      <?php foreach ($bonds as $bond): ?>
+        <?php
+          $slaveList = is_array($bond['slaves']) ? $bond['slaves'] : json_decode((string)$bond['slaves'], true) ?? [];
+          $liveBond = $bond['live'] ?? null;
+          $modeLabel = match ($bond['mode']) {
+            '802.3ad'       => 'IEEE 802.3ad LACP',
+            'active-backup' => 'Active-Backup',
+            'balance-xor'   => 'Balance-XOR (Tx Hash)',
+            'balance-rr'    => 'Round-Robin',
+            'broadcast'     => 'Broadcast',
+            default         => strtoupper($bond['mode']),
+          };
+        ?>
+        <div class="card stat-card blue" style="display:flex; flex-direction:column; justify-content:space-between; padding:20px;">
+          <div>
+            <!-- Header -->
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:12px;">
+              <div>
+                <div style="display:flex; align-items:center; gap:8px;">
+                  <span style="font-weight:700; font-size:1.2rem; color:var(--text-primary); font-family:var(--font-mono);"><?= esc($bond['id']) ?></span>
+                  <span class="badge" style="background:rgba(59,130,246,0.2); color:#60a5fa; font-size:0.68rem; font-weight:600;"><?= esc($modeLabel) ?></span>
+                </div>
+                <div style="font-size:0.85rem; color:var(--text-secondary); margin-top:2px; font-weight:500;"><?= esc($bond['name']) ?></div>
+              </div>
+              <div>
+                <span class="badge badge-success" style="display:inline-flex; align-items:center; gap:5px;">
+                  <span class="pulse-dot"></span>
+                  Active Bond
+                </span>
+              </div>
+            </div>
+
+            <!-- Member slaves badges -->
+            <div style="margin-bottom:14px;">
+              <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; font-weight:600; margin-bottom:6px; letter-spacing:0.04em;">Member Physical Interfaces (Slaves)</div>
+              <div style="display:flex; flex-wrap:wrap; gap:6px;">
+                <?php foreach ($slaveList as $slave): ?>
+                  <span class="badge" style="background:rgba(16,185,129,0.15); color:var(--color-emerald); border:1px solid rgba(16,185,129,0.3); font-family:var(--font-mono); font-size:0.75rem; padding:4px 8px; display:inline-flex; align-items:center; gap:5px;">
+                    <span style="width:6px; height:6px; border-radius:50%; background:var(--color-emerald);"></span>
+                    <?= esc($slave) ?>
+                  </span>
+                <?php endforeach; ?>
+              </div>
+            </div>
+
+            <!-- Parameters table -->
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:6px 12px; font-size:0.75rem; color:var(--text-secondary); margin-bottom:16px; background:rgba(0,0,0,0.15); padding:10px 14px; border-radius:var(--radius-sm); border:1px solid var(--border-subtle);">
+              <div>LACP Rate: <strong style="color:var(--text-primary); font-family:var(--font-mono); text-transform:uppercase;"><?= esc($bond['lacp_rate']) ?></strong></div>
+              <div>Transmit Hash: <strong style="color:var(--text-primary); font-family:var(--font-mono);"><?= esc($bond['xmit_hash_policy']) ?></strong></div>
+              <div>MII Polling: <strong style="color:var(--text-primary); font-family:var(--font-mono);"><?= (int) $bond['miimon'] ?> ms</strong></div>
+              <div>MTU Frame: <strong style="color:var(--text-primary); font-family:var(--font-mono);"><?= (int) $bond['mtu'] ?></strong></div>
+            </div>
+          </div>
+
+          <!-- Footer -->
+          <div style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid var(--color-border); padding-top:12px; margin-top:6px;">
+            <span style="font-size:0.7rem; color:var(--text-muted);">Kernel Module: <code>bonding</code></span>
+            <div style="display:flex; gap:8px;">
+              <?php if (session()->get('is_superadmin') || in_array('interfaces.edit', session()->get('permissions') ?? [])): ?>
+                <button type="button" class="btn btn-ghost btn-sm" style="color:var(--color-red); font-size:0.72rem; padding:2px 8px;" onclick="confirmDeleteBond('<?= esc($bond['id']) ?>', '<?= esc($bond['name']) ?>')">
+                  Delete
+                </button>
+              <?php endif; ?>
+            </div>
+          </div>
+        </div>
+      <?php endforeach; ?>
+    </div>
+  <?php endif; ?>
+</div>
+
+<!-- ============================================================
+     TAB 3: WIRELESS LAN (wlan0)
+============================================================ -->
+<div id="tabPaneWireless" class="iface-main-tab-pane" style="display:none;">
+  <!-- Header / Action bar -->
+  <div class="card card-glass animate-in" style="padding:18px 22px; margin-bottom:20px; border-left:3px solid #ec4899;">
+    <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:16px;">
+      <div>
+        <h2 style="font-size:1.15rem; font-weight:700; color:var(--text-primary); margin:0 0 6px 0; display:flex; align-items:center; gap:8px;">
+          <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="color:#f472b6;">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0"/>
+          </svg>
+          Wireless LAN Radios &amp; Access Point Controllers
+        </h2>
+        <p style="font-size:0.82rem; color:var(--text-secondary); margin:0; max-width:850px; line-height:1.5;">
+          Configure local Wi-Fi radios (<code>wlan0</code>) as an enterprise Access Point via <code>hostapd</code> with WPA2-Personal and WPA3-SAE encryption, or connect as a wireless client uplink via <code>wpa_supplicant</code>.
+        </p>
+      </div>
+      <div>
+        <?php if (session()->get('is_superadmin') || in_array('interfaces.edit', session()->get('permissions') ?? [])): ?>
+          <button type="button" class="btn btn-primary" onclick="openConfigureWirelessModal()" style="display:inline-flex; align-items:center; gap:6px;">
+            <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+            </svg>
+            Setup Wi-Fi Interface
+          </button>
+        <?php endif; ?>
+      </div>
+    </div>
+  </div>
+
+  <?php if (empty($wireless)): ?>
+    <div class="card card-glass animate-in" style="padding:48px 24px; text-align:center; border:1px dashed var(--color-border-bright);">
+      <div style="width:56px; height:56px; border-radius:50%; background:rgba(236,72,153,0.1); color:#f472b6; display:flex; align-items:center; justify-content:center; margin:0 auto 16px;">
+        <svg width="28" height="28" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0"/>
+        </svg>
+      </div>
+      <h3 style="font-size:1.1rem; font-weight:700; color:var(--text-primary); margin-bottom:8px;">No Wireless Networks Configured</h3>
+      <p style="font-size:0.83rem; color:var(--text-secondary); max-width:540px; margin:0 auto 20px; line-height:1.5;">
+        Configure onboard or PCIe Wi-Fi adapters (<code>wlan0</code>) to broadcast corporate or guest Wi-Fi SSIDs with full WPA3 security and client isolation.
+      </p>
+      <?php if (session()->get('is_superadmin') || in_array('interfaces.edit', session()->get('permissions') ?? [])): ?>
+        <button type="button" class="btn btn-primary" onclick="openConfigureWirelessModal()" style="display:inline-flex; align-items:center; gap:6px;">
+          <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+          </svg>
+          Configure First Wi-Fi (wlan0)
+        </button>
+      <?php endif; ?>
+    </div>
+  <?php else: ?>
+    <!-- Wireless cards grid -->
+    <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(360px, 1fr)); gap:20px; margin-bottom:28px;" class="animate-in">
+      <?php foreach ($wireless as $wl): ?>
+        <?php
+          $liveWl = $wl['live'] ?? [];
+          $clients = $liveWl['clients'] ?? [];
+          $secBadge = match ($wl['security']) {
+            'wpa3'      => 'WPA3-SAE (Next-Gen)',
+            'wpa2_wpa3' => 'WPA2/WPA3 Mixed',
+            'wpa2'      => 'WPA2-Personal (AES)',
+            default     => 'Open Network',
+          };
+        ?>
+        <div class="card stat-card pink" style="display:flex; flex-direction:column; justify-content:space-between; padding:20px;">
+          <div>
+            <!-- Header -->
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:12px;">
+              <div>
+                <div style="display:flex; align-items:center; gap:8px;">
+                  <span style="font-weight:700; font-size:1.2rem; color:var(--text-primary); font-family:var(--font-mono);"><?= esc($wl['interface']) ?></span>
+                  <span class="badge" style="background:rgba(236,72,153,0.2); color:#f472b6; font-size:0.68rem; font-weight:600; text-transform:uppercase;"><?= esc($wl['mode']) ?> MODE</span>
+                </div>
+                <div style="font-size:0.85rem; color:var(--text-secondary); margin-top:2px; font-weight:500;"><?= esc($wl['name']) ?></div>
+              </div>
+              <div>
+                <?php if (!empty($wl['enabled'])): ?>
+                  <span class="badge badge-success" style="display:inline-flex; align-items:center; gap:5px;">
+                    <span class="pulse-dot"></span>
+                    Transmitting
+                  </span>
+                <?php else: ?>
+                  <span class="badge badge-muted">Disabled</span>
+                <?php endif; ?>
+              </div>
+            </div>
+
+            <!-- SSID -->
+            <div style="background:rgba(0,0,0,0.25); border:1px solid var(--border-subtle); border-radius:var(--radius-md); padding:12px 14px; margin-bottom:14px;">
+              <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; font-weight:600; margin-bottom:4px;">SSID Network Name</div>
+              <div style="font-size:1.15rem; font-weight:700; color:var(--text-primary); font-family:var(--font-mono); display:flex; align-items:center; gap:8px;">
+                <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="color:#f472b6;">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0"/>
+                </svg>
+                <?= esc($wl['ssid']) ?>
+              </div>
+              <div style="display:flex; gap:6px; margin-top:8px; flex-wrap:wrap;">
+                <span class="badge" style="background:rgba(59,130,246,0.15); color:#60a5fa; font-size:0.68rem;"><?= esc($secBadge) ?></span>
+                <span class="badge badge-muted" style="font-size:0.68rem;">Channel <?= (int) $wl['channel'] ?></span>
+                <?php if (!empty($wl['client_isolation'])): ?>
+                  <span class="badge badge-amber" style="font-size:0.68rem;">Client Isolation</span>
+                <?php endif; ?>
+              </div>
+            </div>
+
+            <!-- Parameters Grid -->
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:6px 12px; font-size:0.75rem; color:var(--text-secondary); margin-bottom:16px; background:rgba(0,0,0,0.15); padding:10px 14px; border-radius:var(--radius-sm); border:1px solid var(--border-subtle);">
+              <div>802.11 Mode: <strong style="color:var(--text-primary); font-family:var(--font-mono); text-transform:uppercase;">802.11<?= esc($wl['hw_mode']) ?></strong></div>
+              <div>TX Power: <strong style="color:var(--text-primary); font-family:var(--font-mono);"><?= (int) $wl['tx_power'] ?> dBm</strong></div>
+              <div>Country: <strong style="color:var(--text-primary); font-family:var(--font-mono);"><?= esc($wl['country_code']) ?></strong></div>
+              <div>Connected Stations: <strong style="color:var(--color-emerald); font-family:var(--font-mono);"><?= count($clients) ?> clients</strong></div>
+            </div>
+
+            <!-- Connected clients if any -->
+            <?php if (!empty($clients)): ?>
+              <div style="margin-bottom:12px;">
+                <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; font-weight:600; margin-bottom:6px;">Connected Client Stations</div>
+                <div style="max-height:110px; overflow-y:auto; border:1px solid var(--border-subtle); border-radius:var(--radius-sm); font-size:0.72rem; font-family:var(--font-mono);">
+                  <?php foreach ($clients as $client): ?>
+                    <div style="padding:5px 8px; border-bottom:1px solid var(--border-subtle); display:flex; justify-content:space-between; align-items:center;">
+                      <span style="color:var(--text-primary);"><?= esc($client['mac'] ?? 'Unknown') ?></span>
+                      <span style="color:var(--color-emerald);"><?= esc($client['signal'] ?? '-55 dBm') ?></span>
+                    </div>
+                  <?php endforeach; ?>
+                </div>
+              </div>
+            <?php endif; ?>
+          </div>
+
+          <!-- Footer -->
+          <div style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid var(--color-border); padding-top:12px; margin-top:6px;">
+            <span style="font-size:0.7rem; color:var(--text-muted);">Daemon: <code><?= $wl['mode'] === 'ap' ? 'hostapd' : 'wpa_supplicant' ?></code></span>
+            <div style="display:flex; gap:8px;">
+              <?php if (session()->get('is_superadmin') || in_array('interfaces.edit', session()->get('permissions') ?? [])): ?>
+                <button type="button" class="btn btn-ghost btn-sm" style="font-size:0.72rem; padding:2px 8px;" onclick='openConfigureWirelessModal(<?= json_encode($wl) ?>)'>
+                  Configure
+                </button>
+              <?php endif; ?>
+            </div>
+          </div>
+        </div>
+      <?php endforeach; ?>
+    </div>
+  <?php endif; ?>
+</div>
+
+<!-- ============================================================
+     INTERFACES MODAL STYLES & DIALOGS
+============================================================ -->
+<style>
+/* ── Modal Backdrop & Dialog System ── */
+.iface-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(7, 11, 20, 0.72);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  z-index: 9999;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+.iface-modal-backdrop.active {
+  display: flex !important;
+}
+
+.iface-modal-dialog {
+  background: var(--color-surface-1);
+  border: 1px solid var(--color-border-bright);
+  border-radius: var(--radius-lg);
+  width: 100%;
+  max-width: 680px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 25px 60px -15px rgba(0,0,0,0.65), 0 0 0 1px var(--color-border);
+  overflow: hidden;
+  animation: ifaceModalIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.iface-modal-dialog.sm {
+  max-width: 480px;
+}
+
+@keyframes ifaceModalIn {
+  from { opacity: 0; transform: translateY(-16px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.iface-modal-header {
+  background: var(--color-surface-2);
+  padding: 16px 22px;
+  border-bottom: 1px solid var(--color-border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-shrink: 0;
+}
+.iface-modal-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+  line-height: 1.3;
+}
+.iface-modal-title svg {
+  color: var(--color-cyan);
+}
+.iface-modal-close {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  padding: 0;
+}
+.iface-modal-close:hover {
+  background: var(--color-surface-3);
+  color: var(--text-primary);
+}
+
+.iface-modal-form {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0;
+  overflow: hidden;
+}
+
+.iface-modal-body {
+  overflow-y: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 22px;
+  overscroll-behavior: contain;
+}
+
+.iface-modal-footer {
+  background: var(--color-surface-2);
+  padding: 14px 22px;
+  border-top: 1px solid var(--color-border);
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+/* ── Category Choice Cards ── */
+.iface-type-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.iface-type-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: var(--radius-md);
+  border: 1.5px solid var(--color-border);
+  background: var(--color-surface-2);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  position: relative;
+  user-select: none;
+}
+.iface-type-card:hover {
+  border-color: var(--color-border-bright);
+  background: var(--color-surface-3);
+}
+.iface-type-card.active {
+  border-color: var(--color-cyan);
+  background: var(--color-cyan-dim);
+  box-shadow: 0 0 0 1px var(--color-cyan);
+}
+.iface-type-card.vlan-card.active {
+  border-color: var(--color-purple);
+  background: var(--color-purple-dim);
+  box-shadow: 0 0 0 1px var(--color-purple);
+}
+.iface-type-radio {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 2px;
+  transition: border-color var(--transition-fast);
+}
+.iface-type-card.active .iface-type-radio {
+  border-color: var(--color-cyan);
+}
+.iface-type-card.vlan-card.active .iface-type-radio {
+  border-color: var(--color-purple);
+}
+.iface-type-radio-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: transparent;
+  transition: background var(--transition-fast);
+}
+.iface-type-card.active .iface-type-radio-dot {
+  background: var(--color-cyan);
+}
+.iface-type-card.vlan-card.active .iface-type-radio-dot {
+  background: var(--color-purple);
+}
+.iface-type-body {
+  flex: 1;
+  min-width: 0;
+}
+.iface-type-title {
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  line-height: 1.3;
+}
+.iface-type-desc {
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  margin-top: 3px;
+  line-height: 1.35;
+}
+
+/* ── Form Rows, Columns & Boxes ── */
+.iface-form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+.iface-form-row-custom {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+.iface-form-col {
+  min-width: 0; /* Prevents overflow/blowout */
+}
+.iface-form-col .form-control {
+  box-sizing: border-box;
+}
+
+.iface-box-card {
+  padding: 16px;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  margin-bottom: 18px;
+}
+.iface-box-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.iface-box-card.vlan-box {
+  background: rgba(168, 85, 247, 0.05);
+  border: 1px solid rgba(168, 85, 247, 0.25);
+}
+.iface-vlan-preview {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed rgba(168, 85, 247, 0.25);
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+
+.iface-enable-card {
+  padding: 14px 16px;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  margin-bottom: 4px;
+}
+
+@media (max-width: 640px) {
+  .iface-type-grid { grid-template-columns: 1fr; }
+  .iface-form-row { grid-template-columns: 1fr; }
+  .iface-form-row-custom { grid-template-columns: 1fr; }
+  .iface-vlan-grid { grid-template-columns: 1fr !important; }
+}
+</style>
+
+<!-- ============================================================
+     ADD INTERFACE / VLAN MODAL
+============================================================ -->
+<div id="addInterfaceModal" class="iface-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="addInterfaceModalTitle">
+  <div class="iface-modal-dialog">
+    <div class="iface-modal-header">
+      <h2 class="iface-modal-title" id="addInterfaceModalTitle">
+        <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+        </svg>
+        Add Interface / Virtual VLAN
+      </h2>
+      <button type="button" class="iface-modal-close" onclick="closeAddInterfaceModal()" aria-label="Close dialog">
+        <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+
+    <form method="POST" action="<?= base_url('interfaces/store') ?>" class="iface-modal-form">
+      <?= csrf_field() ?>
+      <div class="iface-modal-body">
+
+        <!-- Interface Type Category Selector -->
+        <div style="margin-bottom:18px;">
+          <label class="form-label" style="margin-bottom:8px;">Interface Category</label>
+          <div class="iface-type-grid">
+            <!-- Physical Option -->
+            <div class="iface-type-card active" id="typeCardPhysical" onclick="selectInterfaceType('physical')">
+              <input type="radio" id="radioTypePhysical" name="interface_type" value="physical" checked style="display:none;">
+              <div class="iface-type-radio">
+                <div class="iface-type-radio-dot"></div>
+              </div>
+              <div class="iface-type-body">
+                <div class="iface-type-title">Physical Port Assignment</div>
+                <div class="iface-type-desc">Assign an available PCIe/NIC hardware port (e.g. eth2, eth3) as a dedicated physical interface.</div>
+              </div>
+            </div>
+
+            <!-- VLAN Option -->
+            <div class="iface-type-card vlan-card" id="typeCardVlan" onclick="selectInterfaceType('vlan')">
+              <input type="radio" id="radioTypeVlan" name="interface_type" value="vlan" style="display:none;">
+              <div class="iface-type-radio">
+                <div class="iface-type-radio-dot"></div>
+              </div>
+              <div class="iface-type-body">
+                <div class="iface-type-title">802.1Q VLAN Virtual Interface</div>
+                <div class="iface-type-desc">Create an 802.1Q tagged logical sub-interface multiplexed on an existing trunk interface.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Name and Slug -->
+        <div class="iface-form-row">
+          <div class="iface-form-col">
+            <label class="form-label" for="add_name">Interface Name <span style="color:var(--color-red);">*</span></label>
+            <input type="text" id="add_name" name="name" class="form-control" placeholder="e.g. DMZ, OPT1, GUEST_WIFI" required autocomplete="off">
+            <div class="form-hint">Friendly identifier for firewall and routing rules.</div>
+          </div>
+
+          <div class="iface-form-col">
+            <label class="form-label" for="add_id">System ID / Slug (Optional)</label>
+            <input type="text" id="add_id" name="id" class="form-control" placeholder="Auto-generated from name" style="font-family:var(--font-mono);" autocomplete="off">
+            <div class="form-hint">Unique lowercase alphanumeric key (e.g. opt1, vlan100).</div>
+          </div>
+        </div>
+
+        <!-- Physical Port Selection (shown when type === physical) -->
+        <div id="physicalDeviceFields" class="iface-box-card">
+          <div class="iface-box-header">
+            <div style="display:flex; align-items:center; gap:8px;">
+              <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="color:var(--color-cyan);">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"/>
+              </svg>
+              <span style="font-weight:600; font-size:0.83rem; color:var(--text-primary);">Physical Hardware NIC Binding</span>
+            </div>
+            <span class="badge badge-cyan" style="font-size:0.68rem; text-transform:uppercase;">Hardware Port</span>
+          </div>
+          <div class="form-group" style="margin-bottom:0;">
+            <select id="add_physical_device" name="physical_device" class="form-control" style="font-family:var(--font-mono);" onchange="toggleCustomNicField(this.value)">
+              <?php if (!empty($availableDevices)): ?>
+                <optgroup label="Auto-Detected Kernel Interfaces">
+                  <?php foreach ($availableDevices as $dev): ?>
+                    <option value="<?= esc($dev) ?>"><?= esc($dev) ?> (Discovered Kernel Port)</option>
+                  <?php endforeach; ?>
+                </optgroup>
+              <?php endif; ?>
+              <optgroup label="Modern Predictable Names (Micron OS / systemd-udevd)">
+                <option value="enp7s0">enp7s0 (PCI Bus 7, Slot 0)</option>
+                <option value="enp1s0">enp1s0 (PCI Bus 1, Slot 0)</option>
+                <option value="eno1">eno1 (Onboard / Motherboard NIC #1)</option>
+                <option value="ens18">ens18 (PCIe Slot 18 / Proxmox & KVM)</option>
+                <option value="wlan0">wlan0 (Wireless Interface)</option>
+              </optgroup>
+              <optgroup label="Traditional / Virtual / Software Interfaces">
+                <option value="eth2">eth2 (Traditional PCIe NIC #2)</option>
+                <option value="eth3">eth3 (Traditional PCIe NIC #3)</option>
+                <option value="br0">br0 (Software Bridge)</option>
+                <option value="bond0">bond0 (Bonded LAG Interface)</option>
+              </optgroup>
+              <option value="__custom__">+ Enter Custom / Predictable Device Name (e.g. enx..., veth...)</option>
+            </select>
+            <div id="customNicInputWrapper" style="display:none; margin-top:8px;">
+              <input type="text" id="add_custom_physical_device" name="physical_device_custom" class="form-control" placeholder="Enter device name (e.g. enp3s0, enx001122334455, br0)" style="font-family:var(--font-mono); font-size:0.85rem;" autocomplete="off">
+              <div class="form-hint">Enter exact Linux kernel interface name matching <code>ip -br link</code>.</div>
+            </div>
+            <div class="form-hint">Select or specify the underlying hardware controller or logical device.</div>
+          </div>
+        </div>
+
+        <!-- VLAN Fields (shown when type === vlan) -->
+        <div id="vlanFields" class="iface-box-card vlan-box" style="display:none;">
+          <div class="iface-box-header">
+            <div style="display:flex; align-items:center; gap:8px;">
+              <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="color:var(--color-purple);">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/>
+              </svg>
+              <span style="font-weight:600; font-size:0.83rem; color:var(--color-purple);">802.1Q VLAN Tagging Parameters</span>
+            </div>
+            <span class="badge badge-purple" style="font-size:0.68rem;">IEEE 802.1Q</span>
+          </div>
+          <div class="iface-vlan-grid" style="display:grid; grid-template-columns: 2fr 1fr 1fr; gap:12px;">
+            <div class="iface-form-col">
+              <label class="form-label" for="add_vlan_parent">Parent Interface <span style="color:var(--color-red);">*</span></label>
+              <select id="add_vlan_parent" name="vlan_parent" class="form-control" onchange="updateVlanDevicePreview()">
+                <?php foreach ($parentDevices as $pDev => $pLabel): ?>
+                  <option value="<?= esc($pDev) ?>"><?= esc($pLabel) ?></option>
+                <?php endforeach; ?>
+              </select>
+            </div>
+
+            <div class="iface-form-col">
+              <label class="form-label" for="add_vlan_tag">VLAN Tag <span style="color:var(--color-red);">*</span></label>
+              <input type="number" id="add_vlan_tag" name="vlan_tag" class="form-control" min="1" max="4094" placeholder="100" value="100" oninput="updateVlanDevicePreview()" style="font-family:var(--font-mono);">
+            </div>
+
+            <div class="iface-form-col">
+              <label class="form-label" for="add_vlan_priority">Priority (PCP)</label>
+              <select id="add_vlan_priority" name="vlan_priority" class="form-control" style="font-family:var(--font-mono);">
+                <option value="0">0 (Best Effort)</option>
+                <option value="1">1 (Background)</option>
+                <option value="2">2 (Spare)</option>
+                <option value="3">3 (Critical)</option>
+                <option value="4">4 (Video)</option>
+                <option value="5">5 (Voice / SIP)</option>
+                <option value="6">6 (Internetwork)</option>
+                <option value="7">7 (Network Control)</option>
+              </select>
+            </div>
+          </div>
+          <div class="iface-vlan-preview">
+            <span>Kernel sub-interface:</span>
+            <code id="vlanPreviewDev" class="badge badge-purple" style="font-family:var(--font-mono); font-size:0.75rem; font-weight:700; padding:2px 8px;">eth0.100</code>
+            <span style="font-size:0.72rem; color:var(--text-muted);">(multiplexed on parent physical trunk)</span>
+          </div>
+        </div>
+
+        <!-- IP Addressing Mode -->
+        <div class="form-group" style="margin-bottom:18px;">
+          <label class="form-label" for="add_ip_assignment_type">IPv4 Configuration Mode</label>
+          <select id="add_ip_assignment_type" name="ip_assignment_type" class="form-control" onchange="toggleAddIpMode(this.value)">
+            <option value="dhcp" selected>DHCP (Acquire address automatically from upstream)</option>
+            <option value="static">Static IPv4 (Manual static IP, subnet CIDR, and gateway)</option>
+            <option value="pppoe">PPPoE Dialup (Client credentials for ISP Access Concentrator)</option>
+            <option value="none">None / Bridged (Unnumbered L2 Layer)</option>
+          </select>
+        </div>
+
+        <!-- Static IPv4 fields container -->
+        <div id="addStaticIpContainer" class="iface-box-card" style="display:none;">
+          <div class="iface-box-header">
+            <span style="font-weight:600; font-size:0.83rem; color:var(--text-primary);">Static IPv4 Configuration</span>
+            <span class="badge badge-cyan" style="font-size:0.68rem;">STATIC</span>
+          </div>
+          <div class="iface-form-row" style="margin-bottom:12px;">
+            <div class="iface-form-col">
+              <label class="form-label" for="add_ipv4_address">IPv4 Address <span style="color:var(--color-red);">*</span></label>
+              <input type="text" id="add_ipv4_address" name="ipv4_address" class="form-control" placeholder="192.168.10.1" style="font-family:var(--font-mono);">
+            </div>
+            <div class="iface-form-col">
+              <label class="form-label" for="add_ipv4_netmask">Subnet Mask (CIDR)</label>
+              <select id="add_ipv4_netmask" name="ipv4_netmask" class="form-control" style="font-family:var(--font-mono);">
+                <?php for ($i = 32; $i >= 8; $i--): ?>
+                  <option value="<?= $i ?>" <?= $i === 24 ? 'selected' : '' ?>>/<?= $i ?> (<?= long2ip(-1 << (32 - $i)) ?>)</option>
+                <?php endfor; ?>
+              </select>
+            </div>
+          </div>
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="add_ipv4_gateway">Upstream Gateway IPv4 (Optional)</label>
+            <input type="text" id="add_ipv4_gateway" name="ipv4_gateway" class="form-control" placeholder="Leave blank for local LAN / DMZ subnet" style="font-family:var(--font-mono);">
+          </div>
+        </div>
+
+        <!-- PPPoE Dialup fields container -->
+        <div id="addPppoeContainer" class="iface-box-card" style="display:none;">
+          <div class="iface-box-header">
+            <span style="font-weight:600; font-size:0.83rem; color:var(--text-primary);">PPPoE Client Authentication</span>
+            <span class="badge badge-purple" style="font-size:0.68rem;">PPPoE</span>
+          </div>
+          <div class="iface-form-row" style="margin-bottom:0;">
+            <div class="iface-form-col">
+              <label class="form-label" for="add_pppoe_username">PPPoE Username <span style="color:var(--color-red);">*</span></label>
+              <input type="text" id="add_pppoe_username" name="pppoe_username" class="form-control" placeholder="username@isp.net" style="font-family:var(--font-mono);">
+            </div>
+            <div class="iface-form-col">
+              <label class="form-label" for="add_pppoe_password">PPPoE Password <span style="color:var(--color-red);">*</span></label>
+              <input type="password" id="add_pppoe_password" name="pppoe_password" class="form-control" autocomplete="new-password" spellcheck="false" placeholder="••••••••">
+            </div>
+          </div>
+        </div>
+
+        <!-- MTU & Description -->
+        <div class="iface-form-row-custom">
+          <div class="iface-form-col">
+            <label class="form-label" for="add_mtu">MTU</label>
+            <input type="number" id="add_mtu" name="mtu" class="form-control" value="1500" min="576" max="9000" style="font-family:var(--font-mono);">
+            <div class="form-hint">Default: 1500</div>
+          </div>
+          <div class="iface-form-col">
+            <label class="form-label" for="add_description">Description / Notes</label>
+            <input type="text" id="add_description" name="description" class="form-control" placeholder="e.g. DMZ Web Tier, Guest Wi-Fi Zone">
+            <div class="form-hint">Descriptive label shown across dashboards and rule lists.</div>
+          </div>
+        </div>
+
+        <!-- Enabled Checkbox Card -->
+        <div class="iface-enable-card">
+          <label style="display:flex; align-items:center; gap:12px; cursor:pointer; margin:0; width:100%;">
+            <input type="checkbox" id="add_enabled" name="enabled" value="1" checked style="accent-color:var(--color-emerald); width:18px; height:18px; cursor:pointer;">
+            <div>
+              <div style="font-weight:600; font-size:0.875rem; color:var(--text-primary);">Enable Interface Immediately</div>
+              <div style="font-size:0.75rem; color:var(--text-secondary);">Bring carrier state UP and activate packet forwarding upon creation.</div>
+            </div>
+          </label>
+        </div>
+
+      </div>
+
+      <div class="iface-modal-footer">
+        <button type="button" class="btn btn-ghost" onclick="closeAddInterfaceModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary" style="min-width:140px; display:inline-flex; align-items:center; gap:6px;">
+          <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+          </svg>
+          Create Interface
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ============================================================
+     DELETE CONFIRMATION MODAL
+============================================================ -->
+<div id="deleteInterfaceModal" class="iface-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="deleteInterfaceModalTitle">
+  <div class="iface-modal-dialog sm">
+    <div class="iface-modal-header" style="border-bottom:1px solid rgba(239,68,68,0.25);">
+      <h3 class="iface-modal-title" id="deleteInterfaceModalTitle" style="color:var(--color-red);">
+        <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+        </svg>
+        Confirm Interface Deletion
+      </h3>
+      <button type="button" class="iface-modal-close" onclick="closeDeleteInterfaceModal()" aria-label="Close dialog">
+        <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+    <form id="deleteInterfaceForm" method="POST" action="" class="iface-modal-form">
+      <?= csrf_field() ?>
+      <div class="iface-modal-body" style="padding:22px;">
+        <p style="font-size:0.9rem; color:var(--text-primary); margin:0 0 14px 0;">
+          Are you sure you want to permanently delete interface <strong id="deleteInterfaceName" style="color:var(--color-red); font-family:var(--font-mono);"></strong>?
+        </p>
+        <div style="font-size:0.78rem; color:var(--text-secondary); background:rgba(239,68,68,0.08); padding:12px 14px; border-radius:var(--radius-md); border:1px solid rgba(239,68,68,0.2); line-height:1.45;">
+          <strong style="color:var(--color-red); display:block; margin-bottom:4px;">Safety Dependency Guard:</strong>
+          If active firewall policies, NAT rules, child VLANs, or DHCP server instances reference this interface, deletion will be safely rejected.
+        </div>
+      </div>
+      <div class="iface-modal-footer">
+        <button type="button" class="btn btn-ghost" onclick="closeDeleteInterfaceModal()">Cancel</button>
+        <button type="submit" class="btn btn-danger" style="display:inline-flex; align-items:center; gap:6px;">
+          <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+          </svg>
+          Delete Interface
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ============================================================
+     ADD / CONFIGURE LACP BOND MODAL
+============================================================ -->
+<div id="addBondModal" class="iface-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="addBondModalTitle">
+  <div class="iface-modal-dialog">
+    <div class="iface-modal-header">
+      <h2 class="iface-modal-title" id="addBondModalTitle">
+        <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="color:#60a5fa;">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M13.828 10.172a4 4 0 010 5.656l-3 3a4 4 0 01-5.656-5.656l1.5-1.5m7.156-7.156a4 4 0 00-5.656 0l-3 3a4 4 0 000 5.656l1.5 1.5"/>
+        </svg>
+        Configure Link Aggregation Group (bond0)
+      </h2>
+      <button type="button" class="iface-modal-close" onclick="closeAddBondModal()" aria-label="Close dialog">
+        <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+
+    <form method="POST" action="<?= base_url('interfaces/bonds/store') ?>" class="iface-modal-form">
+      <?= csrf_field() ?>
+      <div class="iface-modal-body">
+        <div class="iface-form-row">
+          <div class="iface-form-col">
+            <label class="form-label" for="bond_id">Bond Interface Device <span style="color:var(--color-red);">*</span></label>
+            <input type="text" id="bond_id" name="id" class="form-control" value="bond0" required pattern="^bond[0-9]+$" placeholder="bond0" style="font-family:var(--font-mono);" autocomplete="off">
+            <div class="form-hint">Kernel bonding device identifier (e.g. <code>bond0</code>, <code>bond1</code>).</div>
+          </div>
+
+          <div class="iface-form-col">
+            <label class="form-label" for="bond_name">Descriptive Name</label>
+            <input type="text" id="bond_name" name="name" class="form-control" placeholder="e.g. Core Switch LACP Trunk" value="Core Switch LACP Trunk" autocomplete="off">
+            <div class="form-hint">Friendly label shown in firewall and routing interfaces.</div>
+          </div>
+        </div>
+
+        <div style="margin-bottom:18px;">
+          <label class="form-label" for="bond_mode">Aggregation Mode <span style="color:var(--color-red);">*</span></label>
+          <select id="bond_mode" name="mode" class="form-control" style="font-size:0.88rem;">
+            <option value="802.3ad" selected>802.3ad — IEEE 802.3ad Dynamic Link Aggregation (LACP) (Recommended)</option>
+            <option value="active-backup">active-backup — High Availability Failover (Primary/Backup)</option>
+            <option value="balance-xor">balance-xor — Transmit Load Balancing (Hash Policy)</option>
+            <option value="balance-rr">balance-rr — Round-Robin Packet Distribution</option>
+            <option value="broadcast">broadcast — Complete Fault Tolerance (All Ports)</option>
+          </select>
+          <div class="form-hint">IEEE 802.3ad LACP provides dynamic negotiation with connected smart/managed switches.</div>
+        </div>
+
+        <!-- Member physical slaves selection -->
+        <div style="margin-bottom:18px;">
+          <label class="form-label">Member Physical Interfaces (Slaves) <span style="color:var(--color-red);">*</span></label>
+          <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(130px, 1fr)); gap:8px; margin-top:6px;">
+            <?php 
+              $selectablePorts = !empty($allPhysicalDevs) ? $allPhysicalDevs : ['eth0', 'eth1', 'eth2', 'eth3', 'eth4'];
+              foreach ($selectablePorts as $idx => $port):
+                $isChecked = in_array($port, ['eth1', 'eth2'], true) || ($idx >= 1 && $idx <= 2);
+            ?>
+              <label style="display:flex; align-items:center; gap:8px; padding:8px 12px; background:var(--color-surface-2); border:1.5px solid var(--color-border); border-radius:var(--radius-md); cursor:pointer; font-family:var(--font-mono); font-size:0.83rem;">
+                <input type="checkbox" name="slaves[]" value="<?= esc($port) ?>" <?= $isChecked ? 'checked' : '' ?> style="accent-color:var(--color-primary);">
+                <span><?= esc($port) ?></span>
+              </label>
+            <?php endforeach; ?>
+          </div>
+          <div class="form-hint">Select at least one physical Ethernet adapter to aggregate into this bond.</div>
+        </div>
+
+        <!-- Advanced parameters -->
+        <div style="background:rgba(0,0,0,0.15); border:1px solid var(--border-subtle); border-radius:var(--radius-md); padding:14px; margin-bottom:12px;">
+          <div style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase; font-weight:600; margin-bottom:10px;">LACP Protocol &amp; Hashing Options</div>
+          <div class="iface-form-row">
+            <div class="iface-form-col">
+              <label class="form-label" for="bond_lacp_rate">LACP Heartbeat Rate</label>
+              <select id="bond_lacp_rate" name="lacp_rate" class="form-control">
+                <option value="fast" selected>Fast (1s heartbeats — Fast Failure Recovery)</option>
+                <option value="slow">Slow (30s heartbeats — Standard)</option>
+              </select>
+            </div>
+            <div class="iface-form-col">
+              <label class="form-label" for="bond_xmit_hash_policy">Transmit Hash Policy</label>
+              <select id="bond_xmit_hash_policy" name="xmit_hash_policy" class="form-control">
+                <option value="layer2+3" selected>layer2+3 (Layer 2 MAC + Layer 3 IP) — Recommended</option>
+                <option value="layer3+4">layer3+4 (Layer 3 IP + Layer 4 Port)</option>
+                <option value="layer2">layer2 (Layer 2 MAC only)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="iface-form-row" style="margin-top:10px;">
+            <div class="iface-form-col">
+              <label class="form-label" for="bond_miimon">MII Link Polling (ms)</label>
+              <input type="number" id="bond_miimon" name="miimon" class="form-control" value="100" min="10" max="1000">
+            </div>
+            <div class="iface-form-col">
+              <label class="form-label" for="bond_mtu">MTU Frame Size</label>
+              <input type="number" id="bond_mtu" name="mtu" class="form-control" value="1500" min="576" max="9000">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="iface-modal-footer">
+        <button type="button" class="btn btn-ghost" onclick="closeAddBondModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary" style="display:inline-flex; align-items:center; gap:6px;">
+          <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+          </svg>
+          Save &amp; Apply Bond
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ============================================================
+     DELETE LACP BOND CONFIRMATION MODAL
+============================================================ -->
+<div id="deleteBondModal" class="iface-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="deleteBondModalTitle">
+  <div class="iface-modal-dialog sm">
+    <div class="iface-modal-header">
+      <h3 class="iface-modal-title" id="deleteBondModalTitle" style="color:var(--color-red);">
+        <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="color:var(--color-red);">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+        </svg>
+        Confirm Bond Interface Deletion
+      </h3>
+      <button type="button" class="iface-modal-close" onclick="closeDeleteBondModal()" aria-label="Close dialog">
+        <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+    <form id="deleteBondForm" method="POST" action="" class="iface-modal-form">
+      <?= csrf_field() ?>
+      <div class="iface-modal-body" style="padding:22px;">
+        <p style="font-size:0.9rem; color:var(--text-primary); margin:0 0 14px 0;">
+          Are you sure you want to permanently delete aggregation link <strong id="deleteBondName" style="color:var(--color-red); font-family:var(--font-mono);"></strong>?
+        </p>
+        <div style="font-size:0.78rem; color:var(--text-secondary); background:rgba(239,68,68,0.08); padding:12px 14px; border-radius:var(--radius-md); border:1px solid rgba(239,68,68,0.2); line-height:1.45;">
+          <strong style="color:var(--color-red); display:block; margin-bottom:4px;">Kernel Interface Notice:</strong>
+          All member slave ports will be released from <code>bond0</code> back into standalone unmanaged state in the Micron OS network stack.
+        </div>
+      </div>
+      <div class="iface-modal-footer">
+        <button type="button" class="btn btn-ghost" onclick="closeDeleteBondModal()">Cancel</button>
+        <button type="submit" class="btn btn-danger" style="display:inline-flex; align-items:center; gap:6px;">
+          <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+          </svg>
+          Delete Bond Link
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ============================================================
+     CONFIGURE WIRELESS LAN MODAL
+============================================================ -->
+<div id="configureWirelessModal" class="iface-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="configureWirelessModalTitle">
+  <div class="iface-modal-dialog">
+    <div class="iface-modal-header">
+      <h2 class="iface-modal-title" id="configureWirelessModalTitle">
+        <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="color:#f472b6;">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0"/>
+        </svg>
+        Configure Wireless LAN (wlan0)
+      </h2>
+      <button type="button" class="iface-modal-close" onclick="closeConfigureWirelessModal()" aria-label="Close dialog">
+        <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+
+    <form method="POST" action="<?= base_url('interfaces/wireless/save') ?>" class="iface-modal-form">
+      <?= csrf_field() ?>
+      <input type="hidden" id="wlan_id" name="id" value="wlan0">
+      <div class="iface-modal-body">
+        <div class="iface-form-row">
+          <div class="iface-form-col">
+            <label class="form-label" for="wlan_interface">Wireless Device Interface <span style="color:var(--color-red);">*</span></label>
+            <input type="text" id="wlan_interface" name="interface" class="form-control" value="wlan0" required style="font-family:var(--font-mono);" autocomplete="off">
+            <div class="form-hint">Physical wireless adapter name (e.g. <code>wlan0</code>, <code>wlan1</code>).</div>
+          </div>
+
+          <div class="iface-form-col">
+            <label class="form-label" for="wlan_name">Friendly Network Name</label>
+            <input type="text" id="wlan_name" name="name" class="form-control" value="Corporate Wi-Fi AP" autocomplete="off">
+            <div class="form-hint">Identifier in interface assignment lists.</div>
+          </div>
+        </div>
+
+        <div class="iface-form-row">
+          <div class="iface-form-col">
+            <label class="form-label" for="wlan_mode">Radio Operating Mode <span style="color:var(--color-red);">*</span></label>
+            <select id="wlan_mode" name="mode" class="form-control">
+              <option value="ap" selected>Access Point (AP — hostapd daemon)</option>
+              <option value="client">Client / Station (wpa_supplicant daemon)</option>
+            </select>
+            <div class="form-hint">AP mode broadcasts an SSID; Client mode connects to an external Wi-Fi network.</div>
+          </div>
+
+          <div class="iface-form-col">
+            <label class="form-label" for="wlan_ssid">SSID Network Name <span style="color:var(--color-red);">*</span></label>
+            <input type="text" id="wlan_ssid" name="ssid" class="form-control" value="MicronOS-Corp" required autocomplete="off">
+            <div class="form-hint">Broadcasted network name (1-32 characters).</div>
+          </div>
+        </div>
+
+        <div class="iface-form-row">
+          <div class="iface-form-col">
+            <label class="form-label" for="wlan_security">Security Protocol <span style="color:var(--color-red);">*</span></label>
+            <select id="wlan_security" name="security" class="form-control">
+              <option value="wpa2" selected>WPA2-Personal (AES-CCMP — High Compatibility)</option>
+              <option value="wpa3">WPA3-Personal (SAE — Next-Gen Robust Security)</option>
+              <option value="wpa2_wpa3">WPA2 / WPA3 Mixed Transition Mode</option>
+              <option value="open">Open (No Encryption)</option>
+            </select>
+          </div>
+
+          <div class="iface-form-col">
+            <label class="form-label" for="wlan_passphrase">Pre-Shared Key / Passphrase</label>
+            <input type="text" id="wlan_passphrase" name="passphrase" class="form-control" value="micronpass2026" minlength="8" style="font-family:var(--font-mono);" autocomplete="off">
+            <div class="form-hint">WPA passphrase (minimum 8 characters).</div>
+          </div>
+        </div>
+
+        <!-- Radio & Channel Configuration -->
+        <div style="background:rgba(0,0,0,0.15); border:1px solid var(--border-subtle); border-radius:var(--radius-md); padding:14px; margin-bottom:14px;">
+          <div style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase; font-weight:600; margin-bottom:10px;">802.11 RF &amp; Frequency Parameters</div>
+          <div class="iface-form-row">
+            <div class="iface-form-col">
+              <label class="form-label" for="wlan_hw_mode">802.11 Hardware Standard</label>
+              <select id="wlan_hw_mode" name="hw_mode" class="form-control">
+                <option value="g" selected>802.11g / n (2.4 GHz Band)</option>
+                <option value="a">802.11a / n / ac (5 GHz High Speed)</option>
+                <option value="ax">802.11ax (Wi-Fi 6 Ultra Band)</option>
+              </select>
+            </div>
+            <div class="iface-form-col">
+              <label class="form-label" for="wlan_channel">Operating Channel</label>
+              <input type="number" id="wlan_channel" name="channel" class="form-control" value="6" min="1" max="165">
+              <div class="form-hint">1-14 for 2.4 GHz; 36-165 for 5 GHz.</div>
+            </div>
+          </div>
+
+          <div class="iface-form-row" style="margin-top:10px;">
+            <div class="iface-form-col">
+              <label class="form-label" for="wlan_country">Country Code</label>
+              <input type="text" id="wlan_country" name="country_code" class="form-control" value="US" maxlength="2" style="text-transform:uppercase; font-family:var(--font-mono);">
+            </div>
+            <div class="iface-form-col">
+              <label class="form-label" for="wlan_tx_power">TX Power (dBm)</label>
+              <input type="number" id="wlan_tx_power" name="tx_power" class="form-control" value="20" min="1" max="30">
+            </div>
+          </div>
+
+          <div style="display:flex; gap:16px; margin-top:14px; flex-wrap:wrap;">
+            <label style="display:flex; align-items:center; gap:8px; font-size:0.83rem; cursor:pointer;">
+              <input type="checkbox" id="wlan_hidden_ssid" name="hidden_ssid" value="1" style="accent-color:var(--color-primary);">
+              <span>Hidden SSID (Suppress Beacon Broadcast)</span>
+            </label>
+            <label style="display:flex; align-items:center; gap:8px; font-size:0.83rem; cursor:pointer;">
+              <input type="checkbox" id="wlan_client_isolation" name="client_isolation" value="1" style="accent-color:var(--color-primary);">
+              <span>Client Isolation (Prevent Inter-Station Traffic)</span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div class="iface-modal-footer">
+        <button type="button" class="btn btn-ghost" onclick="closeConfigureWirelessModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary" style="display:inline-flex; align-items:center; gap:6px;">
+          <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+          </svg>
+          Save &amp; Apply Wi-Fi
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+function switchMainTab(tabName, btn) {
+  document.querySelectorAll('.iface-nav-tab').forEach(b => {
+    b.classList.remove('active');
+    b.classList.add('btn-ghost');
+  });
+  if (btn) {
+    btn.classList.add('active');
+    btn.classList.remove('btn-ghost');
+  }
+
+  document.querySelectorAll('.iface-main-tab-pane').forEach(p => {
+    p.style.display = 'none';
+  });
+
+  const paneId = tabName === 'bonds' ? 'tabPaneBonds' : (tabName === 'wireless' ? 'tabPaneWireless' : 'tabPaneInterfaces');
+  const targetPane = document.getElementById(paneId);
+  if (targetPane) {
+    targetPane.style.display = 'block';
+  }
+
+  // Update query param in browser URL
+  const url = new URL(window.location);
+  url.searchParams.set('tab', tabName);
+  window.history.replaceState({}, '', url);
+}
+
+function openAddBondModal() {
+  const modal = document.getElementById('addBondModal');
+  modal.classList.add('active');
+  const body = modal.querySelector('.iface-modal-body');
+  if (body) body.scrollTop = 0;
+  setTimeout(() => {
+    document.getElementById('bond_id')?.focus();
+  }, 50);
+}
+
+function closeAddBondModal() {
+  document.getElementById('addBondModal').classList.remove('active');
+}
+
+function confirmDeleteBond(id, name) {
+  document.getElementById('deleteBondName').textContent = name + ' (' + id + ')';
+  document.getElementById('deleteBondForm').action = '<?= base_url('interfaces/bonds') ?>/' + encodeURIComponent(id) + '/delete';
+  const modal = document.getElementById('deleteBondModal');
+  modal.classList.add('active');
+}
+
+function closeDeleteBondModal() {
+  document.getElementById('deleteBondModal').classList.remove('active');
+}
+
+function openConfigureWirelessModal(data) {
+  const modal = document.getElementById('configureWirelessModal');
+  if (data) {
+    document.getElementById('wlan_id').value = data.id || 'wlan0';
+    document.getElementById('wlan_interface').value = data.interface || 'wlan0';
+    document.getElementById('wlan_name').value = data.name || 'Wi-Fi AP';
+    document.getElementById('wlan_mode').value = data.mode || 'ap';
+    document.getElementById('wlan_ssid').value = data.ssid || 'MicronOS-Corp';
+    document.getElementById('wlan_security').value = data.security || 'wpa2';
+    document.getElementById('wlan_passphrase').value = data.passphrase || '';
+    document.getElementById('wlan_hw_mode').value = data.hw_mode || 'g';
+    document.getElementById('wlan_channel').value = data.channel || 6;
+    document.getElementById('wlan_country').value = data.country_code || 'US';
+    document.getElementById('wlan_tx_power').value = data.tx_power || 20;
+    document.getElementById('wlan_hidden_ssid').checked = !!parseInt(data.hidden_ssid);
+    document.getElementById('wlan_client_isolation').checked = !!parseInt(data.client_isolation);
+  }
+  modal.classList.add('active');
+  const body = modal.querySelector('.iface-modal-body');
+  if (body) body.scrollTop = 0;
+  setTimeout(() => {
+    document.getElementById('wlan_ssid')?.focus();
+  }, 50);
+}
+
+function closeConfigureWirelessModal() {
+  document.getElementById('configureWirelessModal').classList.remove('active');
+}
+
+function openAddInterfaceModal() {
+  const modal = document.getElementById('addInterfaceModal');
+  modal.classList.add('active');
+  const body = modal.querySelector('.iface-modal-body');
+  if (body) body.scrollTop = 0;
+  updateVlanDevicePreview();
+  setTimeout(() => {
+    document.getElementById('add_name')?.focus();
+  }, 50);
+}
+
+function closeAddInterfaceModal() {
+  document.getElementById('addInterfaceModal').classList.remove('active');
+}
+
+function selectInterfaceType(type) {
+  const isVlan = (type === 'vlan');
+  document.getElementById('radioTypePhysical').checked = !isVlan;
+  document.getElementById('radioTypeVlan').checked     = isVlan;
+
+  const cardPhysical = document.getElementById('typeCardPhysical');
+  const cardVlan     = document.getElementById('typeCardVlan');
+  if (isVlan) {
+    cardPhysical.classList.remove('active');
+    cardVlan.classList.add('active');
+  } else {
+    cardPhysical.classList.add('active');
+    cardVlan.classList.remove('active');
+  }
+
+  document.getElementById('physicalDeviceFields').style.display = isVlan ? 'none' : 'block';
+  document.getElementById('vlanFields').style.display           = isVlan ? 'block' : 'none';
+
+  if (isVlan) {
+    updateVlanDevicePreview();
+  }
+}
+
+// Backward compatible alias
+function toggleAddType(type) {
+  selectInterfaceType(type);
+}
+
+function updateVlanDevicePreview() {
+  const parent = document.getElementById('add_vlan_parent')?.value || 'eth0';
+  const tag    = document.getElementById('add_vlan_tag')?.value || '100';
+  const preview = document.getElementById('vlanPreviewDev');
+  if (preview) {
+    preview.textContent = parent + '.' + tag;
+  }
+}
+
+function toggleAddIpMode(mode) {
+  const isStatic = mode === 'static';
+  const isPppoe  = mode === 'pppoe';
+  document.getElementById('addStaticIpContainer').style.display = isStatic ? 'block' : 'none';
+  document.getElementById('addPppoeContainer').style.display    = isPppoe  ? 'block' : 'none';
+
+  const ipInput = document.getElementById('add_ipv4_address');
+  if (ipInput) {
+    if (isStatic) ipInput.setAttribute('required', 'required');
+    else ipInput.removeAttribute('required');
+  }
+
+  const pppoeUser = document.getElementById('add_pppoe_username');
+  if (pppoeUser) {
+    if (isPppoe) pppoeUser.setAttribute('required', 'required');
+    else pppoeUser.removeAttribute('required');
+  }
+
+  // Helpful MTU suggestion for PPPoE
+  const mtuInput = document.getElementById('add_mtu');
+  if (mtuInput) {
+    if (isPppoe && mtuInput.value === '1500') {
+      mtuInput.value = '1492';
+    } else if (!isPppoe && mtuInput.value === '1492') {
+      mtuInput.value = '1500';
+    }
+  }
+}
+
+function toggleCustomNicField(val) {
+  const wrap = document.getElementById('customNicInputWrapper');
+  const customInp = document.getElementById('add_custom_physical_device');
+  if (!wrap) return;
+  if (val === '__custom__') {
+    wrap.style.display = 'block';
+    if (customInp) customInp.focus();
+  } else {
+    wrap.style.display = 'none';
+  }
+}
+
+// Auto-generate identifier slug from name unless user entered custom slug
+const nameInput = document.getElementById('add_name');
+const slugInput = document.getElementById('add_id');
+let slugTouched = false;
+
+if (slugInput) {
+  slugInput.addEventListener('input', function() {
+    slugTouched = this.value.trim().length > 0;
+  });
+}
+
+if (nameInput && slugInput) {
+  nameInput.addEventListener('input', function() {
+    if (!slugTouched) {
+      slugInput.value = this.value
+        .toLowerCase()
+        .replace(/[\s\-]+/g, '_')
+        .replace(/[^a-z0-9_]/g, '');
+    }
+  });
+}
+
+function filterInterfaces(type, btn) {
+  document.querySelectorAll('.iface-tab-btn').forEach(b => {
+    b.classList.remove('active');
+    b.classList.add('btn-ghost');
+  });
+  btn.classList.add('active');
+  btn.classList.remove('btn-ghost');
+
+  // Filter cards
+  document.querySelectorAll('.iface-card-item').forEach(card => {
+    if (type === 'all' || card.getAttribute('data-type') === type) {
+      card.style.display = 'flex';
+    } else {
+      card.style.display = 'none';
+    }
+  });
+
+  // Filter table rows
+  document.querySelectorAll('.iface-row-item').forEach(row => {
+    if (type === 'all' || row.getAttribute('data-type') === type) {
+      row.style.display = 'table-row';
+    } else {
+      row.style.display = 'none';
+    }
+  });
+}
+
+function confirmDeleteInterface(id, name) {
+  document.getElementById('deleteInterfaceName').textContent = name + ' (' + id + ')';
+  document.getElementById('deleteInterfaceForm').action = '<?= base_url('interfaces') ?>/' + encodeURIComponent(id) + '/delete';
+  const modal = document.getElementById('deleteInterfaceModal');
+  modal.classList.add('active');
+  const body = modal.querySelector('.iface-modal-body');
+  if (body) body.scrollTop = 0;
+}
+
+function closeDeleteInterfaceModal() {
+  document.getElementById('deleteInterfaceModal').classList.remove('active');
+}
+
+// Close modals when clicking backdrop
+window.addEventListener('click', function(e) {
+  const addModal = document.getElementById('addInterfaceModal');
+  if (e.target === addModal) closeAddInterfaceModal();
+
+  const delModal = document.getElementById('deleteInterfaceModal');
+  if (e.target === delModal) closeDeleteInterfaceModal();
+
+  const addBondModal = document.getElementById('addBondModal');
+  if (e.target === addBondModal) closeAddBondModal();
+
+  const delBondModal = document.getElementById('deleteBondModal');
+  if (e.target === delBondModal) closeDeleteBondModal();
+
+  const wlanModal = document.getElementById('configureWirelessModal');
+  if (e.target === wlanModal) closeConfigureWirelessModal();
+});
+
+// Close modals when pressing Escape key
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') {
+    closeAddInterfaceModal();
+    closeDeleteInterfaceModal();
+    closeAddBondModal();
+    closeDeleteBondModal();
+    closeConfigureWirelessModal();
+  }
+});
+
+// Handle tab switching from URL parameter on initial load
+document.addEventListener('DOMContentLoaded', function() {
+  const params = new URLSearchParams(window.location.search);
+  const tab = params.get('tab');
+  if (tab === 'bonds') {
+    switchMainTab('bonds', document.getElementById('tabNavBonds'));
+  } else if (tab === 'wireless') {
+    switchMainTab('wireless', document.getElementById('tabNavWireless'));
+  }
+});
+</script>
+
+<?= $this->endSection() ?>

@@ -1,0 +1,32 @@
+{
+    "schema": 1,
+    "id": "iperf3",
+    "name": "iperf3 Throughput Test",
+    "version": "1.0.0",
+    "class": "B",
+    "vendor": "Micron Network Systems",
+    "description": "On-demand iperf3 server and client, exposed under Diagnostics. The server binds a listening TCP port and must be enabled and time-bounded by the operator.",
+    "requires": {
+        "packages": ["iperf3"],
+        "repos": [],
+        "kernel_modules": [],
+        "binaries": ["/usr/bin/iperf3"]
+    },
+    "provides": {
+        "services": ["iperf3"],
+        "menu": [
+            { "path": "/plugins/iperf3", "label": "iperf3 Speed Test", "permission": "plugins.view" }
+        ],
+        "status_source": "rpc:plugin.status"
+    },
+    "capabilities": [
+        "system.service:iperf3",
+        "root.rpc:plugin.status"
+    ],
+    "lifecycle": [
+        { "step": "install", "action": "apt.install", "packages": ["iperf3"] },
+        { "step": "enable", "action": "system.enable", "unit": "iperf3" },
+        { "step": "start", "action": "system.start", "unit": "iperf3" },
+        { "step": "uninstall", "action": "apt.remove", "packages": ["iperf3"] }
+    ]
+}

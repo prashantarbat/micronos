@@ -1,0 +1,102 @@
+# Core Linux Kernel & System Utilities
+linux-image-amd64
+linux-headers-amd64
+firmware-linux
+firmware-linux-nonfree
+firmware-realtek
+firmware-bnx2
+firmware-bnx2x
+firmware-intel-sound
+intel-microcode
+amd64-microcode
+systemd
+systemd-sysv
+systemd-timesyncd
+udev
+pciutils
+usbutils
+ethtool
+dmidecode
+lm-sensors
+smartmontools
+nvme-cli
+parted
+gdisk
+dosfstools
+e2fsprogs
+rsync
+curl
+plocate
+wget
+jq
+htop
+tmux
+dialog
+whiptail
+openssh-server
+sudo
+user-setup
+hyperv-daemons
+overlayroot
+watchdog
+
+# Console Shell Completion
+# Provides the framework that lazy-loads /usr/share/bash-completion/completions/
+# at interactive shell startup — the Terminal CLI's completion is staged there.
+bash-completion
+
+# Networking & Firewall Data Plane
+nftables
+iproute2
+iptables
+bridge-utils
+vlan
+conntrack
+tcpdump
+iperf3
+traceroute
+mtr-tiny
+bind9-dnsutils
+net-tools
+
+# VPN Protocols
+wireguard
+wireguard-tools
+strongswan
+strongswan-swanctl
+libstrongswan-extra-plugins
+libcharon-extra-plugins
+openvpn
+easy-rsa
+
+# Web Proxy, DNS, DHCP, IDS/IPS
+squid
+squid-openssl
+suricata
+kea-dhcp4-server
+unbound
+ca-certificates
+openssl
+
+# Web Server & CodeIgniter 4 Runtime
+apache2
+libapache2-mod-fcgid
+php8.4-cli
+php8.4-fpm
+php8.4-sqlite3
+php8.4-curl
+php8.4-mbstring
+php8.4-xml
+php8.4-intl
+php8.4-ldap
+php8.4-mysql
+php8.4-zip
+sqlite3
+
+# Python 3 Runtime for micrond IPC daemon
+python3
+python3-pip
+python3-setuptools
+python3-pyroute2
+python3-systemd
+python3-psutil

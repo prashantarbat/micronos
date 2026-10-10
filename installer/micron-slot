@@ -1,0 +1,362 @@
+#!/bin/bash
+# ==============================================================================
+# MicronOS — A/B Boot Slot Environment Helper
+# ==============================================================================
+# Manages the GRUB environment block that decides which root slot the bootloader
+# starts. Written as a plain script (no grub-editenv dependency) so the very same
+# helper can seed the environment during installation — before GRUB exists in the
+# target — and then be used from early boot by the health-check service.
+#
+# The file format is GRUB's environment block (`grub-editenv` compatible):
+#
+#     # GRUB Environment Block
+#     micron_active_slot=a
+#     micron_a_ok=0
+#     ####################   ← padded with '#' to exactly 1024 bytes
+#
+# GRUB reads it with `load_env` and writes it back with `save_env`; both operate
+# on a fixed 1024-byte block, which is why the padding is mandatory.
+#
+# Usage:
+#   micron-slot show                  Print every variable
+#   micron-slot get <VAR>             Print one variable
+#   micron-slot set <VAR> <VALUE>     Set one variable
+#   micron-slot active                Print the active slot (a|b)
+#   micron-slot other                 Print the inactive slot (a|b)
+#   micron-slot activate <a|b>        Mark a slot as the one to boot next
+#   micron-slot mark-ok [a|b]         Mark a slot verified-good (default: active)
+#   micron-slot mark-failed [a|b]     Mark a slot not-good and count the failure
+#   micron-slot fail-count [a|b]      Print the slot's consecutive failure count
+#   micron-slot init [--force]        Write the initial environment block
+#   micron-slot --self-test           Exercise the helpers against a temp block
+#
+# The environment file defaults to GRUB's location and is resolved on every call,
+# so MICRON_SLOT_ENV can redirect it (used by the installer and the unit tests).
+# ==============================================================================
+set -euo pipefail
+
+BLOCK_SIZE=1024
+HEADER='# GRUB Environment Block'
+
+# Variables the selector understands. Order is preserved in the written block so
+# the file stays diffable across boots.
+KEYS=(
+    micron_active_slot
+    micron_a_ok
+    micron_b_ok
+    micron_a_fail
+    micron_b_fail
+    micron_updated_at
+)
+
+die() {
+    echo "micron-slot: $*" >&2
+    exit 1
+}
+
+# Resolved per call, never cached: the installer points this at a target root and
+# the tests point it at a scratch file.
+env_file() {
+    printf '%s\n' "${MICRON_SLOT_ENV:-/boot/grub/grubenv}"
+}
+
+# ── Environment block I/O ─────────────────────────────────────────────────────
+
+# Reads the block into the global associative array ENV.
+declare -A ENV=()
+
+read_env() {
+    local file
+    file=$(env_file)
+    ENV=()
+    [ -f "$file" ] || return 0
+
+    while IFS= read -r line; do
+        case "$line" in
+            '#'* | '') continue ;;
+        esac
+        case "$line" in
+            *=*) ENV["${line%%=*}"]="${line#*=}" ;;
+        esac
+    done < "$file"
+}
+
+# Writes ENV back as a valid, correctly padded GRUB environment block. The write
+# is atomic: a truncated block would be unreadable to GRUB.
+write_env() {
+    local file dir tmp body pad key
+    file=$(env_file)
+    dir=$(dirname "$file")
+    [ -d "$dir" ] || mkdir -p "$dir"
+
+    tmp=$(mktemp "${dir}/.grubenv.XXXXXX") || die "cannot create a temporary file in ${dir}"
+
+    {
+        printf '%s\n' "$HEADER"
+        # Known variables first, in a stable order.
+        for key in "${KEYS[@]}"; do
+            if [ -n "${ENV[$key]+set}" ]; then
+                printf '%s=%s\n' "$key" "${ENV[$key]}"
+            fi
+        done
+        # Anything else the caller set (the updater adds its own variables) is
+        # written last, sorted, so a round-trip never silently drops a value.
+        if [ "${#ENV[@]}" -gt 0 ]; then
+            for key in $(printf '%s\n' "${!ENV[@]}" | sort); do
+                case "$key" in
+                    micron_active_slot | micron_a_ok | micron_b_ok | micron_a_fail | micron_b_fail | micron_updated_at) continue ;;
+                esac
+                printf '%s=%s\n' "$key" "${ENV[$key]}"
+            done
+        fi
+    } > "$tmp"
+
+    body=$(wc -c < "$tmp" | tr -d ' ')
+    if [ "$body" -gt "$BLOCK_SIZE" ]; then
+        rm -f "$tmp"
+        die "environment block exceeds ${BLOCK_SIZE} bytes"
+    fi
+
+    if [ "$body" -lt "$BLOCK_SIZE" ]; then
+        pad=$((BLOCK_SIZE - body))
+        head -c "$pad" /dev/zero | tr '\0' '#' >> "$tmp"
+    fi
+
+    mv "$tmp" "$file"
+}
+
+is_valid_key() {
+    [[ "$1" =~ ^[A-Za-z0-9_]+$ ]]
+}
+
+is_valid_value() {
+    # GRUB's env parser is line based: no newlines, no comment-looking values.
+    [[ -n "$1" && "$1" != *$'\n'* && "$1" != '#'* ]]
+}
+
+# Normalises a slot name into SLOT. Deliberately a plain assignment rather than
+# a command substitution: `die` cannot abort its caller from inside $( ), so a
+# substituted validator would let an invalid slot through as an empty value.
+SLOT=''
+normalize_slot() {
+    case "${1:-}" in
+        a|A) SLOT='a' ;;
+        b|B) SLOT='b' ;;
+        *) die "slot must be 'a' or 'b' (got '${1:-}')" ;;
+    esac
+}
+
+stamp() {
+    date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo 'unknown'
+}
+
+# ── Commands ─────────────────────────────────────────────────────────────────
+
+cmd_show() {
+    local key found=0
+    read_env
+    for key in "${KEYS[@]}"; do
+        if [ -n "${ENV[$key]+set}" ]; then
+            printf '%s=%s\n' "$key" "${ENV[$key]}"
+            found=1
+        fi
+    done
+    [ "$found" -eq 1 ] || echo "(no variables set in $(env_file))"
+}
+
+cmd_get() {
+    local key="${1:-}"
+    [ -n "$key" ] || die 'get needs a variable name'
+    is_valid_key "$key" || die "invalid variable name '${key}'"
+    read_env
+    printf '%s\n' "${ENV[$key]:-}"
+}
+
+cmd_set() {
+    local key="${1:-}" value="${2:-}"
+    [ -n "$key" ] || die 'set needs a variable name and a value'
+    is_valid_key "$key" || die "invalid variable name '${key}'"
+    is_valid_value "$value" || die "invalid value for '${key}'"
+    read_env
+    ENV["$key"]="$value"
+    ENV[micron_updated_at]="$(stamp)"
+    write_env
+}
+
+cmd_active() {
+    read_env
+    case "${ENV[micron_active_slot]:-a}" in
+        b|B) printf 'b\n' ;;
+        *)   printf 'a\n' ;;
+    esac
+}
+
+cmd_other() {
+    if [ "$(cmd_active)" = 'a' ]; then printf 'b\n'; else printf 'a\n'; fi
+}
+
+cmd_activate() {
+    normalize_slot "${1:-}"
+    local slot="$SLOT"
+    read_env
+    ENV[micron_active_slot]="$slot"
+    # A freshly activated slot is unverified by definition: its health-check
+    # service has to prove it before the bootloader will prefer it again.
+    ENV["micron_${slot}_ok"]=0
+    ENV["micron_${slot}_fail"]=0
+    ENV[micron_updated_at]="$(stamp)"
+    write_env
+    echo "active slot -> ${slot} (unverified; awaiting health check)"
+}
+
+cmd_mark_ok() {
+    normalize_slot "${1:-$(cmd_active)}"
+    local slot="$SLOT"
+    read_env
+    ENV["micron_${slot}_ok"]=1
+    ENV["micron_${slot}_fail"]=0
+    ENV[micron_updated_at]="$(stamp)"
+    write_env
+    echo "slot ${slot}: marked good"
+}
+
+# Prints the new failure count, so callers can decide whether to keep trying or
+# abandon the slot.
+cmd_mark_failed() {
+    normalize_slot "${1:-$(cmd_active)}"
+    local slot="$SLOT" count
+    read_env
+    count="${ENV[micron_${slot}_fail]:-0}"
+    case "$count" in ''|*[!0-9]*) count=0 ;; esac
+    count=$((count + 1))
+    ENV["micron_${slot}_ok"]=0
+    ENV["micron_${slot}_fail"]="$count"
+    ENV[micron_updated_at]="$(stamp)"
+    write_env
+    printf '%s\n' "$count"
+}
+
+cmd_fail_count() {
+    normalize_slot "${1:-$(cmd_active)}"
+    local slot="$SLOT" count
+    read_env
+    count="${ENV[micron_${slot}_fail]:-0}"
+    case "$count" in ''|*[!0-9]*) count=0 ;; esac
+    printf '%s\n' "$count"
+}
+
+cmd_init() {
+    local force=0
+    [ "${1:-}" = '--force' ] && force=1
+    if [ -f "$(env_file)" ] && [ "$force" -ne 1 ]; then
+        echo "environment block already present at $(env_file) (use --force to reset)"
+        return 0
+    fi
+    ENV=()
+    ENV[micron_active_slot]=a
+    ENV[micron_a_ok]=0
+    ENV[micron_b_ok]=0
+    ENV[micron_a_fail]=0
+    ENV[micron_b_fail]=0
+    ENV[micron_updated_at]="$(stamp)"
+    write_env
+    echo "initialized $(env_file): slot a active, neither slot verified yet"
+}
+
+# ── Internal verification ────────────────────────────────────────────────────
+
+self_test() {
+    local failures=0 tmp file
+    tmp=$(mktemp -d)
+    file="${tmp}/grubenv"
+    export MICRON_SLOT_ENV="$file"
+    # shellcheck disable=SC2064
+    trap "rm -rf '${tmp}'" EXIT
+
+    check() { # check <label> <expected> <actual>
+        if [ "$2" = "$3" ]; then
+            echo "  ok   ${1}"
+        else
+            echo "  FAIL ${1}: expected '${2}', got '${3}'"
+            failures=$((failures + 1))
+        fi
+    }
+
+    cmd_init > /dev/null
+    [ -f "$file" ] || { echo "  FAIL init did not create ${file}"; return 1; }
+    check 'block size'            '1024' "$(wc -c < "$file" | tr -d ' ')"
+    check 'header line'           "$HEADER" "$(head -1 "$file")"
+    check 'active defaults a'     'a'    "$(cmd_active)"
+    check 'other is b'            'b'    "$(cmd_other)"
+    check 'a unverified'          '0'    "$(cmd_get micron_a_ok)"
+
+    cmd_activate b > /dev/null
+    check 'activate switches'     'b' "$(cmd_active)"
+    check 'activated is unverified' '0' "$(cmd_get micron_b_ok)"
+
+    cmd_mark_ok > /dev/null
+    check 'mark-ok sets b_ok'     '1' "$(cmd_get micron_b_ok)"
+    check 'mark-ok clears fails'  '0' "$(cmd_get micron_b_fail)"
+
+    cmd_mark_failed > /dev/null
+    check 'fail #1 counted'       '1' "$(cmd_get micron_b_fail)"
+    check 'fail clears ok'        '0' "$(cmd_get micron_b_ok)"
+    cmd_mark_failed > /dev/null
+    check 'fail #2 counted'       '2' "$(cmd_get micron_b_fail)"
+
+    cmd_activate a > /dev/null
+    cmd_mark_ok a > /dev/null
+    check 'a verified'            '1' "$(cmd_get micron_a_ok)"
+    check 'b keeps its fail count' '2' "$(cmd_get micron_b_fail)"
+
+    cmd_set micron_custom 'hello world' > /dev/null
+    check 'arbitrary key round-trip' 'hello world' "$(cmd_get micron_custom)"
+    check 'size still exact after set' '1024' "$(wc -c < "$file" | tr -d ' ')"
+
+    # The negative cases run in subshells: `die` exits, and that must end the
+    # invoked command rather than the whole self-test.
+    if ( cmd_get 'bad key!' ) >/dev/null 2>&1; then
+        echo '  FAIL invalid key accepted'; failures=$((failures + 1))
+    else
+        echo '  ok   invalid key rejected'
+    fi
+
+    if ( cmd_set micron_x $'multi\nline' ) >/dev/null 2>&1; then
+        echo '  FAIL multiline value accepted'; failures=$((failures + 1))
+    else
+        echo '  ok   multiline value rejected'
+    fi
+
+    if ( cmd_activate c ) >/dev/null 2>&1; then
+        echo '  FAIL invalid slot accepted'; failures=$((failures + 1))
+    else
+        echo '  ok   invalid slot rejected'
+    fi
+
+    if [ "$failures" -eq 0 ]; then
+        echo 'micron-slot: self-test PASSED'
+        return 0
+    fi
+    echo "micron-slot: self-test FAILED (${failures} check(s))"
+    return 1
+}
+
+# ── Entry point ──────────────────────────────────────────────────────────────
+
+case "${1:-show}" in
+    show)        cmd_show ;;
+    get)         cmd_get "${2:-}" ;;
+    set)         cmd_set "${2:-}" "${3:-}" ;;
+    active)      cmd_active ;;
+    other)       cmd_other ;;
+    activate)    cmd_activate "${2:-}" ;;
+    mark-ok)     cmd_mark_ok "${2:-}" ;;
+    mark-failed) cmd_mark_failed "${2:-}" ;;
+    fail-count)  cmd_fail_count "${2:-}" ;;
+    init)        cmd_init "${2:-}" ;;
+    --self-test) self_test ;;
+    -h|--help|help)
+        sed -n '26,40p' "$0" | sed 's/^# \{0,1\}//'
+        ;;
+    *) die "unknown command '${1}' (try --help)" ;;
+esac

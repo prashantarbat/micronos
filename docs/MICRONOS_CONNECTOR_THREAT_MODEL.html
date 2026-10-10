@@ -1,0 +1,880 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark" data-mode="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Micron Firewall OS (MicronOS) — Connector Abstraction Threat Model</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <style>
+    /* ============================================================
+       THEME PRESETS: 9 MicronOS Schemes (Dark + Light)
+       ============================================================ */
+    :root, [data-theme="dark"] {
+      --bg-primary: #070b14;
+      --bg-secondary: #0d1220;
+      --bg-tertiary: #111827;
+      --card-bg: rgba(17, 24, 39, 0.7);
+      --card-border: rgba(255, 255, 255, 0.08);
+      --card-border-bright: rgba(255, 255, 255, 0.14);
+      --text-main: #f1f5f9;
+      --text-muted: #94a3b8;
+      --accent-cyan: #00d4ff;
+      --accent-cyan-dim: rgba(0, 212, 255, 0.15);
+      --accent-deep: #0096c7;
+      --accent-purple: #7c3aed;
+      --accent-emerald: #10b981;
+      --accent-amber: #f59e0b;
+      --accent-rose: #ef4444;
+      --code-bg: #0d1220;
+      --sidebar-w: 320px;
+    }
+
+    [data-theme="midnight"] {
+      --bg-primary: #090712;
+      --bg-secondary: #110f1e;
+      --bg-tertiary: #16132a;
+      --card-bg: rgba(22, 19, 42, 0.75);
+      --card-border: rgba(139, 92, 246, 0.12);
+      --card-border-bright: rgba(139, 92, 246, 0.22);
+      --text-main: #ede9fe;
+      --text-muted: #a1a1b5;
+      --accent-cyan: #a78bfa;
+      --accent-cyan-dim: rgba(167, 139, 250, 0.15);
+      --accent-deep: #7c3aed;
+      --accent-purple: #c084fc;
+      --accent-emerald: #34d399;
+      --accent-amber: #fbbf24;
+      --accent-rose: #f87171;
+      --code-bg: #110f1e;
+    }
+
+    [data-theme="ocean"] {
+      --bg-primary: #030f14;
+      --bg-secondary: #071820;
+      --bg-tertiary: #0c202a;
+      --card-bg: rgba(12, 32, 42, 0.75);
+      --card-border: rgba(45, 212, 191, 0.12);
+      --card-border-bright: rgba(45, 212, 191, 0.22);
+      --text-main: #f0fdfa;
+      --text-muted: #99f6e4;
+      --accent-cyan: #2dd4bf;
+      --accent-cyan-dim: rgba(45, 212, 191, 0.15);
+      --accent-deep: #0f766e;
+      --accent-purple: #818cf8;
+      --accent-emerald: #34d399;
+      --accent-amber: #fbbf24;
+      --accent-rose: #f87171;
+      --code-bg: #071820;
+    }
+
+    [data-theme="forest"] {
+      --bg-primary: #050f08;
+      --bg-secondary: #0a170e;
+      --bg-tertiary: #0e2014;
+      --card-bg: rgba(14, 32, 20, 0.75);
+      --card-border: rgba(74, 222, 128, 0.12);
+      --card-border-bright: rgba(74, 222, 128, 0.22);
+      --text-main: #f0fdf4;
+      --text-muted: #bbf7d0;
+      --accent-cyan: #4ade80;
+      --accent-cyan-dim: rgba(74, 222, 128, 0.15);
+      --accent-deep: #15803d;
+      --accent-purple: #a78bfa;
+      --accent-emerald: #22c55e;
+      --accent-amber: #fbbf24;
+      --accent-rose: #f87171;
+      --code-bg: #0a170e;
+    }
+
+    [data-theme="slate"] {
+      --bg-primary: #0a0d12;
+      --bg-secondary: #111520;
+      --bg-tertiary: #161b28;
+      --card-bg: rgba(22, 27, 40, 0.75);
+      --card-border: rgba(100, 116, 139, 0.14);
+      --card-border-bright: rgba(100, 116, 139, 0.24);
+      --text-main: #e2e8f0;
+      --text-muted: #94a3b8;
+      --accent-cyan: #94a3b8;
+      --accent-cyan-dim: rgba(148, 163, 184, 0.15);
+      --accent-deep: #475569;
+      --accent-purple: #818cf8;
+      --accent-emerald: #34d399;
+      --accent-amber: #fbbf24;
+      --accent-rose: #f87171;
+      --code-bg: #111520;
+    }
+
+    /* Shared light mode base */
+    [data-mode="light"] {
+      --bg-primary: #f1f5f9;
+      --bg-secondary: #ffffff;
+      --bg-tertiary: #f8fafc;
+      --card-bg: #ffffff;
+      --card-border: rgba(0, 0, 0, 0.08);
+      --card-border-bright: rgba(0, 0, 0, 0.15);
+      --text-main: #0f172a;
+      --text-muted: #64748b;
+      --accent-cyan: #0284c7;
+      --accent-cyan-dim: rgba(2, 132, 199, 0.10);
+      --accent-deep: #0369a1;
+      --accent-purple: #7c3aed;
+      --accent-emerald: #059669;
+      --accent-amber: #d97706;
+      --accent-rose: #dc2626;
+      --code-bg: #f8fafc;
+    }
+
+    /* Solar Amber (warm cream) */
+    [data-theme="solar"] {
+      --bg-primary: #fdf7ee;
+      --bg-secondary: #ffffff;
+      --bg-tertiary: #fffaf3;
+      --card-bg: #ffffff;
+      --card-border: rgba(146, 94, 28, 0.14);
+      --card-border-bright: rgba(146, 94, 28, 0.25);
+      --text-main: #3b2410;
+      --text-muted: #7c5a34;
+      --accent-cyan: #ea580c;
+      --accent-cyan-dim: rgba(234, 88, 12, 0.12);
+      --accent-deep: #c2410c;
+      --accent-purple: #9333ea;
+      --accent-emerald: #0f766e;
+      --accent-amber: #b45309;
+      --accent-rose: #dc2626;
+      --code-bg: #fbf0e0;
+    }
+
+    /* Mint Breeze (cool teal) */
+    [data-theme="mint"] {
+      --bg-primary: #f0fdf9;
+      --bg-secondary: #ffffff;
+      --bg-tertiary: #f6fefb;
+      --card-bg: #ffffff;
+      --card-border: rgba(13, 120, 100, 0.14);
+      --card-border-bright: rgba(13, 120, 100, 0.25);
+      --text-main: #0b3b34;
+      --text-muted: #3f6f66;
+      --accent-cyan: #0d9488;
+      --accent-cyan-dim: rgba(13, 148, 136, 0.12);
+      --accent-deep: #0f766e;
+      --accent-purple: #7c3aed;
+      --accent-emerald: #047857;
+      --accent-amber: #b45309;
+      --accent-rose: #dc2626;
+      --code-bg: #e3f9f2;
+    }
+
+    /* Paper Ink (neutral paper) */
+    [data-theme="paper"] {
+      --bg-primary: #f7f7f8;
+      --bg-secondary: #ffffff;
+      --bg-tertiary: #fbfbfc;
+      --card-bg: #ffffff;
+      --card-border: rgba(15, 23, 42, 0.10);
+      --card-border-bright: rgba(15, 23, 42, 0.20);
+      --text-main: #0f172a;
+      --text-muted: #64748b;
+      --accent-cyan: #4f46e5;
+      --accent-cyan-dim: rgba(79, 70, 229, 0.10);
+      --accent-deep: #4338ca;
+      --accent-purple: #7c3aed;
+      --accent-emerald: #047857;
+      --accent-amber: #b45309;
+      --accent-rose: #dc2626;
+      --code-bg: #f0f0f3;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background-color: var(--bg-primary);
+      color: var(--text-main);
+      line-height: 1.65;
+      display: flex;
+      min-height: 100vh;
+      overflow-x: hidden;
+      transition: background-color 0.2s ease, color 0.2s ease;
+    }
+
+    /* Scrollbars */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--card-border-bright); border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--accent-cyan); }
+
+    /* ============================================================
+       FULLPAGE SIDEBAR NAVIGATION
+       ============================================================ */
+    aside.sidebar {
+      width: var(--sidebar-w);
+      background-color: var(--bg-secondary);
+      border-right: 1px solid var(--card-border);
+      position: fixed;
+      top: 0; bottom: 0; left: 0;
+      height: 100vh;
+      max-height: 100vh;
+      overflow: hidden;
+      padding: 1.25rem 1rem 1rem 1rem;
+      display: flex;
+      flex-direction: column;
+      z-index: 100;
+      box-shadow: 2px 0 12px rgba(0, 0, 0, 0.15);
+      transition: background-color 0.2s ease, border-color 0.2s ease;
+    }
+
+    .sidebar-top {
+      flex: 0 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .brand-box {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding-bottom: 0.85rem;
+      border-bottom: 1px solid var(--card-border);
+    }
+    .brand-logo {
+      width: 38px;
+      height: 38px;
+      background: linear-gradient(135deg, var(--accent-cyan), var(--accent-deep));
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 1.2rem;
+      color: #fff;
+      box-shadow: 0 4px 12px var(--accent-cyan-dim);
+    }
+    .brand-text h2 {
+      font-size: 1.02rem;
+      font-weight: 700;
+      color: var(--text-main);
+      letter-spacing: -0.02em;
+    }
+    .brand-text p {
+      font-size: 0.72rem;
+      color: var(--accent-cyan);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .doc-nav-links {
+      display: flex;
+      flex-direction: column;
+      gap: 0.3rem;
+      padding-bottom: 0.85rem;
+      border-bottom: 1px solid var(--card-border);
+    }
+    .doc-nav-links a {
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-decoration: none;
+      padding: 0.45rem 0.65rem;
+      border-radius: 7px;
+      transition: all 0.18s ease;
+      display: flex;
+      align-items: center;
+      gap: 0.55rem;
+    }
+    .doc-nav-links a:hover {
+      color: var(--text-main);
+      background: var(--bg-tertiary);
+    }
+    .doc-nav-links a.active {
+      color: var(--accent-cyan);
+      background: var(--accent-cyan-dim);
+      border-left: 3px solid var(--accent-cyan);
+      font-weight: 700;
+    }
+
+    .toc-header-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .toc-title {
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--accent-cyan);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .toc-search {
+      width: 100%;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--card-border-bright);
+      border-radius: 7px;
+      padding: 7px 10px;
+      font-size: 0.78rem;
+      color: var(--text-main);
+      outline: none;
+      font-family: inherit;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    .toc-search:focus {
+      border-color: var(--accent-cyan);
+      box-shadow: 0 0 0 3px var(--accent-cyan-dim);
+    }
+
+    /* Dedicated scrollable TOC list filling full viewport */
+    nav.toc-nav {
+      flex: 1 1 0;
+      min-height: 0;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+      padding-top: 0.4rem;
+      padding-right: 4px;
+      scrollbar-width: thin;
+    }
+    nav.toc-nav a {
+      font-size: 0.79rem;
+      color: var(--text-muted);
+      text-decoration: none;
+      padding: 0.4rem 0.6rem;
+      border-radius: 6px;
+      transition: all 0.15s ease;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: block;
+      line-height: 1.35;
+    }
+    nav.toc-nav a:hover {
+      color: var(--text-main);
+      background: var(--bg-tertiary);
+    }
+    nav.toc-nav a.active {
+      color: var(--accent-cyan);
+      background: var(--accent-cyan-dim);
+      font-weight: 600;
+    }
+    nav.toc-nav a.h3-link {
+      padding-left: 1.25rem;
+      font-size: 0.74rem;
+      opacity: 0.85;
+    }
+
+    /* Pinned Sidebar Footer (Theme Preset Switcher) */
+    .sidebar-foot {
+      flex: 0 0 auto;
+      padding-top: 0.75rem;
+      border-top: 1px solid var(--card-border);
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+    }
+    .theme-select-label {
+      font-size: 0.68rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+    }
+    .theme-select {
+      width: 100%;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--card-border-bright);
+      border-radius: 6px;
+      padding: 6px 10px;
+      font-size: 0.78rem;
+      color: var(--text-main);
+      outline: none;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .theme-select:focus {
+      border-color: var(--accent-cyan);
+    }
+
+    /* ============================================================
+       MAIN CONTENT
+       ============================================================ */
+    main.main-content {
+      margin-left: var(--sidebar-w);
+      flex: 1;
+      padding: 2.5rem 3.5rem 5rem 3.5rem;
+      max-width: 1200px;
+    }
+
+    .doc-header {
+      margin-bottom: 2.5rem;
+      padding-bottom: 1.5rem;
+      border-bottom: 1px solid var(--card-border);
+    }
+    .doc-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 0.25rem 0.75rem;
+      border-radius: 9999px;
+      background: var(--accent-cyan-dim);
+      color: var(--accent-cyan);
+      border: 1px solid var(--accent-cyan);
+      margin-bottom: 0.75rem;
+    }
+    .doc-header h1 {
+      font-size: 2.2rem;
+      font-weight: 800;
+      color: var(--text-main);
+      letter-spacing: -0.03em;
+      margin-bottom: 0.5rem;
+      line-height: 1.2;
+    }
+    .doc-header p {
+      font-size: 1.05rem;
+      color: var(--text-muted);
+    }
+
+    /* Markdown Styling */
+    #markdown-body {
+      color: var(--text-main);
+      font-size: 0.95rem;
+    }
+    #markdown-body h1, #markdown-body h2, #markdown-body h3, #markdown-body h4 {
+      color: var(--text-main);
+      font-weight: 700;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      letter-spacing: -0.02em;
+      scroll-margin-top: 2rem;
+    }
+    #markdown-body h2 {
+      font-size: 1.45rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 1px solid var(--card-border);
+      margin-top: 2.5rem;
+      color: var(--accent-cyan);
+    }
+    #markdown-body h3 {
+      font-size: 1.2rem;
+      color: var(--text-main);
+    }
+    #markdown-body h4 {
+      font-size: 1rem;
+      color: var(--text-muted);
+    }
+    #markdown-body p {
+      margin-bottom: 1rem;
+      line-height: 1.7;
+    }
+    #markdown-body ul, #markdown-body ol {
+      margin-bottom: 1.25rem;
+      padding-left: 1.5rem;
+    }
+    #markdown-body li {
+      margin-bottom: 0.4rem;
+      line-height: 1.6;
+    }
+    #markdown-body a {
+      color: var(--accent-cyan);
+      text-decoration: none;
+      font-weight: 500;
+    }
+    #markdown-body a:hover {
+      text-decoration: underline;
+    }
+
+    /* ============================================================
+       CODE BLOCKS: Adaptive Theme Presets (Light & Dark)
+       ============================================================ */
+    #markdown-body code {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.85em;
+      background: var(--code-bg);
+      color: var(--accent-cyan);
+      padding: 0.2em 0.45em;
+      border-radius: 5px;
+      border: 1px solid var(--card-border-bright);
+      font-weight: 600;
+    }
+    #markdown-body pre {
+      background: var(--code-bg);
+      border: 1px solid var(--card-border-bright);
+      border-radius: 10px;
+      padding: 1.25rem;
+      overflow-x: auto;
+      margin-bottom: 1.5rem;
+      position: relative;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    }
+    #markdown-body pre code {
+      background: transparent !important;
+      padding: 0 !important;
+      border: none !important;
+      color: var(--text-main) !important;
+      font-size: 0.85rem;
+      line-height: 1.65;
+    }
+
+    /* Theme-adaptive syntax highlighting tokens */
+    #markdown-body pre code.hljs { background: transparent !important; padding: 0 !important; }
+    .hljs-keyword, .hljs-selector-tag, .hljs-subst, .hljs-doctag { color: var(--accent-cyan) !important; font-weight: 600; }
+    .hljs-string, .hljs-title, .hljs-title.function_, .hljs-section, .hljs-attribute, .hljs-literal,
+    .hljs-template-tag, .hljs-template-variable, .hljs-type, .hljs-addition { color: var(--accent-emerald) !important; }
+    .hljs-comment, .hljs-quote, .hljs-deletion, .hljs-meta { color: var(--text-muted) !important; font-style: italic; }
+    .hljs-number, .hljs-regexp, .hljs-link { color: var(--accent-amber) !important; }
+    .hljs-variable, .hljs-params, .hljs-attr { color: var(--text-main) !important; }
+    .hljs-built_in, .hljs-builtin-name, .hljs-symbol, .hljs-bullet { color: var(--accent-purple) !important; font-weight: 600; }
+
+    /* Copy Button */
+    .code-copy-btn {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      background: var(--bg-secondary);
+      border: 1px solid var(--card-border-bright);
+      border-radius: 6px;
+      color: var(--text-muted);
+      font-size: 0.72rem;
+      padding: 4px 8px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      transition: all 0.15s ease;
+      font-family: inherit;
+    }
+    .code-copy-btn:hover {
+      background: var(--accent-cyan);
+      color: #fff;
+      border-color: var(--accent-cyan);
+    }
+
+    #markdown-body table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 1.75rem;
+      background: var(--card-bg);
+      border-radius: 10px;
+      overflow: hidden;
+      border: 1px solid var(--card-border);
+      font-size: 0.88rem;
+    }
+    #markdown-body th {
+      background: var(--bg-tertiary);
+      color: var(--text-main);
+      font-weight: 600;
+      text-align: left;
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid var(--card-border);
+    }
+    #markdown-body td {
+      padding: 0.65rem 1rem;
+      border-bottom: 1px solid var(--card-border);
+      color: var(--text-main);
+    }
+    #markdown-body tr:hover td {
+      background: var(--bg-tertiary);
+    }
+    #markdown-body blockquote {
+      border-left: 4px solid var(--accent-cyan);
+      background: var(--accent-cyan-dim);
+      padding: 0.85rem 1.25rem;
+      border-radius: 0 8px 8px 0;
+      margin-bottom: 1.25rem;
+      color: var(--text-main);
+    }
+    #markdown-body hr {
+      border: none;
+      height: 1px;
+      background: var(--card-border);
+      margin: 2.5rem 0;
+    }
+
+    @media (max-width: 900px) {
+      aside.sidebar { display: none; }
+      main.main-content { margin-left: 0; padding: 1.5rem; }
+    }
+  </style>
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="sidebar-top">
+      <div class="brand-box">
+        <div class="brand-logo">M</div>
+        <div class="brand-text">
+          <h2>MicronOS Docs</h2>
+          <p>Enterprise Firewall</p>
+        </div>
+      </div>
+
+      <div class="doc-nav-links">
+        <a href="index.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
+          </svg>
+          Docs Portal Hub
+        </a>
+
+        <a href="MICRON_FIREWALL_OS_ARCHITECTURE.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/>
+          </svg>
+          Architecture Blueprint
+        </a>
+        <a href="MICRONOS_MODULE_REFERENCE.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/>
+          </svg>
+          Module Reference
+        </a>
+        <a href="STEP_BY_STEP_IMPLEMENTATION_PLAN.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/>
+          </svg>
+          Implementation Plan
+        </a>
+        <a href="ISO_CREATION_AND_INSTALLER_GUIDE.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/>
+          </svg>
+          ISO &amp; Installer Guide
+        </a>
+        <a href="SSLVPN_ZTNA_CLIENTLESS_GATEWAY_SPECIFICATION.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+          </svg>
+          SSL-VPN &amp; ZTNA Spec
+        </a>
+        <a href="MICRONOS_UPDATE_AND_UPGRADE_SPECIFICATION.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+          </svg>
+          Update &amp; Upgrade Spec
+        </a>
+        <a href="MICRONOS_PLUGIN_AND_PACKAGE_MANAGER_SPECIFICATION.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
+          </svg>
+          Plugin &amp; Package Manager
+        </a>
+        <a href="MICRONOS_CONNECTOR_ABSTRACTION_SPECIFICATION.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13.828 10.172a4 4 0 010 5.656l-4 4a4 4 0 11-5.656-5.656l1-1m9.656-2.344a4 4 0 00-5.656-5.656l-4 4a4 4 0 105.656 5.656l1-1"/>
+          </svg>
+          Connector Abstraction Spec
+        </a>
+        <a href="MICRONOS_CONNECTOR_THREAT_MODEL.html" class="active">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+          </svg>
+          Connector Threat Model
+        </a>
+        <a href="HYPERV_WIN11_DEVELOPMENT_AND_AI_COORDINATION_GUIDE.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
+          </svg>
+          Hyper-V &amp; AI Dev Guide
+        </a>
+        <a href="POWER_LOSS_RESILIENCE_AND_RECOVERY_ENGINEERING_SPECIFICATION.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+          </svg>
+          Power Resilience &amp; LKGC Spec
+        </a>
+        <a href="MICRONOS_BONDING_AND_WIRELESS_GUIDE.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13.828 10.172a4 4 0 010 5.656l-3 3a4 4 0 01-5.656-5.656l1.5-1.5m7.156-7.156a4 4 0 00-5.656 0l-3 3a4 4 0 000 5.656l1.5 1.5"/>
+          </svg>
+          Bonding &amp; Wi-Fi Guide
+        </a>
+        <a href="MICRONOS_ADVANCED_ROADMAP_SPECIFICATION.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+          </svg>
+          Advanced Roadmap Spec
+        </a>
+        <a href="MICRONOS_VERSIONING_AND_RELEASE_LIFECYCLE_SPECIFICATION.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"/>
+          </svg>
+          Versioning &amp; Release Spec
+        </a>
+        <a href="http://micronos.test/dashboard" target="_blank" style="color:var(--accent-cyan); background:var(--accent-cyan-dim);">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+          </svg>
+          Launch Appliance GUI &rarr;
+        </a>
+      </div>
+
+      <div class="toc-header-wrap">
+        <div class="toc-title">
+          <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h7"/>
+          </svg>
+          Table of Contents
+        </div>
+        <input type="text" id="toc-search" class="toc-search" placeholder="Filter sections (e.g. snmp, siem, nat)..." oninput="filterToc(this.value)">
+      </div>
+    </div>
+
+    <nav class="toc-nav" id="toc-container">
+      <!-- Generated dynamically -->
+    </nav>
+
+    <div class="sidebar-foot">
+      <label for="themePresetSelect" class="theme-select-label">Theme Preset</label>
+      <select id="themePresetSelect" class="theme-select" onchange="setThemePreset(this.value)">
+        <optgroup label="Dark Themes">
+          <option value="dark">Dark Abyss</option>
+          <option value="midnight">Midnight</option>
+          <option value="ocean">Ocean Teal</option>
+          <option value="forest">Forest</option>
+          <option value="slate">Slate Grey</option>
+        </optgroup>
+        <optgroup label="Light Themes">
+          <option value="light">Light / Day</option>
+          <option value="solar">Solar Amber</option>
+          <option value="mint">Mint Breeze</option>
+          <option value="paper">Paper Ink</option>
+        </optgroup>
+      </select>
+    </div>
+  </aside>
+
+  <main class="main-content">
+    <div class="doc-header">
+      <span class="doc-badge">
+        <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+        </svg>
+        MicronOS Technical Manual
+      </span>
+      <h1>Micron Firewall OS (MicronOS) — Connector Abstraction Threat Model</h1>
+      <p>Adversarial Analysis of the Connector Design: Master-Key Bootstrap & Backup, SSRF Boundaries on Feed URLs, and the Blast Radius of a Compromised Connector</p>
+    </div>
+
+    <article id="markdown-body"></article>
+  </main>
+
+  <script>
+    const rawMarkdown = "# Micron Firewall OS (MicronOS) — Connector Abstraction Threat Model\n\n## Adversarial Analysis of the Connector Design\n### Master-Key Bootstrap & Backup, SSRF Boundaries on Feed URLs, and the Blast Radius of a Compromised Connector\n\nCompanion to the [Connector Abstraction Specification](MICRONOS_CONNECTOR_ABSTRACTION_SPECIFICATION.html).\n\n---\n\n## Table of Contents\n1. [Scope, Method & Out of Scope](#1-scope-method--out-of-scope)\n2. [Assets & Trust Boundaries](#2-assets--trust-boundaries)\n3. [Adversary Model](#3-adversary-model)\n4. [Focus 1 — Master Key: Bootstrap, Storage & Backup](#4-focus-1--master-key-bootstrap-storage--backup)\n5. [Focus 2 — SSRF Boundaries on Feed URLs](#5-focus-2--ssrf-boundaries-on-feed-urls)\n6. [Focus 3 — Blast Radius of a Compromised Connector](#6-focus-3--blast-radius-of-a-compromised-connector)\n7. [Cross-Cutting: Integrity, Availability & Supply Chain](#7-cross-cutting-integrity-availability--supply-chain)\n8. [Findings & Required Changes](#8-findings--required-changes)\n9. [Residual Risk Register](#9-residual-risk-register)\n10. [Verification Evidence](#10-verification-evidence)\n\n---\n\n## 1. Scope, Method & Out of Scope\n\n**In scope:** the connector abstraction — manifest loader, credential store, sync engine, target adapters, and the Phase 0 RPCs (`system.service`, `dnsbl.*`) that the pipeline depends on.\n\n**Method:** asset-driven adversarial analysis. For each adversary we enumerate what they can influence, what they gain, and what the design stops them from reaching. Severity uses a simple **impact × ease** judgement (High / Medium / Low) rather than a full CVSS scoring, because several threats are architectural rather than single-bug.\n\n**Out of scope (pre-existing, not introduced here):**\n- Web-application compromise via unrelated modules. This is treated as an *adversary capability* (§3, A6), not a connector defect.\n- Kernel, systemd, Debian package and hardware compromise.\n- The three pre-existing ad-hoc secret mechanisms (TOTP base64, `PppoeCompiler::encrypt`, backup password). This model covers the **new** `SecretsVault` only.\n- Physical access to the appliance.\n\n**One framing principle runs through this document:** the connector abstraction and its Phase 0 RPCs must not *widen* the privileged surface. Almost every High finding below is a case where that principle needs an explicit control rather than a property that already holds.\n\n---\n\n## 2. Assets & Trust Boundaries\n\n### 2.1 Assets\n\n| Asset | Why it matters |\n| :--- | :--- |\n| **Connector credentials** (Q-Feeds token, ZT/NetBird keys) | Third-party account takeover; may cost money and enable feed poisoning or tunnel hijack |\n| **Master key** (`/etc/micron/secrets.key`) | Compromise ⇒ *all* stored credentials decrypt |\n| **`connector_secrets` ciphertext** | Useless alone; valuable with the key or with a code-execution primitive in PHP |\n| **DNSBL blocklist + address groups** | The security control itself — poisoning is a denial-of-service on the protected network |\n| **Management plane** (CI4 app, session, SQLite DB) | Full appliance administration |\n| **`micrond`** (root, on a Unix socket) | Privileged execution: nftables, systemd, config writes |\n| **Appliance network position** | A firewall is a privileged outbound vantage point (multi-homed, often near management networks) |\n\n### 2.2 Trust boundaries\n\n```\n   [ OPERATOR BROWSER ]                 untrusted network\n            │  HTTPS + session\n            ▼\n   ┌──────────────────────────┐\n B1│  MANAGEMENT PLANE (PHP)  │  ← runs as www-data; holds the master key\n   │  • manifest loader       │\n   │  • SecretsVault          │\n   │  • SyncScheduler/Fetcher │  ── B2 ──►  [ EXTERNAL FEED / VENDOR API ]\n   └───────────┬──────────────┘             (fully untrusted input)\n               │  JSON-RPC over Unix socket (0660 root:www-data)\n          B3   │\n               ▼\n   ┌──────────────────────────┐\n   │  DATA PLANE (micrond)    │  ← root; argv-only; whitelists\n   └───────────┬──────────────┘\n               │  B4\n               ▼\n      Unbound · nftables · systemd · filesystem\n```\n\n- **B1 — operator → management plane.** Enforced by session + `permission:` RBAC filters.\n- **B2 — management plane → internet.** The SSRF boundary (§5). Untrusted data crosses back inbound.\n- **B3 — management plane → micrond.** Notably, anything that can run code as `www-data` can invoke **any** micrond RPC — this predates connectors.\n- **B4 — micrond → system.** Root; constrained only by the whitelists in the handlers.\n\n---\n\n## 3. Adversary Model\n\n| # | Adversary | Capability | Primary interest |\n| :--- | :--- | :--- | :--- |\n| **A1** | Remote unauthenticated | Can reach the appliance's WAN; can host URLs | Probe, exploit SSRF, DoS |\n| **A2** | Authenticated low-privilege operator | `connectors.view`, no `manage`/`secrets.manage` | Read config/status, no secrets or fetches |\n| **A3** | Authenticated admin with `connectors.manage` | Configure connectors, set credentials, sync | No plaintext secret read-back |\n| **A4** | Malicious / compromised feed provider | Controls the **content** of a fetched feed (and possibly the vendor host) | Poison policy; probe the fetch path |\n| **A5** | Network attacker (on-path) | Intercept/modify fetch traffic | Feed poisoning via MITM |\n| **A6** | Attacker with code execution as `www-data` | Full management-plane code exec (unrelated vuln) | Steal the key ⇒ all credentials; call any RPC |\n| **A7** | Local unprivileged user | Read files not owned by root-only | Read key if perms are wrong |\n\n---\n\n## 4. Focus 1 — Master Key: Bootstrap, Storage & Backup\n\n### 4.1 Design as specified\n\nKey at `/etc/micron/secrets.key`, mode `0600` root:www-data, generated on first boot, **not** stored in the database; per-row `key_version` for rotation; AES-256-GCM with a fresh nonce per record.\n\n### 4.2 Threats\n\n| ID | Threat | Impact | Notes / Required control |\n| :--- | :--- | :--- | :--- |\n| **T1.1** | **The web user must be able to read the key**, so any PHP code execution (A6) yields *every* connector credential. | High | Inherent to fetching in the control plane. Reduce with: `0640 root:www-data` (no world/group-write), a dedicated key per deployment, and consider moving decryption into a narrow helper (see F1). |\n| **T1.2** | **Key in backup.** If excluded, a restored appliance loses all credentials (connectors bricked). If included in a password-encrypted backup, a weak operator password leaks everything. | High | **Decided — see Spec §7.6.** The key travels *only* inside the password-encrypted payload; plaintext backups exclude the key **and** the `connector_secrets` rows, so an unencrypted archive is never a credential set. Password is credential-grade (min length, no login-password reuse). |\n| **T1.3** | **Stolen disk.** Key and ciphertext sit on the same filesystem; without FDE/TPM binding the ciphertext is recoverable offline. | Medium | Recommend TPM-sealed key or operator passphrase unlock; state clearly if neither exists. |\n| **T1.4** | **Bootstrap race / umask.** Creating the file then `chmod`-ing leaves a window where it is world-readable; a pre-existing attacker-owned symlink could redirect the write. | Medium | Create atomically with `O_EXCL` and `O_NOFOLLOW` semantics and mode `0600` at creation time; never write-then-chmod. |\n| **T1.5** | **Rotation leaves the old key live.** `key_version` design keeps old ciphertext decryptable, so the old master key must be retained — a lingering secret. | Medium | Eagerly re-encrypt all rows during rotation, then destroy the old key; keep only a short overlap window. |\n| **T1.6** | **Key loss ⇒ unrecoverable credentials.** | Medium | Operational runbook; document that recovery = re-issue every credential at the vendor. |\n| **T1.7** | **AES-GCM nonce reuse.** Nonce reuse is catastrophic for GCM (authentication key recovery). A counter or derived nonce across multiple writers/restores can repeat. | High if it occurs | Mandate a CSPRNG 96-bit nonce per encryption; store it alongside the ciphertext; never derive it from the row id. |\n| **T1.8** | **Plaintext key/secrets in swap or core dumps.** | Medium | On the appliance, disable swap or encrypt it; zero secret buffers after use. |\n| **T1.9** | **Secret leakage through logs/errors.** Debug dumps, exception messages, or `audit_logs` capturing the settings payload could include a token. | Medium | Redaction list derived from manifest `secret: true` fields, applied centrally; ensure exception handlers never serialize the vault. |\n| **T1.10** | **Mask round-trip.** The settings form shows a masked placeholder; if it is ever submitted verbatim it silently replaces the real credential with `••••`. | Low (availability) | Treat \"unchanged\" as an explicit client signal, not a value comparison. |\n| **T1.11** | **No read-back path.** `connectors.secrets.manage` must never decrypt to the browser, and there should be no \"reveal\" endpoint at all. | — | Assert by test: no route returns a decrypted value. |\n\n### 4.3 Residual risk (accepted)\n\nA6 (PHP RCE) ⇒ all connector credentials, **provided the key file permissions are correct**. This is accepted because fetching must happen in the control plane. The mitigating architectural option — having `micrond` decrypt and return a single derived value — was **rejected in the spec** (§7) because it puts plaintext credentials into the root daemon, which is a worse trade. If that trade is revisited, it must be revisited explicitly.\n\n---\n\n## 5. Focus 2 — SSRF Boundaries on Feed URLs\n\n### 5.1 The two entry points, and why both are mitigated today\n\n- **Manifest-defined URLs (new connectors):** authored first-party, validated against a manifest allowlist at load. Good.\n- **Operator-supplied URLs (existing `dns_feeds`, and any future \"custom feed\" UI):** **now guarded too.** A typed feed URL is rejected at entry by `ConnectorEgressGuard::checkSyntax()` (https-only, no literal internal address, no internal hostname) and is then fetched only through the full resolve-and-pin pipeline in `ManualFeedIngestor`, so the operator URL field is no longer an SSRF surface and no longer relies on the manifest allowlist to be safe.\n\nA firewall is a *maximally* useful SSRF vantage point: it is multi-homed, often adjacent to management networks, and frequently able to reach cloud metadata endpoints.\n\n### 5.2 Threats\n\n| ID | Threat | Impact | Required control |\n| :--- | :--- | :--- | :--- |\n| **T2.1** | Request to internal/loopback/metadata targets (`http://127.0.0.1:8080/`, `http://169.254.169.254/…`, `http://10.x/`) — blind SSRF; success/timing/error text leak internal state. | High | Resolve the host, validate **all** returned addresses against a denylist (loopback, RFC1918, link-local incl. `169.254.0.0/16`, CGNAT `100.64.0.0/10`, multicast, reserved), then **connect to the validated IP** (pin it). |\n| **T2.2** | **DNS rebinding** — benign resolution at validation, internal address at connect. | High | Pin the resolved IP for the actual connection; never validate-then-re-resolve. |\n| **T2.3** | **Redirect pivoting** — an allowed host 302s to an internal address. | High | Cap redirects (e.g. 5) and re-validate **every** hop with the same rules. |\n| **T2.4** | Dangerous schemes (`file:`, `gopher:`, `dict:`, `ftp:`, `data:`). | High | Scheme allowlist: `https` only (optionally `http`), applied before any client call. |\n| **T2.5** | **Egress origination.** The fetch may leave via an internal interface and reach management networks. | Medium | Bind fetch to the WAN source or constrain the appliance's own outbound with a firewall rule limited to known feed hosts. |\n| **T2.6** | **Credential leakage on redirect.** Bearer/basic auth forwarded to a redirect target controlled by someone else. | Medium | Strip `Authorization` on cross-origin redirects; refuse cross-origin redirects outright for `basic`/`header` auth. |\n| **T2.7** | **Decompression bomb / huge body** exhausting PHP memory. | Medium | Size cap on the *compressed* and *decompressed* stream, plus a decompression-ratio cap; stream to the staging file rather than buffering. |\n| **T2.8** | **TLS downgrade / disabled verification.** | Medium | Verification mandatory; no `-k`/`verify=false` escape hatch. Optionally pin vendor certificates. |\n| **T2.9** | **Body/error echo.** Returning the fetched body or upstream error text to the UI turns blind SSRF into a read primitive. | Medium | Surface only status code, byte count and entry count — never response bodies. |\n| **T2.10** | **Time-of-check on manifest hosts.** A permitted hostname's DNS can change after validation. | Low | Re-validate at each fetch (same guard as T2.1). |\n\n### 5.3 Required component: an egress guard\n\nAll connector fetches — manifest-defined **and** operator-supplied — must pass through one guard with a fixed pipeline:\n\n```\n 1. scheme ∈ {https}                      (reject file:, gopher:, dict:, data:, ftp:)\n 2. resolve host once → validate EVERY address against the denylist\n 3. connect to the pinned validated address (no re-resolution)\n 4. redirects: max N, each hop re-runs steps 1–3; strip auth cross-origin\n 5. stream caps: bytes-in, decompressed bytes, compression ratio\n 6. TLS verification mandatory; no insecure fallback\n 7. never return the body — only counts and status\n```\n\n**Status: implemented.** `App\\Libraries\\ConnectorEgressGuard` is the single fetch path, and `App\\Connectors\\Targets\\FetchTarget` is the only connector code that reaches the network — so every feed fetch (`dnsbl`, `addressgroup`, `pki`) passes through the pipeline above. The transport is pinned with `CURLOPT_RESOLVE`; the resolver and transport are injectable so the redirect/cap/pinning logic is verified without network access (`tests/app/Libraries/ConnectorEgressGuardTest.php`).\n\nTwo controls remain caller responsibilities and are noted rather than enforced here: the WAN-origination firewall rule (T2.5), and the manifest host allowlist (T2.10), which is a second line of defence, not a substitute for this guard.\n\n---\n\n## 6. Focus 3 — Blast Radius of a Compromised Connector\n\n\"Compromised connector\" is two distinct situations with very different severities. They must not be conflated:\n\n- **(a) Poisoned data** — the attacker controls feed *content*, not code. The connectors are running correctly.\n- **(b) Compromised runtime/credential** — the attacker controls the connector's credential or the code path that executes it.\n\n### 6.1 Containment matrix\n\n| Vector | What the attacker gains | What the design prevents |\n| :--- | :--- | :--- |\n| **(a) Malicious feed content** | Inject arbitrary *validated* hostnames into the DNSBL; inject *validated* IPs/CIDRs into the group it owns | **Cannot execute code** — parser set is a closed enumeration. **Cannot inject config syntax** (see §10, verified). **Cannot choose a target** — fixed blocklist path and a namespaced group. **Cannot escape its group** — `managed_by` scoping. |\n| **(b) Stolen vendor token** | Read the vendor's feed; possibly change vendor-side account settings | Reaches only the third-party account; no local privilege. Rotation is independent of the master key. |\n| **(b) Compromised PHP code path** | Read the master key ⇒ **all** connector credentials | No *new* privilege beyond what PHP already had: **B3 already grants every `micrond` RPC** to `www-data`. Connectors do not widen this. |\n| **(b) Malicious manifest** | — | **Not reachable in Phases 1–3**: manifests are first-party, never fetched, validated at boot. This is why §16 defers any dynamic/remote descriptor. |\n| **(b) Compromised `micrond`** | Full root | Out of scope — root compromise is game over regardless of connectors. |\n\n### 6.2 What a connector can reach — the containment argument\n\nA connector instance, even fully malicious, cannot:\n\n- **Name an arbitrary file:** `_dnsbl_artifacts` requires the path to `realpath`-resolve inside `/var/lib/micron/dnsbl`.\n- **Name an arbitrary command:** all execution is argv-only through `_run`; never a shell, never interpolation.\n- **Name an arbitrary service:** `system.service` resolves the id through the static `SERVICE_UNITS` map (`openvpn` → `openvpn@server`), and only `start`/`stop`/`restart` are accepted.\n- **Invent a route or permission:** manifests are static and pages are static routes; nothing is registered at runtime.\n- **Read another connector's secret:** secrets are per-instance rows, and no endpoint decrypts to the browser.\n\n### 6.3 The `service` target can disable the packet filter — **fixed**\n\n`SERVICE_UNITS` includes `nftables` and `system.service` permits `stop`, so a connector whose manifest names `nftables` could stop the firewall — an availability catastrophe reachable purely from poisoned configuration. The original handler emitted a *warning* but did not refuse.\n\n**Resolution.** The connector path now uses a separate RPC, `connector.service`, held to a strict `CONNECTOR_SAFE_UNITS` allowlist (`squid`, `c-icap`, `clamav`, `igmpproxy`, `mdns-repeater`) — **default deny**, so `nftables`, `unbound`, `strongswan`, `wireguard`, `keepalived`, FRR and every other infrastructure daemon are refused *with no command run*. The admin path (`system.service`, driven by the authenticated Services UI) keeps the full whitelist, so an operator can still restart `nftables`.\n\nA separate method was chosen over a `scope` flag deliberately: a caller able to set a flag can also clear it, so only a distinct method name makes the restriction non-bypassable by connector-supplied data. The connector adapter selects the method; the manifest only selects the service id. Verified by the `connector.service` checks in `tests/test_micrond_phase0.py`, including a regression guard that the admin path still controls critical units.\n\n**Now on a live path.** `App\\Connectors\\Targets\\ServiceTarget` holds the RPC name as a class constant (never manifest-derived) and calls `connector.service`; `Manifest::validateSource()` refuses any key on a `service` source other than `service`/`action`, so a manifest cannot name the RPC at all. `tests/app/Libraries/ConnectorEngineTest.php` asserts the engine emits `connector.service` and never `system.service`, and that a micrond allowlist refusal is surfaced rather than swallowed.\n\n### 6.4 Finding: cross-connector overwrite\n\nIf `connector_targets.target_ref` is not namespaced by instance id, connector B could name connector A's feed/group. The spec already scopes membership with `managed_by`; make ref naming (`feed_<instance>`, `group_<instance>`) enforced by the adapter, not by convention.\n\n---\n\n## 7. Cross-Cutting: Integrity, Availability & Supply Chain\n\n| ID | Threat | Impact | Notes |\n| :--- | :--- | :--- | :--- |\n| **X1** | **Integrity of the security control.** Feed poisoning is a *denial*, not a *redirection*: the compiled form is `local-zone \"<domain>\" always_nxdomain`. The dangerous inversion is an **allow-list** set: if a connector ever populates a set referenced by an *allow* rule, poisoning becomes a bypass. | High | Policy: connector-populated sets may only be referenced from *block* rules; enforce in the rule editor. |\n| **X2** | **Silent staleness.** An attacker (or an outage) that makes every fetch fail leaves the operator protected by old data, believing it is current. | Medium | Freshness is explicit and surfaced (badge/alert); consider an SNMP trap per architecture §24. |\n| **X3** | **Resource exhaustion.** A large feed exhausts PHP memory during parsing or bloats the blocklist. Caps exist in `micrond` (2M entries, 8 MB/artifact); the PHP side needs its own cap and streaming. | Medium | Add PHP-side streaming + caps in Phase 1. |\n| **X4** | **`unbound-checkconf` is the only correctness gate.** A structurally valid but semantically harmful blocklist (e.g. blocking the appliance's own management domain) passes. | Medium | Post-apply sanity check: refuse to block the appliance's own hostname/domain and its configured DNS names. |\n| **X5** | **Conflict with the second ingest path.** The `dnsbl-update` cron job and the new RPCs are two mechanisms; divergent behaviour is itself a security risk (one may bypass the validation the other enforces). | Medium | Reconcile before Phase 1 (see Findings). |\n| **X6** | **Audit blind spots.** Connector actions must land in `audit_logs` using its real columns — there is **no `details` column**, and several controllers silently swallow inserts into it. | Medium | **Closed.** The six writers that used `details` (Cron, Services, Siem, Snmp, Dashboard, RepoDriftCommand), the two that inserted a hex `id` into an integer key (Roles, Users), and the eleven that omitted the table's NOT NULL columns now write the real columns — `tests/app/Models/ModelSchemaConsistencyTest.php` fails on any writer that regresses, and on any insert that omits a required column. |\n\n---\n\n## 8. Findings & Required Changes\n\nOrdered by severity. \"Spec §\" points at where the design should be amended.\n\n| # | Severity | Finding | Required change |\n| :--- | :--- | :--- | :--- |\n| **F1** | High | Any PHP RCE yields **all** connector credentials, because the key must be readable by `www-data`. | Accept explicitly, document it, and harden: `0640 root:www-data`, `O_EXCL`+`O_NOFOLLOW` atomic create, per-deployment key. Revisit the rejected \"decrypt in micrond\" trade in writing. (Spec §7) |\n| **F2** | High | ~~The `service` target can **stop `nftables`** (and other safety-critical units), disabling the packet filter.~~ | **Implemented** — `connector.service` enforces the strict `CONNECTOR_SAFE_UNITS` allowlist (default deny); the admin path keeps the full whitelist. (Spec §9.3) |\n| **F3** | High | ~~**Operator-supplied feed URLs are a live SSRF surface**; the manifest allowlist mitigates only new connectors.~~ | **Implemented** — the `ConnectorEgressGuard` (§5.3) is the single fetch path for all connector sources, with an https-only scheme allowlist, resolve-and-pin, per-hop redirect validation and stream/ratio caps. Manual `dns_feeds` URLs are checked with `checkSyntax()` at entry (rejected if non-https or internal) and fetched on sync only through `ManualFeedIngestor`, so operator input shares the manifest path's controls. (Spec §13) |\n| **F4** | High | AES-256-GCM **nonce reuse** would be catastrophic and is easy to introduce. | Mandate CSPRNG 96-bit nonce per encryption; store it; add a test that two writes of the same plaintext produce different nonces/ciphertext. (Spec §7) |\n| **F5** | Medium | ~~DNS rebinding and redirect pivoting defeat naive URL validation.~~ | **Implemented** — the host is resolved once and every address is validated against the denylist; the connection is pinned to the validated IP via `CURLOPT_RESOLVE`; every redirect hop re-runs the full check; auth is stripped cross-origin (and refused when sensitive). (Spec §13) |\n| **F6** | Medium | ~~**Master key in backup** is unresolved: either leak-by-weak-password or unrecoverable credentials.~~ | **Implemented (Spec §7.6)** — `BackupEngine` carries the key and `connector_secrets` only inside the password-encrypted envelope; plaintext backups exclude both; restore installs/matches/only-with-confirmation replaces the key, skips connector ciphertext when no usable key exists, and decryption-verifies every restored secret. Covered by `tests/app/Libraries/BackupConnectorPolicyTest.php`. |\n| **F7** | Medium | Cross-connector overwrite if `target_ref` is not namespaced. | Namespace refs by instance id in the adapter, not by convention. (Spec §6.4, §9.2) |\n| **F8** | Medium | Silent staleness misleads the operator. | Surface freshness prominently and consider an SNMP trap. (Spec §14) |\n| **F9** | Medium | Two DNSBL ingest paths with different validation guarantees. | Reconcile `dnsbl-update` vs the new RPCs; one validator, one path. (Spec §17.1) |\n| **F10** | Low | Swap/core-dump exposure of plaintext keys and secrets. | Disable/encrypt swap; zero buffers. (Spec §7) |\n| **F11** | Low | Log/error leakage and mask round-trip. | Central redaction from manifest `secret` flags; explicit \"unchanged\" signal. (Spec §7, §12) |\n| **F12** | Low | Masked-blocklist content is only syntactically validated. | Refuse to block the appliance's own identity. (Spec §9.1) |\n\n---\n\n## 9. Residual Risk Register\n\n| Risk | Rationale for acceptance | Owner action |\n| :--- | :--- | :--- |\n| A6 ⇒ all credentials | Fetch must occur in the control plane; moving decryption to `micrond` is worse | Accept + document; F1 hardening |\n| A5 on-path feed tampering | TLS verification + vendor authenticity; no pinning by default | Accept; optional pinning per connector |\n| Poisoned data ⇒ selective DoS | Inherent to any external feed; block-only semantics bound it | Accept; policy rule X1 |\n| No Linux data plane in this repo | Cannot live-test `systemctl`/Unbound integration | Integration testing on the appliance |\n\n---\n\n## 10. Verification Evidence\n\nThe following claims were checked against the implementation rather than asserted:\n\n1. **Feed content cannot become Unbound config syntax.** The compiled directive interpolates a token that must match a strict hostname pattern, and line parsing takes only the last whitespace-delimited token. Injection attempts in a staged artifact —\n   `evil.example.com\" always_nxdomain`, `good.example.com local-zone: \"x\" always_nxdomain`, and `local-zone: \"injected.example.net\" always_nxdomain` — all fail validation and are dropped, while a benign entry still compiles. Covered by three checks in `tests/test_micrond_phase0.py`.\n2. **Path containment and refusal behaviour.** A path outside the staging directory is refused with no file written; a missing artifact is refused; unknown services and unsupported actions run **no** command. Covered by the same harness.\n3. **F2 hardening holds.** `connector.service` refuses `nftables`, `unbound`, `strongswan`, `wireguard`, `keepalived` and `frr` with **no command executed**, while allowing the connector-safe daemons; and the admin `system.service` path still controls those units, so the hardening introduces no operator regression. Covered by the same harness.\n4. **Plaintext backups are reachable today.** `BackupEngine::createBackup(?string $encryptionPassword = null)` accepts a null password and emits a plaintext JSON payload with an `is_encrypted` flag, which is why the backup policy (Spec §7.6, R2) must actively strip the key and the ciphertext rows from unencrypted archives rather than assuming every archive is encrypted.\n5. **The egress guard refuses internal targets and cannot be re-resolved or pivoted.** With the resolver and transport injected, `ConnectorEgressGuardTest` shows: `file:`/`gopher:`/`dict:`/`data:`/`ftp:`/`http:` never reach the transport; a host resolving to any internal address (loopback, RFC1918, link-local `169.254.169.254`, CGNAT, multicast, IPv6 ULA/link-local, IPv4-mapped) is refused outright; the host is resolved exactly once and the connection is pinned to the validated IP; a redirect to an internal host is refused before it is contacted; redirect loops are capped; `Authorization` is stripped on cross-origin hops and refused outright when marked sensitive; decompressed/compressed/ratio caps abort the stream and leave no partial artifact; and the response body is never returned.\n\nEverything else in this threat model is design-level reasoning. **F2, F3, F5 and F6 are implemented**; the remaining findings (F1, F4, F7–F12) concern the `SecretsVault` CRUD/rotation and the connector engine, which do not exist yet, so they are **requirements to implement**, not defects observed in running code.\n\n---\n\n*This is a threat model. No implementation code is included, and no application files are modified by this document.*\n";
+    
+    // Theme Presets Management
+    const LIGHT_THEMES = ['light', 'solar', 'mint', 'paper'];
+    function setThemePreset(theme) {
+      document.documentElement.dataset.theme = theme;
+      document.documentElement.dataset.mode = LIGHT_THEMES.includes(theme) ? 'light' : 'dark';
+      try {
+        localStorage.setItem('micron_docs_theme', theme);
+      } catch (e) {}
+      const sel = document.getElementById('themePresetSelect');
+      if (sel) sel.value = theme;
+    }
+
+    try {
+      const savedTheme = localStorage.getItem('micron_docs_theme') || 'dark';
+      setThemePreset(savedTheme);
+    } catch (e) {
+      setThemePreset('dark');
+    }
+
+    // Configure marked with highlight.js
+    marked.setOptions({
+      highlight: function(code, lang) {
+        if (lang && hljs.getLanguage(lang)) {
+          return hljs.highlight(code, { language: lang }).value;
+        }
+        return hljs.highlightAuto(code).value;
+      },
+      breaks: false,
+      gfm: true
+    });
+
+    const rendered = marked.parse(rawMarkdown);
+    document.getElementById('markdown-body').innerHTML = rendered;
+
+    // Generate Dynamic TOC with IDs
+    const headings = document.getElementById('markdown-body').querySelectorAll('h2, h3');
+    const tocContainer = document.getElementById('toc-container');
+    
+    headings.forEach(heading => {
+      const text = heading.textContent;
+      const base = text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+      let slug = base;
+      for (let n = 2; document.getElementById(slug); n++) {
+        slug = base + '-' + n;
+      }
+      heading.id = slug;
+      
+      const link = document.createElement('a');
+      link.href = '#' + slug;
+      link.textContent = text;
+      link.dataset.title = text.toLowerCase();
+      if (heading.tagName.toLowerCase() === 'h3') {
+        link.classList.add('h3-link');
+      }
+      tocContainer.appendChild(link);
+    });
+
+    // Add Copy Buttons to Pre blocks
+    document.querySelectorAll('#markdown-body pre').forEach(pre => {
+      const copyBtn = document.createElement('button');
+      copyBtn.className = 'code-copy-btn';
+      copyBtn.innerHTML = '<svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg> Copy';
+      copyBtn.onclick = () => {
+        const codeText = pre.querySelector('code')?.innerText || pre.innerText;
+        navigator.clipboard.writeText(codeText);
+        copyBtn.innerHTML = '✔ Copied!';
+        setTimeout(() => {
+          copyBtn.innerHTML = '<svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg> Copy';
+        }, 2000);
+      };
+      pre.appendChild(copyBtn);
+    });
+
+    // TOC Filter
+    function filterToc(query) {
+      query = (query || '').toLowerCase().trim();
+      document.querySelectorAll('#toc-container a').forEach(a => {
+        if (!query || a.dataset.title.includes(query)) {
+          a.style.display = 'block';
+        } else {
+          a.style.display = 'none';
+        }
+      });
+    }
+
+    // Scrollspy for TOC highlight
+    const tocLinks = Array.from(tocContainer.querySelectorAll('a'));
+    function syncTocActive() {
+      const scrollPos = window.scrollY + 120;
+      let activeHeading = null;
+      headings.forEach(h => {
+        if (h.offsetTop <= scrollPos) {
+          activeHeading = h;
+        }
+      });
+      if (activeHeading) {
+        tocLinks.forEach(link => {
+          link.classList.toggle('active', link.getAttribute('href') === '#' + activeHeading.id);
+        });
+      }
+    }
+    window.addEventListener('scroll', syncTocActive, { passive: true });
+    syncTocActive();
+  </script>
+</body>
+</html>
