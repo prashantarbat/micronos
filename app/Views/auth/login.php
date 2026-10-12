@@ -119,6 +119,33 @@ $_showDisclaimer = $_bannerOn && $_bannerText !== '';
           </div>
         </form>
 
+        <?php
+          $ssoActive = [];
+          try {
+              $ssoActive = (new \App\Models\SsoProviderModel())->getEnabledProviders();
+          } catch (\Throwable $e) {}
+        ?>
+
+        <?php if (! empty($ssoActive)): ?>
+          <div style="margin-top:20px; text-align:center;">
+            <div style="display:flex; align-items:center; gap:12px; margin-bottom:14px;">
+              <div style="flex:1; height:1px; background:rgba(255,255,255,0.1);"></div>
+              <span style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.06em; font-weight:600;">Or Federated SSO</span>
+              <div style="flex:1; height:1px; background:rgba(255,255,255,0.1);"></div>
+            </div>
+            <div style="display:flex; flex-direction:column; gap:8px;">
+              <?php foreach ($ssoActive as $sp): ?>
+                <a href="<?= base_url('auth/sso/login/' . $sp['slug']) ?>" class="btn btn-ghost btn-full" style="display:flex; align-items:center; justify-content:center; gap:8px; border:1px solid rgba(255,255,255,0.12); padding:10px 14px; text-decoration:none;">
+                  <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="color:var(--color-indigo, #818cf8);">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+                  </svg>
+                  <span>Sign in with <?= esc($sp['name']) ?></span>
+                </a>
+              <?php endforeach; ?>
+            </div>
+          </div>
+        <?php endif; ?>
+
         <!-- Footer info -->
         <div class="login-footer">
           <span><?= esc(\App\Libraries\AppVersion::getFullVersionString()) ?></span>

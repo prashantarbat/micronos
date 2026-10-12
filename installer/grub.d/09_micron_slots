@@ -22,12 +22,18 @@
 
 set -eu
 
-resolve_uuid() { # resolve_uuid <label>
+resolve_uuid() { # resolve_uuid <label> [override_uuid]
     if [ -n "${2:-}" ]; then
         printf '%s' "$2"
         return 0
     fi
-    blkid -s UUID -o value -L "$1" 2>/dev/null || true
+    local dev
+    dev=$(blkid -L "$1" 2>/dev/null || true)
+    if [ -n "$dev" ]; then
+        blkid -s UUID -o value "$dev" 2>/dev/null || true
+        return 0
+    fi
+    blkid -t LABEL="$1" -s UUID -o value 2>/dev/null || true
 }
 
 UUID_A=$(resolve_uuid 'MICRON_ROOT_A' "${MICRON_UUID_A:-}")
@@ -130,13 +136,13 @@ function micron_boot {
 GRUB_BOOT
 
 echo ''
-echo 'menuentry "MicronOS (auto slot)" --id micronos-auto {'
+echo 'menuentry "Micron OS (auto slot)" --id micronos-auto {'
 echo '    micron_boot $micron_target'
 echo '}'
 
 if [ -n "$UUID_B" ]; then
     echo ''
-    echo 'menuentry "MicronOS (LKGC - alternate slot)" --id micronos-lkgc {'
+    echo 'menuentry "Micron OS (LKGC - alternate slot)" --id micronos-lkgc {'
     echo '    if [ "$micron_target" = "a" ]; then'
     echo '        micron_boot b'
     echo '    else'
@@ -146,13 +152,13 @@ if [ -n "$UUID_B" ]; then
 fi
 
 echo ''
-echo 'menuentry "MicronOS (slot A, manual)" --id micronos-slot-a {'
+echo 'menuentry "Micron OS (slot A, manual)" --id micronos-slot-a {'
 echo '    micron_boot a'
 echo '}'
 
 if [ -n "$UUID_B" ]; then
     echo ''
-    echo 'menuentry "MicronOS (slot B, manual)" --id micronos-slot-b {'
+    echo 'menuentry "Micron OS (slot B, manual)" --id micronos-slot-b {'
     echo '    micron_boot b'
     echo '}'
 else
@@ -161,7 +167,7 @@ else
 fi
 
 echo ''
-echo 'menuentry "MicronOS (factory recovery - pristine boot)" --id micronos-factory {'
+echo 'menuentry "Micron OS (factory recovery - pristine boot)" --id micronos-factory {'
 echo '    if [ "$micron_target" = "b" ]; then'
 if [ -n "$UUID_B" ]; then
     echo "        search --no-floppy --fs-uuid --set=root ${UUID_B}"
@@ -180,7 +186,7 @@ echo '    fi'
 echo '}'
 
 echo ''
-echo 'menuentry "MicronOS (failsafe maintenance shell)" --id micronos-recovery {'
+echo 'menuentry "Micron OS (failsafe maintenance shell)" --id micronos-recovery {'
 echo "    search --no-floppy --fs-uuid --set=root ${UUID_A}"
 echo "    linux  ${KERNEL} root=UUID=${UUID_A} ro single init=/bin/bash"
 echo "    initrd ${INITRD}"

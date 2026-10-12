@@ -1,38 +1,50 @@
-﻿<?= $this->extend('layouts/main') ?>
+<?= $this->extend('layouts/main') ?>
 <?= $this->section('content') ?>
 
 <div class="page-header animate-in">
-  <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:16px;">
-    <div>
-      <h1 class="page-title">IPsec & IKEv2 VPN</h1>
-      <p class="page-subtitle">Enterprise Site-to-Site VPN tunnels, route-based VTI, and native IKEv2 mobile road warrior pools</p>
+  <div class="page-header-content">
+    <div class="page-breadcrumb">
+      <a href="<?= base_url() ?>">Dashboard</a>
+      <span>/</span>
+      <a href="<?= base_url('vpn/portal') ?>">VPN</a>
+      <span>/</span>
+      <span class="current">IPsec &amp; IKEv2</span>
     </div>
-    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
-      <?= \App\Libraries\ServiceStatus::widget('strongswan') ?>
-      <a href="<?= base_url('vpn/ipsec/config') ?>" class="btn btn-ghost" title="Download the compiled /etc/swanctl/swanctl.conf">
-        <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+    <div style="display:flex; align-items:center; gap:12px;">
+      <div class="page-title-icon">
+        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
         </svg>
-        swanctl.conf
-      </a>
-      <a href="<?= base_url('certificates') ?>" class="btn btn-ghost" title="Manage Certificate Authorities and issue X.509 RSA/ECDSA machine certificates">
-        <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
-        </svg>
-        PKI &amp; Certificates
-      </a>
-      <?php if (session()->get('is_superadmin') || in_array('vpn.ipsec.manage', session()->get('permissions') ?? [])): ?>
-        <form method="POST" action="<?= base_url('vpn/ipsec/restart') ?>">
-          <?= csrf_field() ?>
-          <button type="submit" class="btn btn-ghost">
-            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-            </svg>
-            Restart strongSwan
-          </button>
-        </form>
-      <?php endif; ?>
+      </div>
+      <h1 class="page-title">IPsec &amp; IKEv2 VPN</h1>
     </div>
+    <p class="page-subtitle">Enterprise Site-to-Site VPN tunnels, route-based VTI, and native IKEv2 mobile road warrior pools</p>
+  </div>
+  <div class="page-header-actions">
+    <?= \App\Libraries\ServiceStatus::widget('strongswan') ?>
+    <a href="<?= base_url('vpn/ipsec/config') ?>" class="btn btn-ghost btn-sm" title="Download the compiled /etc/swanctl/swanctl.conf">
+      <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+      </svg>
+      swanctl.conf
+    </a>
+    <a href="<?= base_url('certificates') ?>" class="btn btn-ghost btn-sm" title="Manage Certificate Authorities and issue X.509 RSA/ECDSA machine certificates">
+      <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+      </svg>
+      PKI &amp; Certificates
+    </a>
+    <?php if (session()->get('is_superadmin') || in_array('vpn.ipsec.manage', session()->get('permissions') ?? [])): ?>
+      <form method="POST" action="<?= base_url('vpn/ipsec/restart') ?>" style="display:inline;">
+        <?= csrf_field() ?>
+        <button type="submit" class="btn btn-ghost btn-sm">
+          <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+          </svg>
+          Restart strongSwan
+        </button>
+      </form>
+    <?php endif; ?>
   </div>
 </div>
 
@@ -323,20 +335,20 @@
 <!-- ============================================================
      Edit IPsec Tunnel Modal
 ============================================================ -->
-<div id="editIpsecModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.75); backdrop-filter:blur(6px); z-index:9999; align-items:center; justify-content:center; padding:16px;">
-  <div style="background:var(--color-surface-2); border:1px solid var(--color-border-bright); border-radius:var(--radius-lg); max-width:760px; width:100%; box-shadow:var(--shadow-lg); overflow:hidden; max-height:90vh; display:flex; flex-direction:column;">
-    <div style="padding:16px 24px; border-bottom:1px solid var(--color-border); display:flex; justify-content:space-between; align-items:center;">
-      <h3 style="margin:0; font-size:1.05rem; font-weight:700; color:var(--text-primary); display:flex; align-items:center; gap:8px;">
+<div id="editIpsecModal" class="modal-backdrop">
+  <div class="modal-dialog lg">
+    <div class="modal-header">
+      <h3 class="modal-title">
         <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="color:var(--color-cyan);">
           <path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
         </svg>
         Edit IPsec / IKEv2 Tunnel
       </h3>
-      <button type="button" onclick="closeEditIpsecModal()" class="btn btn-ghost btn-sm" style="font-size:1.2rem; line-height:1; padding:4px 8px;">&times;</button>
+      <button type="button" onclick="closeEditIpsecModal()" class="modal-close">&times;</button>
     </div>
 
-    <form id="editIpsecForm" method="POST" action="" class="modal-scroll"
-          style="padding:24px; display:flex; flex-direction:column; gap:16px; flex:1 1 auto; min-height:0;">
+    <form id="editIpsecForm" method="POST" action="" class="modal-body"
+          style="display:flex; flex-direction:column; gap:16px;">
       <?= csrf_field() ?>
 
       <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:16px;">
@@ -434,7 +446,7 @@
         </label>
       </div>
 
-      <div style="display:flex; justify-content:flex-end; gap:12px; margin-top:12px;">
+      <div style="display:flex; justify-content:flex-end; gap:12px; margin-top:12px; padding-top:14px; border-top:1px solid var(--color-border);">
         <button type="button" onclick="closeEditIpsecModal()" class="btn btn-ghost">Cancel</button>
         <button type="submit" class="btn btn-primary" style="min-width:140px;">Update Tunnel</button>
       </div>
@@ -468,13 +480,16 @@ function openEditIpsecModal(tunnel) {
   document.getElementById('edit_vti_remote').value      = tunnel.vti_remote_ip || '';
   document.getElementById('edit_vti_mark').value        = tunnel.vti_mark || 1;
 
+  modal.classList.add('active');
   modal.style.display = 'flex';
   // Reset AFTER display: a hidden scroll container ignores scrollTop.
   form.scrollTop = 0;
 }
 
 function closeEditIpsecModal() {
-  document.getElementById('editIpsecModal').style.display = 'none';
+  const modal = document.getElementById('editIpsecModal');
+  modal.classList.remove('active');
+  modal.style.display = 'none';
 }
 
 // Reveal the tunnel-address fields only when the tunnel is route-based

@@ -3,52 +3,57 @@
 
 <!-- ── Page Header ── -->
 <div class="page-header animate-in">
-  <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:16px;">
-    <div>
-      <h1 class="page-title" style="display:flex; align-items:center; gap:10px;">
-        <svg width="26" height="26" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"/>
+  <div class="page-header-content">
+    <h1 class="page-title" style="display:flex; align-items:center; gap:10px;">
+      <svg width="26" height="26" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"/>
+      </svg>
+      Network Interfaces
+    </h1>
+    <p class="page-subtitle">Configure physical and virtual interfaces, link addressing, and traffic parameters</p>
+  </div>
+  <div class="page-header-actions">
+    <?php if (session()->get('is_superadmin') || in_array('interfaces.edit', session()->get('permissions') ?? [])): ?>
+      <button type="button" class="btn btn-primary" onclick="openAddInterfaceModal()" style="display:inline-flex; align-items:center; gap:6px;">
+        <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
         </svg>
-        Network Interfaces
-      </h1>
-      <p class="page-subtitle">Configure physical and virtual interfaces, link addressing, and traffic parameters</p>
-    </div>
-    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
-      <?php if (session()->get('is_superadmin') || in_array('interfaces.edit', session()->get('permissions') ?? [])): ?>
-        <button type="button" class="btn btn-primary" onclick="openAddInterfaceModal()" style="display:inline-flex; align-items:center; gap:6px;">
-          <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
-          </svg>
-          Add Interface / VLAN
-        </button>
+        Add Interface / VLAN
+      </button>
 
-        <button type="button" class="btn btn-secondary" onclick="openAddBondModal()" style="display:inline-flex; align-items:center; gap:6px; background:rgba(59,130,246,0.15); color:#60a5fa; border:1px solid rgba(59,130,246,0.35);">
-          <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M13.828 10.172a4 4 0 010 5.656l-3 3a4 4 0 01-5.656-5.656l1.5-1.5m7.156-7.156a4 4 0 00-5.656 0l-3 3a4 4 0 000 5.656l1.5 1.5"/>
-          </svg>
-          + New Bond (bond0)
-        </button>
+      <button type="button" class="btn btn-secondary" onclick="openAddBondModal()" style="display:inline-flex; align-items:center; gap:6px; background:var(--tone-blue-bg); color:var(--tone-blue-fg); border:1px solid var(--tone-blue-border);">
+        <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M13.828 10.172a4 4 0 010 5.656l-3 3a4 4 0 01-5.656-5.656l1.5-1.5m7.156-7.156a4 4 0 00-5.656 0l-3 3a4 4 0 000 5.656l1.5 1.5"/>
+        </svg>
+        + New Bond (bond0)
+      </button>
 
-        <button type="button" class="btn btn-secondary" onclick="openConfigureWirelessModal()" style="display:inline-flex; align-items:center; gap:6px; background:rgba(236,72,153,0.15); color:#f472b6; border:1px solid rgba(236,72,153,0.35);">
-          <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0"/>
-          </svg>
-          + Setup Wi-Fi (wlan0)
-        </button>
-      <?php endif; ?>
+      <button type="button" class="btn btn-secondary" onclick="openAddBridgeModal()" style="display:inline-flex; align-items:center; gap:6px; background:var(--tone-emerald-bg, rgba(16,185,129,0.12)); color:var(--tone-emerald-fg, #10b981); border:1px solid var(--tone-emerald-border, rgba(16,185,129,0.3));">
+        <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M8 9l4-4 4 4m0 6l-4 4-4-4"/>
+        </svg>
+        + New Bridge (br0)
+      </button>
 
-      <?php if (session()->get('is_superadmin') || in_array('interfaces.apply', session()->get('permissions') ?? [])): ?>
-        <form method="POST" action="<?= base_url('interfaces/apply') ?>" style="margin:0;">
-          <?= csrf_field() ?>
-          <button type="submit" class="btn btn-success" style="display:inline-flex; align-items:center; gap:6px;">
-            <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-            </svg>
-            Apply Changes
-          </button>
-        </form>
-      <?php endif; ?>
-    </div>
+      <button type="button" class="btn btn-secondary" onclick="openConfigureWirelessModal()" style="display:inline-flex; align-items:center; gap:6px; background:var(--tone-rose-bg); color:var(--tone-rose-fg); border:1px solid var(--tone-rose-border);">
+        <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0"/>
+        </svg>
+        + Setup Wi-Fi (wlan0)
+      </button>
+    <?php endif; ?>
+
+    <?php if (session()->get('is_superadmin') || in_array('interfaces.apply', session()->get('permissions') ?? [])): ?>
+      <form method="POST" action="<?= base_url('interfaces/apply') ?>" style="margin:0;">
+        <?= csrf_field() ?>
+        <button type="submit" class="btn btn-success" style="display:inline-flex; align-items:center; gap:6px;">
+          <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+          </svg>
+          Apply Changes
+        </button>
+      </form>
+    <?php endif; ?>
   </div>
 </div>
 
@@ -64,29 +69,37 @@
 <?php endif; ?>
 
 <!-- ── Top Feature Switcher Tabs ── -->
-<div style="display:flex; gap:10px; margin-bottom:20px; border-bottom:1px solid var(--color-border); padding-bottom:12px; flex-wrap:wrap;" class="animate-in">
-  <button type="button" class="btn btn-sm iface-nav-tab active" id="tabNavInterfaces" onclick="switchMainTab('interfaces', this)" style="display:inline-flex; align-items:center; gap:8px;">
+<div class="tab-bar animate-in">
+  <button type="button" class="tab-item iface-nav-tab active" id="tabNavInterfaces" onclick="switchMainTab('interfaces', this)">
     <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
       <path stroke-linecap="round" stroke-linejoin="round" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"/>
     </svg>
     <span>Interfaces &amp; VLANs</span>
-    <span class="badge badge-muted" style="font-size:0.7rem; padding:2px 6px;"><?= count($interfaces) ?></span>
+    <span class="tab-badge"><?= count($interfaces) ?></span>
   </button>
 
-  <button type="button" class="btn btn-sm iface-nav-tab btn-ghost" id="tabNavBonds" onclick="switchMainTab('bonds', this)" style="display:inline-flex; align-items:center; gap:8px;">
+  <button type="button" class="tab-item iface-nav-tab" id="tabNavBonds" onclick="switchMainTab('bonds', this)">
     <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
       <path stroke-linecap="round" stroke-linejoin="round" d="M13.828 10.172a4 4 0 010 5.656l-3 3a4 4 0 01-5.656-5.656l1.5-1.5m7.156-7.156a4 4 0 00-5.656 0l-3 3a4 4 0 000 5.656l1.5 1.5"/>
     </svg>
     <span>LACP Link Aggregation (<code>bond0</code>)</span>
-    <span class="badge" style="font-size:0.7rem; padding:2px 6px; background:rgba(59,130,246,0.2); color:#60a5fa;"><?= (int) ($summary['bonds'] ?? count($bonds ?? [])) ?></span>
+    <span class="tab-badge" style="background:var(--tone-blue-bg); color:var(--tone-blue-fg);"><?= (int) ($summary['bonds'] ?? count($bonds ?? [])) ?></span>
   </button>
 
-  <button type="button" class="btn btn-sm iface-nav-tab btn-ghost" id="tabNavWireless" onclick="switchMainTab('wireless', this)" style="display:inline-flex; align-items:center; gap:8px;">
+  <button type="button" class="tab-item iface-nav-tab" id="tabNavBridges" onclick="switchMainTab('bridges', this)">
+    <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M8 9l4-4 4 4m0 6l-4 4-4-4"/>
+    </svg>
+    <span>Bridge Interfaces (<code>br0</code>)</span>
+    <span class="tab-badge" style="background:rgba(16,185,129,0.15); color:var(--color-emerald);"><?= (int) ($summary['bridges'] ?? count($bridges ?? [])) ?></span>
+  </button>
+
+  <button type="button" class="tab-item iface-nav-tab" id="tabNavWireless" onclick="switchMainTab('wireless', this)">
     <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
       <path stroke-linecap="round" stroke-linejoin="round" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0"/>
     </svg>
     <span>Wireless LAN (<code>wlan0</code>)</span>
-    <span class="badge" style="font-size:0.7rem; padding:2px 6px; background:rgba(236,72,153,0.2); color:#f472b6;"><?= (int) ($summary['wireless'] ?? count($wireless ?? [])) ?></span>
+    <span class="tab-badge" style="background:var(--tone-rose-bg); color:var(--tone-rose-fg);"><?= (int) ($summary['wireless'] ?? count($wireless ?? [])) ?></span>
   </button>
 </div>
 
@@ -125,15 +138,21 @@
     <div style="font-size:0.72rem; color:var(--text-secondary); margin-top:2px;">Virtual tagged subnets</div>
   </div>
 
-  <div class="card card-glass" style="padding:14px 18px; border-left:3px solid #3b82f6; cursor:pointer;" onclick="switchMainTab('bonds', document.getElementById('tabNavBonds'))">
+  <div class="card card-glass" style="padding:14px 18px; border-left:3px solid var(--tone-blue); cursor:pointer;" onclick="switchMainTab('bonds', document.getElementById('tabNavBonds'))">
     <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; font-weight:600; letter-spacing:0.04em;">LACP Bonds</div>
-    <div style="font-size:1.6rem; font-weight:700; color:#60a5fa; margin-top:2px; font-family:var(--font-mono);"><?= (int) ($summary['bonds'] ?? count($bonds ?? [])) ?></div>
+    <div style="font-size:1.6rem; font-weight:700; color:var(--tone-blue-fg); margin-top:2px; font-family:var(--font-mono);"><?= (int) ($summary['bonds'] ?? count($bonds ?? [])) ?></div>
     <div style="font-size:0.72rem; color:var(--text-secondary); margin-top:2px;">802.3ad Trunk Links</div>
   </div>
 
-  <div class="card card-glass" style="padding:14px 18px; border-left:3px solid #ec4899; cursor:pointer;" onclick="switchMainTab('wireless', document.getElementById('tabNavWireless'))">
+  <div class="card card-glass" style="padding:14px 18px; border-left:3px solid var(--color-emerald); cursor:pointer;" onclick="switchMainTab('bridges', document.getElementById('tabNavBridges'))">
+    <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; font-weight:600; letter-spacing:0.04em;">Bridges (br0)</div>
+    <div style="font-size:1.6rem; font-weight:700; color:var(--color-emerald); margin-top:2px; font-family:var(--font-mono);"><?= (int) ($summary['bridges'] ?? count($bridges ?? [])) ?></div>
+    <div style="font-size:0.72rem; color:var(--text-secondary); margin-top:2px;">L2 Switch Ports</div>
+  </div>
+
+  <div class="card card-glass" style="padding:14px 18px; border-left:3px solid var(--tone-rose); cursor:pointer;" onclick="switchMainTab('wireless', document.getElementById('tabNavWireless'))">
     <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; font-weight:600; letter-spacing:0.04em;">Wireless WLAN</div>
-    <div style="font-size:1.6rem; font-weight:700; color:#f472b6; margin-top:2px; font-family:var(--font-mono);"><?= (int) ($summary['wireless'] ?? count($wireless ?? [])) ?></div>
+    <div style="font-size:1.6rem; font-weight:700; color:var(--tone-rose-fg); margin-top:2px; font-family:var(--font-mono);"><?= (int) ($summary['wireless'] ?? count($wireless ?? [])) ?></div>
     <div style="font-size:0.72rem; color:var(--text-secondary); margin-top:2px;">AP / Client Radios</div>
   </div>
 </div>
@@ -499,6 +518,135 @@
             <div style="display:flex; gap:8px;">
               <?php if (session()->get('is_superadmin') || in_array('interfaces.edit', session()->get('permissions') ?? [])): ?>
                 <button type="button" class="btn btn-ghost btn-sm" style="color:var(--color-red); font-size:0.72rem; padding:2px 8px;" onclick="confirmDeleteBond('<?= esc($bond['id']) ?>', '<?= esc($bond['name']) ?>')">
+                  Delete
+                </button>
+              <?php endif; ?>
+            </div>
+          </div>
+        </div>
+      <?php endforeach; ?>
+    </div>
+  <?php endif; ?>
+</div>
+
+<!-- ============================================================
+     TAB: LAYER 2 BRIDGE INTERFACES (br0)
+============================================================ -->
+<div id="tabPaneBridges" class="iface-main-tab-pane" style="display:none;">
+  <!-- Header / Action bar -->
+  <div class="card card-glass animate-in" style="padding:18px 22px; margin-bottom:20px; border-left:3px solid var(--color-emerald);">
+    <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:16px;">
+      <div>
+        <h2 style="font-size:1.15rem; font-weight:700; color:var(--text-primary); margin:0 0 6px 0; display:flex; align-items:center; gap:8px;">
+          <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="color:var(--color-emerald);">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M8 9l4-4 4 4m0 6l-4 4-4-4"/>
+          </svg>
+          Network Bridge Interfaces &amp; Switch Ports (br0)
+        </h2>
+        <p style="font-size:0.82rem; color:var(--text-secondary); margin:0; max-width:850px; line-height:1.5;">
+          Combine multiple physical Ethernet ports (e.g. <code>eth1</code> + <code>eth2</code> + <code>eth3</code>) into a unified Layer 2 switch bridge (<code>br0</code>). The primary physical interface (<code>eth0</code>) connects to WAN, while remaining ports act as a LAN switch with IEEE 802.1D Spanning Tree Protocol (STP) loop protection.
+        </p>
+      </div>
+      <div>
+        <?php if (session()->get('is_superadmin') || in_array('interfaces.edit', session()->get('permissions') ?? [])): ?>
+          <button type="button" class="btn btn-primary" onclick="openAddBridgeModal()" style="display:inline-flex; align-items:center; gap:6px;">
+            <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+            </svg>
+            Create Bridge Interface
+          </button>
+        <?php endif; ?>
+      </div>
+    </div>
+  </div>
+
+  <?php if (empty($bridges)): ?>
+    <div class="card card-glass animate-in" style="padding:48px 24px; text-align:center; border:1px dashed var(--color-border-bright);">
+      <div style="width:56px; height:56px; border-radius:50%; background:rgba(16,185,129,0.1); color:var(--color-emerald); display:flex; align-items:center; justify-content:center; margin:0 auto 16px;">
+        <svg width="28" height="28" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M8 9l4-4 4 4m0 6l-4 4-4-4"/>
+        </svg>
+      </div>
+      <h3 style="font-size:1.1rem; font-weight:700; color:var(--text-primary); margin-bottom:8px;">No Bridge Interfaces Configured</h3>
+      <p style="font-size:0.83rem; color:var(--text-secondary); max-width:540px; margin:0 auto 20px; line-height:1.5;">
+        A bridge allows your Micron OS appliance to operate as a standard multi-port router switch. Bundle non-WAN interfaces into <code>br0</code> to provide wired LAN clients with unified Layer 2 switching.
+      </p>
+      <?php if (session()->get('is_superadmin') || in_array('interfaces.edit', session()->get('permissions') ?? [])): ?>
+        <button type="button" class="btn btn-primary" onclick="openAddBridgeModal()" style="display:inline-flex; align-items:center; gap:6px;">
+          <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+          </svg>
+          Configure Standard Bridge (br0)
+        </button>
+      <?php endif; ?>
+    </div>
+  <?php else: ?>
+    <!-- Bridges grid -->
+    <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(360px, 1fr)); gap:20px; margin-bottom:28px;" class="animate-in">
+      <?php foreach ($bridges as $bridge): ?>
+        <?php
+          $slaveList = is_array($bridge['slaves']) ? $bridge['slaves'] : json_decode((string)$bridge['slaves'], true) ?? [];
+          $liveBridge = $bridge['live'] ?? null;
+          $stpEnabled = !empty($bridge['stp']);
+        ?>
+        <div class="card stat-card emerald" style="display:flex; flex-direction:column; justify-content:space-between; padding:20px;">
+          <div>
+            <!-- Header -->
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:12px;">
+              <div>
+                <div style="display:flex; align-items:center; gap:8px;">
+                  <span style="font-weight:700; font-size:1.2rem; color:var(--text-primary); font-family:var(--font-mono);"><?= esc($bridge['id']) ?></span>
+                  <span class="badge" style="background:rgba(16,185,129,0.2); color:var(--color-emerald); font-size:0.68rem; font-weight:600;">
+                    <?= $stpEnabled ? 'STP 802.1D Active' : 'STP Disabled' ?>
+                  </span>
+                </div>
+                <div style="font-size:0.85rem; color:var(--text-secondary); margin-top:2px; font-weight:500;"><?= esc($bridge['name']) ?></div>
+              </div>
+              <div>
+                <span class="badge badge-success" style="display:inline-flex; align-items:center; gap:5px;">
+                  <span class="pulse-dot"></span>
+                  Active Bridge
+                </span>
+              </div>
+            </div>
+
+            <!-- Member slaves badges -->
+            <div style="margin-bottom:14px;">
+              <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; font-weight:600; margin-bottom:6px; letter-spacing:0.04em;">Member Switch Ports (Bridged Slaves)</div>
+              <div style="display:flex; flex-wrap:wrap; gap:6px;">
+                <?php foreach ($slaveList as $slave): ?>
+                  <span class="badge" style="background:rgba(16,185,129,0.15); color:var(--color-emerald); border:1px solid rgba(16,185,129,0.3); font-family:var(--font-mono); font-size:0.75rem; padding:4px 8px; display:inline-flex; align-items:center; gap:5px;">
+                    <span style="width:6px; height:6px; border-radius:50%; background:var(--color-emerald);"></span>
+                    <?= esc($slave) ?>
+                  </span>
+                <?php endforeach; ?>
+              </div>
+            </div>
+
+            <!-- Parameters table -->
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:6px 12px; font-size:0.75rem; color:var(--text-secondary); margin-bottom:16px; background:rgba(0,0,0,0.15); padding:10px 14px; border-radius:var(--radius-sm); border:1px solid var(--border-subtle);">
+              <div>STP State: <strong style="color:var(--text-primary); font-family:var(--font-mono); text-transform:uppercase;"><?= $stpEnabled ? 'ENABLED' : 'DISABLED' ?></strong></div>
+              <div>Forward Delay: <strong style="color:var(--text-primary); font-family:var(--font-mono);"><?= (int) ($bridge['forward_delay'] ?? 2) ?>s</strong></div>
+              <div>MTU Frame: <strong style="color:var(--text-primary); font-family:var(--font-mono);"><?= (int) $bridge['mtu'] ?></strong></div>
+              <div>Mode: <strong style="color:var(--text-primary); font-family:var(--font-mono);">Layer 2 Bridge</strong></div>
+            </div>
+
+            <?php if (!empty($bridge['description'])): ?>
+              <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:12px; font-style:italic;">
+                <?= esc($bridge['description']) ?>
+              </div>
+            <?php endif; ?>
+          </div>
+
+          <!-- Footer -->
+          <div style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid var(--color-border); padding-top:12px; margin-top:6px;">
+            <span style="font-size:0.7rem; color:var(--text-muted);">Kernel Module: <code>bridge</code></span>
+            <div style="display:flex; gap:8px;">
+              <a href="<?= base_url('interfaces/edit/' . esc($bridge['id'])) ?>" class="btn btn-ghost btn-sm" style="font-size:0.72rem; padding:2px 8px;">
+                Edit IP Address
+              </a>
+              <?php if (session()->get('is_superadmin') || in_array('interfaces.edit', session()->get('permissions') ?? [])): ?>
+                <button type="button" class="btn btn-ghost btn-sm" style="color:var(--color-red); font-size:0.72rem; padding:2px 8px;" onclick="confirmDeleteBridge('<?= esc($bridge['id']) ?>', '<?= esc($bridge['name']) ?>')">
                   Delete
                 </button>
               <?php endif; ?>
@@ -1366,6 +1514,148 @@
 </div>
 
 <!-- ============================================================
+     ADD / CONFIGURE BRIDGE MODAL (br0)
+============================================================ -->
+<div id="addBridgeModal" class="iface-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="addBridgeModalTitle">
+  <div class="iface-modal-dialog">
+    <div class="iface-modal-header">
+      <h2 class="iface-modal-title" id="addBridgeModalTitle">
+        <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="color:var(--color-emerald);">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M8 9l4-4 4 4m0 6l-4 4-4-4"/>
+        </svg>
+        Configure Layer 2 Bridge Interface (br0 Switch)
+      </h2>
+      <button type="button" class="iface-modal-close" onclick="closeAddBridgeModal()" aria-label="Close dialog">
+        <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+
+    <form method="POST" action="<?= base_url('interfaces/bridges/store') ?>" class="iface-modal-form">
+      <?= csrf_field() ?>
+      <div class="iface-modal-body">
+        <div class="iface-form-row">
+          <div class="iface-form-col">
+            <label class="form-label" for="bridge_id">Bridge Interface Device <span style="color:var(--color-red);">*</span></label>
+            <input type="text" id="bridge_id" name="id" class="form-control" value="br0" required pattern="^[a-zA-Z0-9_-]{2,15}$" placeholder="br0" style="font-family:var(--font-mono);" autocomplete="off">
+            <div class="form-hint">Kernel bridge device identifier (e.g. <code>br0</code>, <code>br-lan</code>).</div>
+          </div>
+
+          <div class="iface-form-col">
+            <label class="form-label" for="bridge_name">Descriptive Name</label>
+            <input type="text" id="bridge_name" name="name" class="form-control" placeholder="e.g. LAN Switch (br0)" value="LAN Switch (br0)" autocomplete="off">
+            <div class="form-hint">Friendly label shown across firewall, routing, and DHCP interfaces.</div>
+          </div>
+        </div>
+
+        <!-- Member physical slaves selection -->
+        <div style="margin-bottom:18px;">
+          <label class="form-label">Member Switch Ports (Bridged Slaves) <span style="color:var(--color-red);">*</span></label>
+          <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(130px, 1fr)); gap:8px; margin-top:6px;">
+            <?php 
+              $selectablePorts = !empty($allPhysicalDevs) ? $allPhysicalDevs : ['eth0', 'eth1', 'eth2', 'eth3', 'eth4'];
+              foreach ($selectablePorts as $idx => $port):
+                $isChecked = ($port !== 'eth0' && $port !== 'enp1s0' && in_array($port, ['eth1', 'eth2', 'eth3'], true)) || ($idx >= 1 && $idx <= 3);
+            ?>
+              <label style="display:flex; align-items:center; gap:8px; padding:8px 12px; background:var(--color-surface-2); border:1.5px solid var(--color-border); border-radius:var(--radius-md); cursor:pointer; font-family:var(--font-mono); font-size:0.83rem;">
+                <input type="checkbox" name="slaves[]" value="<?= esc($port) ?>" <?= $isChecked ? 'checked' : '' ?> style="accent-color:var(--color-emerald);">
+                <span><?= esc($port) ?></span>
+              </label>
+            <?php endforeach; ?>
+          </div>
+          <div class="form-hint">Select the physical Ethernet ports to bundle into this switch bridge. Note: The WAN port (typically <code>eth0</code>) should remain separate.</div>
+        </div>
+
+        <!-- Advanced parameters -->
+        <div style="background:rgba(0,0,0,0.15); border:1px solid var(--border-subtle); border-radius:var(--radius-md); padding:14px; margin-bottom:12px;">
+          <div style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase; font-weight:600; margin-bottom:10px;">IEEE 802.1D Spanning Tree &amp; Frame Parameters</div>
+          <div class="iface-form-row">
+            <div class="iface-form-col">
+              <label class="form-label" for="bridge_forward_delay">Forward Delay (seconds)</label>
+              <input type="number" id="bridge_forward_delay" name="forward_delay" class="form-control" value="2" min="0" max="30">
+              <div class="form-hint">Default: 2s (quick port convergence)</div>
+            </div>
+            <div class="iface-form-col">
+              <label class="form-label" for="bridge_mtu">MTU Frame Size</label>
+              <input type="number" id="bridge_mtu" name="mtu" class="form-control" value="1500" min="576" max="9000">
+              <div class="form-hint">Default: 1500 (standard Ethernet)</div>
+            </div>
+          </div>
+
+          <div style="margin-top:12px;">
+            <label style="display:flex; align-items:center; gap:10px; cursor:pointer; margin:0;">
+              <input type="checkbox" id="bridge_stp" name="stp" value="1" checked style="accent-color:var(--color-emerald); width:18px; height:18px; cursor:pointer;">
+              <div>
+                <span style="font-weight:600; font-size:0.85rem; color:var(--text-primary);">Enable 802.1D Spanning Tree Protocol (STP)</span>
+                <div style="font-size:0.73rem; color:var(--text-secondary);">Prevents network switching loops and broadcast storms across bridged ports.</div>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label" for="bridge_description">Description / Notes</label>
+          <input type="text" id="bridge_description" name="description" class="form-control" placeholder="e.g. Core LAN Switch Ports with STP" value="LAN Switch Ports with STP">
+        </div>
+      </div>
+
+      <div class="iface-modal-footer">
+        <button type="button" class="btn btn-ghost" onclick="closeAddBridgeModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary" style="display:inline-flex; align-items:center; gap:6px;">
+          <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+          </svg>
+          Save &amp; Apply Bridge
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ============================================================
+     DELETE BRIDGE CONFIRMATION MODAL
+============================================================ -->
+<div id="deleteBridgeModal" class="iface-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="deleteBridgeModalTitle">
+  <div class="iface-modal-dialog sm">
+    <div class="iface-modal-header">
+      <h3 class="iface-modal-title" id="deleteBridgeModalTitle" style="color:var(--color-red);">
+        <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="color:var(--color-red);">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+        </svg>
+        Confirm Bridge Interface Deletion
+      </h3>
+      <button type="button" class="iface-modal-close" onclick="closeDeleteBridgeModal()" aria-label="Close dialog">
+        <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+    <form id="deleteBridgeForm" method="POST" action="" class="iface-modal-form">
+      <?= csrf_field() ?>
+      <div class="iface-modal-body" style="padding:22px;">
+        <p style="font-size:0.9rem; color:var(--text-primary); margin:0 0 14px 0;">
+          Are you sure you want to permanently delete bridge interface <strong id="deleteBridgeName" style="color:var(--color-red); font-family:var(--font-mono);"></strong>?
+        </p>
+        <div style="font-size:0.78rem; color:var(--text-secondary); background:rgba(239,68,68,0.08); padding:12px 14px; border-radius:var(--radius-md); border:1px solid rgba(239,68,68,0.2); line-height:1.45;">
+          <strong style="color:var(--color-red); display:block; margin-bottom:4px;">Kernel Interface Notice:</strong>
+          All member slave ports will be detached from the bridge back into standalone unmanaged state in the Micron OS network stack.
+        </div>
+      </div>
+      <div class="iface-modal-footer">
+        <button type="button" class="btn btn-ghost" onclick="closeDeleteBridgeModal()">Cancel</button>
+        <button type="submit" class="btn btn-danger" style="display:inline-flex; align-items:center; gap:6px;">
+          <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+          </svg>
+          Delete Bridge Interface
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ============================================================
      CONFIGURE WIRELESS LAN MODAL
 ============================================================ -->
 <div id="configureWirelessModal" class="iface-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="configureWirelessModalTitle">
@@ -1508,7 +1798,7 @@ function switchMainTab(tabName, btn) {
     p.style.display = 'none';
   });
 
-  const paneId = tabName === 'bonds' ? 'tabPaneBonds' : (tabName === 'wireless' ? 'tabPaneWireless' : 'tabPaneInterfaces');
+  const paneId = tabName === 'bonds' ? 'tabPaneBonds' : (tabName === 'bridges' ? 'tabPaneBridges' : (tabName === 'wireless' ? 'tabPaneWireless' : 'tabPaneInterfaces'));
   const targetPane = document.getElementById(paneId);
   if (targetPane) {
     targetPane.style.display = 'block';
@@ -1518,6 +1808,31 @@ function switchMainTab(tabName, btn) {
   const url = new URL(window.location);
   url.searchParams.set('tab', tabName);
   window.history.replaceState({}, '', url);
+}
+
+function openAddBridgeModal() {
+  const modal = document.getElementById('addBridgeModal');
+  modal.classList.add('active');
+  const body = modal.querySelector('.iface-modal-body');
+  if (body) body.scrollTop = 0;
+  setTimeout(() => {
+    document.getElementById('bridge_id')?.focus();
+  }, 50);
+}
+
+function closeAddBridgeModal() {
+  document.getElementById('addBridgeModal').classList.remove('active');
+}
+
+function confirmDeleteBridge(id, name) {
+  document.getElementById('deleteBridgeName').textContent = name + ' (' + id + ')';
+  document.getElementById('deleteBridgeForm').action = '<?= base_url('interfaces/bridges') ?>/' + encodeURIComponent(id) + '/delete';
+  const modal = document.getElementById('deleteBridgeModal');
+  modal.classList.add('active');
+}
+
+function closeDeleteBridgeModal() {
+  document.getElementById('deleteBridgeModal').classList.remove('active');
 }
 
 function openAddBondModal() {
@@ -1743,6 +2058,12 @@ window.addEventListener('click', function(e) {
   const delBondModal = document.getElementById('deleteBondModal');
   if (e.target === delBondModal) closeDeleteBondModal();
 
+  const addBridgeModal = document.getElementById('addBridgeModal');
+  if (e.target === addBridgeModal) closeAddBridgeModal();
+
+  const delBridgeModal = document.getElementById('deleteBridgeModal');
+  if (e.target === delBridgeModal) closeDeleteBridgeModal();
+
   const wlanModal = document.getElementById('configureWirelessModal');
   if (e.target === wlanModal) closeConfigureWirelessModal();
 });
@@ -1754,6 +2075,8 @@ document.addEventListener('keydown', function(e) {
     closeDeleteInterfaceModal();
     closeAddBondModal();
     closeDeleteBondModal();
+    closeAddBridgeModal();
+    closeDeleteBridgeModal();
     closeConfigureWirelessModal();
   }
 });
@@ -1764,6 +2087,8 @@ document.addEventListener('DOMContentLoaded', function() {
   const tab = params.get('tab');
   if (tab === 'bonds') {
     switchMainTab('bonds', document.getElementById('tabNavBonds'));
+  } else if (tab === 'bridges') {
+    switchMainTab('bridges', document.getElementById('tabNavBridges'));
   } else if (tab === 'wireless') {
     switchMainTab('wireless', document.getElementById('tabNavWireless'));
   }

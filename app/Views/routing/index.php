@@ -1,4 +1,4 @@
-﻿<?= $this->extend('layouts/main') ?>
+<?= $this->extend('layouts/main') ?>
 <?= $this->section('content') ?>
 
 <style>
@@ -115,11 +115,25 @@
 
 <!-- ── Page Header ── -->
 <div class="page-header animate-in">
-  <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:16px;">
-    <div>
-      <h1 class="page-title">Dynamic Routing &amp; Multi-WAN</h1>
-      <p class="page-subtitle">Static routes, FRRouting BGP/OSPF/BFD, VRF, Policy-Based Routing, and Multi-WAN gateway groups</p>
+  <div class="page-header-content">
+    <div class="page-breadcrumb">
+      <span>Network</span>
+      <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+      <span>Routing Engine</span>
     </div>
+    <div style="display:flex; align-items:center; gap:12px; margin-top:4px;">
+      <div class="page-title-icon" style="background:var(--tone-indigo-bg); color:var(--tone-indigo-fg); border:1px solid var(--tone-indigo-border);">
+        <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/>
+        </svg>
+      </div>
+      <div>
+        <h1 class="page-title">Dynamic Routing &amp; Multi-WAN</h1>
+        <p class="page-subtitle">Static routes, FRRouting BGP/OSPF/BFD, VRF, Policy-Based Routing, and Multi-WAN gateway groups</p>
+      </div>
+    </div>
+  </div>
+  <div class="page-header-actions">
     <?= \App\Libraries\ServiceStatus::widget('frr') ?>
   </div>
 </div>
@@ -150,48 +164,48 @@
 <?php endif; ?>
 
 <!-- ── Tab Bar ── -->
-<div class="rt-tabs animate-in">
-  <button type="button" class="rt-tab active" onclick="switchTab('static', this)">
+<div class="tab-bar rt-tabs animate-in">
+  <button type="button" class="tab-item rt-tab active" onclick="switchTab('static', this)">
     <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
     Static Routes
     <span class="rt-tab-count"><?= count($staticRoutes) ?></span>
   </button>
-  <button type="button" class="rt-tab" onclick="switchTab('fib', this)">
+  <button type="button" class="tab-item rt-tab" onclick="switchTab('fib', this)">
     <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path stroke-linecap="round" stroke-linejoin="round" d="M12 3v3m0 12v3M3 12h3m12 0h3"/></svg>
     FIB / Kernel
     <span class="rt-tab-count"><?= count($kernelRoutes) ?></span>
   </button>
-  <button type="button" class="rt-tab" onclick="switchTab('bgp', this)">
+  <button type="button" class="tab-item rt-tab" onclick="switchTab('bgp', this)">
     <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M17 8l4 4m0 0l-4 4m4-4H3"/></svg>
     BGP
     <span class="rt-tab-count"><?= count($bgpNeighbors) ?></span>
   </button>
-  <button type="button" class="rt-tab" onclick="switchTab('ospf', this)">
+  <button type="button" class="tab-item rt-tab" onclick="switchTab('ospf', this)">
     <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/></svg>
     OSPF
     <span class="rt-tab-count"><?= count($ospfAreas) + count($ospfIfaces) + count($ospfNetworks) ?></span>
   </button>
-  <button type="button" class="rt-tab" onclick="switchTab('rip', this)">
+  <button type="button" class="tab-item rt-tab" onclick="switchTab('rip', this)">
     <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h7"/></svg>
     RIP
     <span class="rt-tab-count"><?= count($ripNetworks) + count($ripNeighbors) ?></span>
   </button>
-  <button type="button" class="rt-tab" onclick="switchTab('isis', this)">
+  <button type="button" class="tab-item rt-tab" onclick="switchTab('isis', this)">
     <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"/></svg>
     IS-IS
     <span class="rt-tab-count"><?= count($isisInterfaces) ?></span>
   </button>
-  <button type="button" class="rt-tab" onclick="switchTab('bfd', this)">
+  <button type="button" class="tab-item rt-tab" onclick="switchTab('bfd', this)">
     <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
     BFD
     <span class="rt-tab-count"><?= count($bfdPeers) ?></span>
   </button>
-  <button type="button" class="rt-tab" onclick="switchTab('vrf', this)">
+  <button type="button" class="tab-item rt-tab" onclick="switchTab('vrf', this)">
     <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
     VRF / PBR
     <span class="rt-tab-count"><?= count($vrfs) + count($pbrRules) ?></span>
   </button>
-  <button type="button" class="rt-tab" onclick="switchTab('multiwan', this)">
+  <button type="button" class="tab-item rt-tab" onclick="switchTab('multiwan', this)">
     <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064"/></svg>
     Multi-WAN
     <span class="rt-tab-count"><?= count($wanGateways) ?></span>

@@ -1,4 +1,4 @@
-﻿<?= $this->extend('layouts/main') ?>
+<?= $this->extend('layouts/main') ?>
 <?= $this->section('content') ?>
 
 <?php
@@ -105,80 +105,8 @@
 }
 .wg-toggle span { font-size: 0.85rem; color: var(--text-secondary); }
 
-/* ── Tables ── */
-.wg-table {
-  width: 100%;
-  border-collapse: separate;
-  border-spacing: 0;
-  font-size: 0.8125rem;
-}
-.wg-table th {
-  background: var(--color-surface-3);
-  color: var(--text-secondary);
-  font-weight: 600;
-  font-size: 0.72rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  padding: 9px 14px;
-  border-bottom: 1px solid var(--color-border);
-  text-align: left;
-  white-space: nowrap;
-}
-.wg-table td {
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--color-border);
-  vertical-align: middle;
-}
-.wg-table tbody tr:hover { background: rgba(255,255,255,0.02); }
-.wg-table tbody tr:last-child td { border-bottom: none; }
+/* ── Empty state ── */
 .wg-empty { text-align: center; padding: 34px 20px; color: var(--text-muted); }
-
-/* ── Modal ── */
-.wg-modal-backdrop {
-  position: fixed; inset: 0;
-  background: rgba(0,0,0,0.78);
-  backdrop-filter: blur(5px);
-  z-index: 1000;
-  display: none;
-  align-items: center; justify-content: center;
-  padding: 20px;
-}
-.wg-modal-backdrop.active { display: flex; }
-.wg-modal-dialog {
-  background: var(--color-surface-1);
-  border: 1px solid var(--color-border-bright);
-  border-radius: var(--radius-lg);
-  width: 100%; max-width: 720px; max-height: 92vh;
-  display: flex; flex-direction: column;
-  box-shadow: 0 30px 60px -15px rgba(0,0,0,0.75);
-  overflow: hidden;
-  animation: wgModalIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
-}
-@keyframes wgModalIn {
-  from { opacity: 0; transform: translateY(-16px) scale(0.98); }
-  to   { opacity: 1; transform: translateY(0) scale(1); }
-}
-.wg-modal-header {
-  background: var(--color-surface-2);
-  padding: 15px 22px;
-  border-bottom: 1px solid var(--color-border);
-  display: flex; justify-content: space-between; align-items: center;
-}
-.wg-modal-body { overflow-y: auto; flex: 1 1 auto; min-height: 0; }
-/* The form wraps header-body-footer, so it must shrink too — otherwise the
-   body never becomes the scroll container. */
-.wg-modal-dialog > form {
-  display: flex;
-  flex-direction: column;
-  flex: 1 1 auto;
-  min-height: 0;
-}
-.wg-modal-footer {
-  background: var(--color-surface-2);
-  padding: 13px 22px;
-  border-top: 1px solid var(--color-border);
-  display: flex; justify-content: flex-end; gap: 10px;
-}
 
 /* ── Tunnel address cell ── */
 .wg-addr {
@@ -215,31 +143,29 @@
 
 <!-- ── Page Header ── -->
 <div class="page-header animate-in">
-  <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:16px;">
-    <div>
-      <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-        <h1 class="page-title">WireGuard VPN</h1>
-        <span class="badge badge-info" style="font-size:0.73rem;"><?= $tunnelCount ?> tunnel<?= $tunnelCount === 1 ? '' : 's' ?></span>
-      </div>
-      <p class="page-subtitle">ChaCha20-Poly1305 crypto-key routing — every tunnel interface owns its own IP address, every peer gets its own tunnel address</p>
+  <div class="page-header-content">
+    <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+      <h1 class="page-title">WireGuard VPN</h1>
+      <span class="badge badge-info" style="font-size:0.73rem;"><?= $tunnelCount ?> tunnel<?= $tunnelCount === 1 ? '' : 's' ?></span>
     </div>
-    <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
-      <?php if ($canManage): ?>
-        <button type="button" class="btn btn-primary btn-sm" onclick="openTunnelModal(null)">
-          <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
-          </svg>
-          Add Tunnel
-        </button>
-        <button type="button" class="btn btn-primary btn-sm" onclick="openPeerModal(null)">
-          <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
-          </svg>
-          Add Peer
-        </button>
-      <?php endif; ?>
-      <?= \App\Libraries\ServiceStatus::widget('wireguard') ?>
-    </div>
+    <p class="page-subtitle">ChaCha20-Poly1305 crypto-key routing — every tunnel interface owns its own IP address, every peer gets its own tunnel address</p>
+  </div>
+  <div class="page-header-actions">
+    <?php if ($canManage): ?>
+      <button type="button" class="btn btn-primary btn-sm" onclick="openTunnelModal(null)">
+        <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+        </svg>
+        Add Tunnel
+      </button>
+      <button type="button" class="btn btn-primary btn-sm" onclick="openPeerModal(null)">
+        <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+        </svg>
+        Add Peer
+      </button>
+    <?php endif; ?>
+    <?= \App\Libraries\ServiceStatus::widget('wireguard') ?>
   </div>
 </div>
 

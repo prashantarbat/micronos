@@ -13,20 +13,15 @@
 .plug-head { display:flex; align-items:flex-start; gap:12px; }
 .plug-icon {
   width:38px; height:38px; flex:0 0 38px; border-radius:10px; display:flex; align-items:center; justify-content:center;
-  background:rgba(14,165,233,.14); color:#7dd3fc; border:1px solid rgba(14,165,233,.3);
+  background:var(--tone-cyan-bg); color:var(--tone-cyan-fg); border:1px solid var(--tone-cyan-border);
 }
 .plug-name { font-weight:700; font-size:1rem; color:var(--text-primary); line-height:1.25; }
 .plug-ver  { font-size:.72rem; color:var(--text-muted); font-family:var(--font-mono); }
 .plug-desc { font-size:.8rem; color:var(--text-secondary); line-height:1.5; flex:1; }
 .plug-meta { display:flex; flex-wrap:wrap; gap:6px; align-items:center; font-size:.72rem; color:var(--text-muted); }
-.plug-chip {
-  display:inline-flex; align-items:center; gap:4px; padding:2px 7px; border-radius:4px; font-family:var(--font-mono);
-  font-size:.7rem; background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.12); color:var(--text-secondary);
-}
-.plug-chip.cap { background:rgba(139,92,246,.13); border-color:rgba(139,92,246,.32); color:#c4b5fd; }
 .plug-cap-list { display:flex; flex-wrap:wrap; gap:5px; }
 .plug-foot { display:flex; gap:8px; flex-wrap:wrap; padding-top:10px; border-top:1px solid var(--color-border); }
-.plug-blocked-note { font-size:.72rem; color:#fca5a5; background:rgba(239,68,68,.1); border:1px solid rgba(239,68,68,.28); border-radius:6px; padding:6px 9px; }
+.plug-blocked-note { font-size:.72rem; color:var(--tone-red-fg); background:var(--tone-red-bg); border:1px solid var(--tone-red-border); border-radius:6px; padding:6px 9px; }
 
 /* Card / List view toggle */
 .plug-viewtoggle { display:inline-flex; border:1px solid var(--color-border); border-radius:var(--radius-sm); overflow:hidden; }
@@ -35,32 +30,19 @@
   cursor:pointer; display:inline-flex; align-items:center; gap:5px; font-family:inherit;
 }
 .plug-vt-btn + .plug-vt-btn { border-left:1px solid var(--color-border); }
-.plug-vt-btn[aria-pressed="true"] { background:rgba(14,165,233,.15); color:var(--color-cyan, #0ea5e9); font-weight:600; }
+.plug-vt-btn[aria-pressed="true"] { background:var(--tone-cyan-bg); color:var(--tone-cyan-fg); font-weight:600; }
 #plugCards[hidden], #plugList[hidden] { display:none !important; }
 
 /* List view */
 .plug-list-wrap { background:var(--color-surface-1); border:1px solid var(--color-border); border-radius:var(--radius-lg); overflow-x:auto; }
-.plug-list { width:100%; border-collapse:separate; border-spacing:0; font-size:0.82rem; }
-.plug-list th {
-  background:var(--color-surface-3); color:var(--text-secondary); font-weight:600; font-size:0.72rem;
-  text-transform:uppercase; letter-spacing:0.05em; padding:10px 14px; border-bottom:1px solid var(--color-border); text-align:left;
-}
-.plug-list td { padding:11px 14px; border-bottom:1px solid var(--color-border); vertical-align:top; }
-.plug-list tbody tr:hover td { background:rgba(255,255,255,0.02); }
 .plug-actions { display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end; }
 
-.plug-modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,.75); backdrop-filter:blur(4px); z-index:1000; display:none; align-items:center; justify-content:center; padding:20px; }
-.plug-modal-backdrop.active { display:flex; }
-.plug-modal { background:var(--color-surface-1); border:1px solid var(--color-border-bright); border-radius:var(--radius-lg); width:100%; max-width:640px; max-height:90vh; display:flex; flex-direction:column; box-shadow:0 25px 50px -12px rgba(0,0,0,.7); overflow:hidden; }
-.plug-modal-head { padding:16px 22px; border-bottom:1px solid var(--color-border); display:flex; justify-content:space-between; align-items:center; background:var(--color-surface-2); }
-.plug-modal-body { padding:20px 22px; overflow-y:auto; flex:1; }
-.plug-modal-foot { padding:14px 22px; border-top:1px solid var(--color-border); background:var(--color-surface-2); display:flex; justify-content:flex-end; gap:10px; }
 .plug-plan { display:grid; grid-template-columns:110px 1fr; gap:4px 12px; font-size:.8rem; margin-bottom:16px; }
 .plug-plan dt { color:var(--text-muted); font-weight:600; }
 .plug-plan dd { color:var(--text-primary); font-family:var(--font-mono); font-size:.76rem; word-break:break-word; }
 .plug-grant { display:flex; gap:10px; align-items:flex-start; padding:8px 10px; border:1px solid var(--color-border); border-radius:8px; margin-bottom:7px; background:var(--color-surface-3); }
 .plug-grant input { margin-top:3px; }
-.plug-grant .cap { font-family:var(--font-mono); font-size:.76rem; color:#c4b5fd; }
+.plug-grant .cap { font-family:var(--font-mono); font-size:.76rem; color:var(--tone-purple-fg); }
 .plug-grant .hint { font-size:.72rem; color:var(--text-muted); }
 </style>
 
@@ -104,7 +86,7 @@ $plugActions = static function (array $p) {
 ?>
 
 <div class="page-header animate-in">
-  <div>
+  <div class="page-header-content">
     <div style="display:flex; align-items:center; gap:10px;">
       <h1 class="page-title">Plugins &amp; Packages</h1>
       <span class="badge badge-info" style="font-size:0.75rem;"><?= count($plugins) ?> Available</span>
@@ -112,7 +94,7 @@ $plugActions = static function (array $p) {
     </div>
     <p class="page-subtitle">Signed extension bundles and their curated packages — each plugin declares the capabilities it needs, and you approve them one by one before anything is installed</p>
   </div>
-  <div style="flex:1; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+  <div class="page-header-actions" style="margin-left:auto;">
     <form method="POST" action="<?= base_url('plugins/refresh') ?>" style="display:inline;">
       <?= csrf_field() ?>
       <button type="submit" class="btn btn-ghost btn-sm" title="Refresh the curated repository metadata (apt-get update)">
@@ -123,7 +105,7 @@ $plugActions = static function (array $p) {
       </button>
     </form>
     <a href="<?= base_url('docs/plugins') ?>" class="btn btn-ghost btn-sm" title="Plugin &amp; Package Manager specification">Documentation</a>
-    <div class="plug-viewtoggle" role="group" aria-label="View mode" style="margin-left:auto;">
+    <div class="plug-viewtoggle" role="group" aria-label="View mode">
       <button type="button" class="plug-vt-btn" data-plug-view="card" aria-pressed="false" onclick="setPluginView('card')" title="Card view">
         <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
         Card

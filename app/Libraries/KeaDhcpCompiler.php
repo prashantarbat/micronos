@@ -37,7 +37,7 @@ class KeaDhcpCompiler
             }
 
             $dev = $iface['physical_device'] ?? $iface['name'] ?? 'eth1';
-            $ip = $iface['ipv4_address'] ?? '192.168.1.1';
+            $ip = $iface['ipv4_address'] ?? '10.10.10.10';
             $netmask = (int) ($iface['ipv4_netmask'] ?? 24);
 
             // Compute subnet base
@@ -45,8 +45,9 @@ class KeaDhcpCompiler
             $maskLong = ~((1 << (32 - $netmask)) - 1);
             $subnetBase = long2ip($ipLong & $maskLong);
 
-            // Pool range from settings or fallback
-            $poolStart = $setting['range_from'] ?? long2ip(($ipLong & $maskLong) + 10);
+            // Pool range from settings or fallback (avoid overlapping with router's own IP)
+            $startOffset = ($ipLong === ($ipLong & $maskLong) + 10) ? 20 : 10;
+            $poolStart = $setting['range_from'] ?? long2ip(($ipLong & $maskLong) + $startOffset);
             $poolEnd   = $setting['range_to'] ?? long2ip(($ipLong & $maskLong) + 245);
 
             $gateway = !empty($setting['gateway']) ? $setting['gateway'] : $ip;
@@ -128,7 +129,7 @@ class KeaDhcpCompiler
             return $this->db->table('interfaces')->where('enabled', 1)->like('id', 'LAN')->get()->getResultArray();
         } catch (\Throwable $e) {
             return [
-                ['physical_device' => 'eth1', 'ipv4_address' => '192.168.1.1', 'ipv4_netmask' => 24]
+                ['physical_device' => 'eth1', 'ipv4_address' => '10.10.10.10', 'ipv4_netmask' => 24]
             ];
         }
     }

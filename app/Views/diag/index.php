@@ -3,55 +3,6 @@
 <?= $this->section('content') ?>
 
 <style>
-/* ── Object Chips ── */
-.mno-obj-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 8px;
-  border-radius: 4px;
-  font-size: 0.75rem;
-  font-weight: 500;
-  font-family: var(--font-mono);
-  background: rgba(255,255,255,0.06);
-  border: 1px solid rgba(255,255,255,0.12);
-  color: var(--text-primary);
-  margin: 1px 0;
-  white-space: nowrap;
-  line-height: 1.2;
-}
-.mno-chip-icon {
-  width: 13px;
-  height: 13px;
-  flex-shrink: 0;
-  display: inline-block;
-  vertical-align: middle;
-}
-.mno-obj-chip-lan {
-  background: rgba(6, 182, 212, 0.15);
-  border-color: rgba(6, 182, 212, 0.35);
-  color: #67e8f9;
-}
-.mno-obj-chip-wan {
-  background: rgba(245, 158, 11, 0.15);
-  border-color: rgba(245, 158, 11, 0.35);
-  color: #fcd34d;
-}
-.mno-obj-chip-dmz {
-  background: rgba(139, 92, 246, 0.15);
-  border-color: rgba(139, 92, 246, 0.35);
-  color: #c4b5fd;
-}
-.mno-obj-chip-vpn {
-  background: rgba(236, 72, 153, 0.15);
-  border-color: rgba(236, 72, 153, 0.35);
-  color: #f472b6;
-}
-.mno-obj-chip-success {
-  background: rgba(16, 185, 129, 0.15);
-  border-color: rgba(16, 185, 129, 0.35);
-  color: #6ee7b7;
-}
 
 /* ── Custom Button & Card Accents ── */
 .btn-cyan {
@@ -276,43 +227,54 @@
 </style>
 
 <!-- ───────────────────────────────────────────────────────────── -->
-<!-- Header & Context Actions -->
-<!-- ───────────────────────────────────────────────────────────── -->
+<!-- ── Page Header ── -->
 <div class="page-header animate-in" style="margin-bottom: 1.5rem;">
-  <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:16px;">
-    <div>
-      <div style="display:flex; align-items:center; gap:10px; margin-bottom:4px;">
-        <h1 class="page-title" style="margin:0;">Network Diagnostics &amp; Telemetry Suite</h1>
-        <span class="mno-obj-chip mno-obj-chip-lan">DIAGNOSTIC CORE</span>
-        <span class="mno-obj-chip mno-obj-chip-success">FIB KERNEL ACTIVE</span>
-        <?php if ($isMock): ?>
-          <span class="mno-obj-chip mno-obj-chip-wan">DEV PROTOTYPE</span>
-        <?php endif; ?>
+  <div class="page-header-content">
+    <div class="page-breadcrumb">
+      <span>Diagnostics</span>
+      <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+      <span>Network Telemetry</span>
+    </div>
+    <div style="display:flex; align-items:center; gap:12px; margin-top:4px;">
+      <div class="page-title-icon" style="background:var(--tone-cyan-bg); color:var(--tone-cyan-fg); border:1px solid var(--tone-cyan-border);">
+        <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+        </svg>
       </div>
-      <p class="page-subtitle" style="margin:0;">
-        Interactive network inspection suite — ICMP ping, traceroute, recursive DNS dig, kernel FIB routing decisions, port probes, multi-resolver latency benchmark, and packet capture.
-      </p>
+      <div>
+        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+          <h1 class="page-title" style="margin:0;">Network Diagnostics &amp; Telemetry Suite</h1>
+          <span class="badge badge-info" style="font-size:0.75rem;">DIAGNOSTIC CORE</span>
+          <span class="badge badge-success" style="font-size:0.75rem;">FIB KERNEL ACTIVE</span>
+          <?php if ($isMock): ?>
+            <span class="badge badge-warning" style="font-size:0.75rem;">DEV PROTOTYPE</span>
+          <?php endif; ?>
+        </div>
+        <p class="page-subtitle" style="margin:0;">
+          Interactive network inspection suite &mdash; ICMP ping, traceroute, recursive DNS dig, kernel FIB routing decisions, port probes, multi-resolver latency benchmark, and packet capture.
+        </p>
+      </div>
     </div>
-    <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-      <a href="<?= base_url('diag/states') ?>" class="btn btn-secondary" style="font-size:0.8rem; padding:6px 12px; gap:6px;">
-        <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/>
-        </svg>
-        Firewall States (<?= number_format($conntrackCount ?? 0) ?>)
-      </a>
-      <a href="<?= base_url('diag/logs') ?>" class="btn btn-secondary" style="font-size:0.8rem; padding:6px 12px; gap:6px;">
-        <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 10h16M4 14h16M4 18h16"/>
-        </svg>
-        Live Packet Logs
-      </a>
-      <a href="<?= base_url('routing') ?>" class="btn btn-secondary" style="font-size:0.8rem; padding:6px 12px; gap:6px;">
-        <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/>
-        </svg>
-        Routing Policies
-      </a>
-    </div>
+  </div>
+  <div class="page-header-actions">
+    <a href="<?= base_url('diag/states') ?>" class="btn btn-secondary btn-sm" style="gap:6px;">
+      <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+      </svg>
+      Firewall States (<?= number_format($conntrackCount ?? 0) ?>)
+    </a>
+    <a href="<?= base_url('diag/logs') ?>" class="btn btn-secondary btn-sm" style="gap:6px;">
+      <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 10h16M4 14h16M4 18h16"/>
+      </svg>
+      Live Packet Logs
+    </a>
+    <a href="<?= base_url('routing') ?>" class="btn btn-secondary btn-sm" style="gap:6px;">
+      <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/>
+      </svg>
+      Routing Policies
+    </a>
   </div>
 </div>
 

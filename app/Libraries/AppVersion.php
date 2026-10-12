@@ -51,6 +51,14 @@ final class AppVersion
     }
 
     /**
+     * Alias for getVersion().
+     */
+    public static function get(): string
+    {
+        return self::getVersion();
+    }
+
+    /**
      * Reset cached version (useful for tests or after updates).
      */
     public static function clearCache(): void

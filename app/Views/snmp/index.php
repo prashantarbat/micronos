@@ -1,77 +1,37 @@
-﻿<?= $this->extend('layouts/main') ?>
+<?= $this->extend('layouts/main') ?>
 
 <?= $this->section('content') ?>
 
 <style>
-/* ── Object Chips (harmonized with all core pages) ── */
-.mno-obj-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 2px 7px;
-  border-radius: 4px;
-  font-size: 0.72rem;
-  font-weight: 600;
-  font-family: var(--font-mono);
-  background: rgba(255,255,255,0.06);
-  border: 1px solid rgba(255,255,255,0.12);
-  color: var(--text-primary);
-  margin: 1px 0;
-  white-space: nowrap;
-  line-height: 1.2;
-}
-.mno-obj-chip-lan {
-  background: rgba(6, 182, 212, 0.15);
-  border-color: rgba(6, 182, 212, 0.35);
-  color: #67e8f9;
-}
-.mno-obj-chip-wan {
-  background: rgba(245, 158, 11, 0.15);
-  border-color: rgba(245, 158, 11, 0.35);
-  color: #fcd34d;
-}
-.mno-obj-chip-dmz {
-  background: rgba(139, 92, 246, 0.15);
-  border-color: rgba(139, 92, 246, 0.35);
-  color: #c4b5fd;
-}
-.mno-obj-chip-success {
-  background: rgba(16, 185, 129, 0.15);
-  border-color: rgba(16, 185, 129, 0.35);
-  color: #6ee7b7;
-}
-
-/* ── Custom Button Themes ── */
+/* ── Custom Button Themes (Theme-adaptive) ── */
 .btn-warning {
-  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%) !important;
-  color: #030712 !important;
-  border: 1px solid #f59e0b !important;
+  background: var(--tone-amber-bg) !important;
+  color: var(--tone-amber-fg) !important;
+  border: 1px solid var(--tone-amber-border) !important;
   font-weight: 700 !important;
   display: inline-flex !important;
   align-items: center !important;
   gap: 6px !important;
-  box-shadow: 0 2px 8px rgba(245, 158, 11, 0.25) !important;
 }
 .btn-warning:hover {
-  background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%) !important;
-  color: #000 !important;
+  background: var(--tone-amber-border) !important;
+  color: var(--text-primary) !important;
 }
 .btn-cyan {
-  background: linear-gradient(135deg, #06b6d4 0%, #0891b2 100%) !important;
-  color: #030712 !important;
-  border: 1px solid #06b6d4 !important;
+  background: var(--tone-cyan-bg) !important;
+  color: var(--tone-cyan-fg) !important;
+  border: 1px solid var(--tone-cyan-border) !important;
   font-weight: 700 !important;
   display: inline-flex !important;
   align-items: center !important;
   gap: 6px !important;
-  box-shadow: 0 2px 8px rgba(6, 182, 212, 0.25) !important;
 }
 .btn-cyan:hover {
-  background: linear-gradient(135deg, #22d3ee 0%, #06b6d4 100%) !important;
-  color: #000 !important;
+  background: var(--tone-cyan-border) !important;
+  color: var(--text-primary) !important;
 }
 
-/* ── Telemetry Stat Cards Grid (Strict 4-Column on Desktop, Fits 100% Window) ── */
+/* ── Telemetry Stat Cards Grid ── */
 .snmp-stats-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -93,9 +53,8 @@
 }
 
 .stat-widget {
-  background: rgba(15, 23, 42, 0.65);
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   padding: 0.9rem 1.1rem;
   display: flex;
@@ -103,14 +62,14 @@
   justify-content: space-between;
   position: relative;
   overflow: hidden;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.2);
-  min-width: 0; /* Crucial to prevent grid cells from blowing out */
+  box-shadow: var(--shadow-sm);
+  min-width: 0;
   box-sizing: border-box;
   transition: transform 0.2s ease, border-color 0.2s ease;
 }
 .stat-widget:hover {
   transform: translateY(-2px);
-  border-color: rgba(255, 255, 255, 0.18);
+  border-color: var(--color-border-bright);
 }
 .stat-widget::before {
   content: '';
@@ -151,12 +110,12 @@
   gap: 6px;
 }
 
-/* ── Modern Tabs Navigation (Flexible & Fits in Screen) ── */
+/* ── Modern Tabs Navigation ── */
 .snmp-tabs-bar {
   display: flex;
   gap: 6px;
   margin-bottom: 16px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid var(--color-border);
   padding-bottom: 8px;
   flex-wrap: wrap;
   width: 100%;
@@ -168,8 +127,8 @@
   font-size: 0.78rem;
   font-weight: 600;
   color: var(--text-secondary);
-  background: rgba(255,255,255,0.03);
-  border: 1px solid rgba(255,255,255,0.08);
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -179,14 +138,14 @@
 }
 .snmp-tab-btn:hover {
   color: var(--text-primary);
-  background: rgba(255,255,255,0.07);
-  border-color: rgba(255,255,255,0.18);
+  background: var(--color-surface-3);
+  border-color: var(--color-border-bright);
 }
 .snmp-tab-btn.active {
-  background: rgba(6, 182, 212, 0.14);
-  border-color: rgba(6, 182, 212, 0.4);
-  color: #38bdf8;
-  box-shadow: 0 2px 8px rgba(6, 182, 212, 0.15);
+  background: var(--color-cyan-dim);
+  border-color: var(--color-cyan);
+  color: var(--color-cyan);
+  box-shadow: 0 2px 8px rgba(0, 212, 255, 0.15);
 }
 .snmp-panel {
   display: none;
@@ -200,7 +159,7 @@
 .preset-chip {
   padding: 3px 8px;
   border-radius: 5px;
-  background: rgba(255,255,255,0.04);
+  background: var(--color-surface-3);
   border: 1px solid var(--color-border);
   color: var(--text-secondary);
   font-size: 0.72rem;
@@ -213,42 +172,27 @@
   user-select: none;
 }
 .preset-chip:hover {
-  background: rgba(6, 182, 212, 0.15);
-  border-color: rgba(6, 182, 212, 0.4);
-  color: #67e8f9;
+  background: var(--color-cyan-dim);
+  border-color: var(--color-cyan);
+  color: var(--color-cyan);
 }
 
-/* ── Terminal Display ── */
-.log-terminal {
-  background: #090d16;
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: var(--radius-md);
-  font-family: var(--font-mono, monospace);
-  font-size: 0.78rem;
-  padding: 12px 14px;
-  max-height: 420px;
-  overflow-y: auto;
-  color: #d1d5db;
-  line-height: 1.6;
-  box-shadow: inset 0 2px 10px rgba(0,0,0,0.6);
-  word-break: break-all;
-}
 .log-row {
   display: flex;
   gap: 8px;
   padding: 3px 0;
-  border-bottom: 1px solid rgba(255,255,255,0.02);
+  border-bottom: 1px solid var(--color-border);
   align-items: center;
 }
 .log-row:hover { background: rgba(255,255,255,0.03); }
 .log-time { color: var(--text-muted); font-size: 0.7rem; min-width: 125px; }
-.log-sub { color: #94a3b8; font-weight: 600; min-width: 80px; font-size: 0.72rem; }
-.log-msg { color: #f1f5f9; word-break: break-all; flex: 1; font-size: 0.74rem; }
+.log-sub { color: var(--text-secondary); font-weight: 600; min-width: 80px; font-size: 0.72rem; }
+.log-msg { color: var(--text-primary); word-break: break-all; flex: 1; font-size: 0.74rem; }
 
 /* ── MIB Reference Cards ── */
 .mib-card {
-  background: rgba(255,255,255,0.02);
-  border: 1px solid rgba(255,255,255,0.08);
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   padding: 14px;
   display: flex;
@@ -259,20 +203,20 @@
   transition: all 0.2s ease;
 }
 .mib-card:hover {
-  background: rgba(255,255,255,0.04);
-  border-color: rgba(6, 182, 212, 0.35);
+  background: var(--color-surface-3);
+  border-color: var(--color-border-bright);
   transform: translateY(-2px);
 }
 
 /* ── NMS Template Code Snippet Box ── */
 .code-snippet-box {
-  background: #090d16;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--color-surface-1);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   padding: 10px 12px;
   font-family: var(--font-mono);
   font-size: 0.74rem;
-  color: #a5b4fc;
+  color: var(--tone-indigo-fg);
   overflow-x: auto;
   position: relative;
   white-space: pre-wrap;
@@ -287,49 +231,47 @@
   <!-- Header & Context Actions -->
   <!-- ───────────────────────────────────────────────────────────── -->
   <div class="page-header animate-in" style="margin-bottom: 1.25rem;">
-    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
-      <div style="min-width:0; flex:1 1 500px;">
-        <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px; flex-wrap:wrap;">
-          <h1 class="page-title" style="margin:0; font-size:1.35rem; white-space:nowrap;">SNMP Agent &amp; Network Monitoring</h1>
-          <span class="mno-obj-chip mno-obj-chip-lan">SNMP AGENT</span>
-          <?php if (!empty($settings['enabled'])): ?>
-            <span class="mno-obj-chip mno-obj-chip-success">NET-SNMP 5.9.3 ACTIVE</span>
-          <?php else: ?>
-            <span class="mno-obj-chip mno-obj-chip-wan">DAEMON DISABLED</span>
-          <?php endif; ?>
-          <span class="mno-obj-chip mno-obj-chip-dmz">UDP <?= esc($settings['listen_port'] ?? 161) ?></span>
-        </div>
-        <p class="page-subtitle" style="margin:0; font-size:0.8rem; color:var(--text-secondary); max-width:850px;">
-          Net-SNMP daemon, community ACL filtering, secure SNMPv3 USM, asynchronous Traps, and enterprise MIB telemetry.
-        </p>
+    <div class="page-header-content">
+      <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px; flex-wrap:wrap;">
+        <h1 class="page-title" style="margin:0; font-size:1.35rem; white-space:nowrap;">SNMP Agent &amp; Network Monitoring</h1>
+        <span class="mno-obj-chip mno-obj-chip-lan">SNMP AGENT</span>
+        <?php if (!empty($settings['enabled'])): ?>
+          <span class="mno-obj-chip mno-obj-chip-success">NET-SNMP 5.9.3 ACTIVE</span>
+        <?php else: ?>
+          <span class="mno-obj-chip mno-obj-chip-wan">DAEMON DISABLED</span>
+        <?php endif; ?>
+        <span class="mno-obj-chip mno-obj-chip-dmz">UDP <?= esc($settings['listen_port'] ?? 161) ?></span>
       </div>
-      <div style="display:flex; align-items:center; gap:6px; flex-shrink:0; flex-wrap:wrap;">
-        <?= \App\Libraries\ServiceStatus::widget('snmpd') ?>
-        <a href="<?= base_url('services') ?>" class="btn btn-secondary btn-sm" style="padding:6px 11px; font-size:0.75rem; gap:5px;" title="Services Inventory">
-          <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/>
-          </svg>
-          Services
-        </a>
-        <a href="<?= base_url('siem') ?>" class="btn btn-secondary btn-sm" style="padding:6px 11px; font-size:0.75rem; gap:5px;" title="SIEM Forwarding">
-          <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/>
-          </svg>
-          SIEM
-        </a>
-        <button type="button" class="btn btn-cyan btn-sm" style="padding:6px 11px; font-size:0.75rem; gap:5px;" onclick="switchSnmpTab('logs', document.getElementById('tab-logs-btn'))">
-          <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>
-          </svg>
-          Live OID Walk
-        </button>
-        <button type="button" class="btn btn-warning btn-sm" style="padding:6px 11px; font-size:0.75rem; gap:5px;" onclick="sendTestTrap()">
-          <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/>
-          </svg>
-          Send Test Trap
-        </button>
-      </div>
+      <p class="page-subtitle" style="margin:0; font-size:0.8rem; color:var(--text-secondary); max-width:850px;">
+        Net-SNMP daemon, community ACL filtering, secure SNMPv3 USM, asynchronous Traps, and enterprise MIB telemetry.
+      </p>
+    </div>
+    <div class="page-header-actions">
+      <?= \App\Libraries\ServiceStatus::widget('snmpd') ?>
+      <a href="<?= base_url('services') ?>" class="btn btn-secondary btn-sm" style="padding:6px 11px; font-size:0.75rem; gap:5px;" title="Services Inventory">
+        <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/>
+        </svg>
+        Services
+      </a>
+      <a href="<?= base_url('siem') ?>" class="btn btn-secondary btn-sm" style="padding:6px 11px; font-size:0.75rem; gap:5px;" title="SIEM Forwarding">
+        <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/>
+        </svg>
+        SIEM
+      </a>
+      <button type="button" class="btn btn-cyan btn-sm" style="padding:6px 11px; font-size:0.75rem; gap:5px;" onclick="switchSnmpTab('logs', document.getElementById('tab-logs-btn'))">
+        <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>
+        </svg>
+        Live OID Walk
+      </button>
+      <button type="button" class="btn btn-warning btn-sm" style="padding:6px 11px; font-size:0.75rem; gap:5px;" onclick="sendTestTrap()">
+        <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/>
+        </svg>
+        Send Test Trap
+      </button>
     </div>
   </div>
 
@@ -433,21 +375,21 @@
   <!-- ───────────────────────────────────────────────────────────── -->
   <!-- Navigation Tabs Bar (Clean, Compact & Zero Out-of-Page Overflow) -->
   <!-- ───────────────────────────────────────────────────────────── -->
-  <div class="snmp-tabs-bar animate-in animate-in-delay-2" id="snmpTabs">
-    <button type="button" class="snmp-tab-btn active" id="tab-general-btn" onclick="switchSnmpTab('general', this)">
+  <div class="tab-bar snmp-tabs-bar animate-in animate-in-delay-2" id="snmpTabs">
+    <button type="button" class="tab-item snmp-tab-btn active" id="tab-general-btn" onclick="switchSnmpTab('general', this)">
       <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
         <circle cx="12" cy="12" r="10"/><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6l4 2"/>
       </svg>
       Agent Core &amp; v1/v2c
     </button>
-    <button type="button" class="snmp-tab-btn" id="tab-v3-btn" onclick="switchSnmpTab('v3', this)">
+    <button type="button" class="tab-item snmp-tab-btn" id="tab-v3-btn" onclick="switchSnmpTab('v3', this)">
       <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
         <path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
       </svg>
       SNMPv3 USM Users
       <span class="badge badge-purple" style="font-size:0.65rem; padding:1px 5px;"><?= count($v3Users) ?></span>
     </button>
-    <button type="button" class="snmp-tab-btn" id="tab-traps-btn" onclick="switchSnmpTab('traps', this)">
+    <button type="button" class="tab-item snmp-tab-btn" id="tab-traps-btn" onclick="switchSnmpTab('traps', this)">
       <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
         <path stroke-linecap="round" stroke-linejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/>
       </svg>
@@ -456,20 +398,20 @@
         <span class="badge badge-success" style="font-size:0.65rem; padding:1px 5px;">Active</span>
       <?php endif; ?>
     </button>
-    <button type="button" class="snmp-tab-btn" id="tab-mibs-btn" onclick="switchSnmpTab('mibs', this)">
+    <button type="button" class="tab-item snmp-tab-btn" id="tab-mibs-btn" onclick="switchSnmpTab('mibs', this)">
       <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
         <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
       </svg>
       Enterprise MIB Tree
       <span class="badge badge-cyan" style="font-size:0.65rem; padding:1px 5px;">6</span>
     </button>
-    <button type="button" class="snmp-tab-btn" id="tab-nms-btn" onclick="switchSnmpTab('nms', this)">
+    <button type="button" class="tab-item snmp-tab-btn" id="tab-nms-btn" onclick="switchSnmpTab('nms', this)">
       <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
         <path stroke-linecap="round" stroke-linejoin="round" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
       </svg>
       NMS Integration
     </button>
-    <button type="button" class="snmp-tab-btn" id="tab-logs-btn" onclick="switchSnmpTab('logs', this)">
+    <button type="button" class="tab-item snmp-tab-btn" id="tab-logs-btn" onclick="switchSnmpTab('logs', this)">
       <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
         <polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>
       </svg>

@@ -208,6 +208,30 @@ class IpcClient
     }
 
     /**
+     * List active kernel bridge interfaces.
+     */
+    public function bridgeList(): array
+    {
+        return $this->call('bridge.list')['result'] ?? [];
+    }
+
+    /**
+     * Create or configure a kernel bridge interface (e.g. br0, br-lan).
+     */
+    public function bridgeApply(array $data): array
+    {
+        return $this->call('bridge.apply', $data)['result'] ?? [];
+    }
+
+    /**
+     * Delete a kernel bridge interface.
+     */
+    public function bridgeDelete(string $id): array
+    {
+        return $this->call('bridge.delete', ['id' => $id])['result'] ?? [];
+    }
+
+    /**
      * Get live Wi-Fi telemetry and connected stations.
      */
     public function wirelessStatus(string $interface = 'wlan0'): array
@@ -621,6 +645,25 @@ class IpcClient
                 'success' => true,
                 'status'  => 'deleted',
                 'id'      => (string) ($params['id'] ?? 'bond0'),
+            ],
+
+            // ---------- Network Bridges (bridge.*) ----------
+            $method === 'bridge.list' => [
+                'success' => true,
+                'status'  => 'ok',
+                'bridges' => $this->mockBridgeList(),
+            ],
+            $method === 'bridge.apply' => [
+                'success' => true,
+                'status'  => 'applied',
+                'id'      => (string) ($params['id'] ?? 'br0'),
+                'slaves'  => (array) ($params['slaves'] ?? []),
+                'stp'     => (int) ($params['stp'] ?? 1),
+            ],
+            $method === 'bridge.delete' => [
+                'success' => true,
+                'status'  => 'deleted',
+                'id'      => (string) ($params['id'] ?? 'br0'),
             ],
 
             // ---------- Wireless LAN (wireless.*) ----------
@@ -1574,6 +1617,21 @@ class IpcClient
                 'slaves'       => ['enp1s0', 'enp2s0'],
                 'active_slave' => 'enp1s0',
                 'raw_info'     => 'Bonding Mode: IEEE 802.3ad Dynamic link aggregation',
+            ],
+        ];
+    }
+
+    private function mockBridgeList(): array
+    {
+        return [
+            [
+                'id'            => 'br0',
+                'name'          => 'br0',
+                'slaves'        => ['eth1', 'eth2'],
+                'stp'           => 1,
+                'forward_delay' => 2,
+                'status'        => 'up',
+                'mtu'           => 1500,
             ],
         ];
     }

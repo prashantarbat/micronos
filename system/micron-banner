@@ -1,0 +1,128 @@
+#!/bin/bash
+# ==============================================================================
+# Micron OS — Dynamic Console & Login Banner Generator
+# ==============================================================================
+# Generates /etc/issue, /etc/issue.net, and /etc/motd dynamically based on the
+# appliance network interfaces, active IP addresses, and runtime slot status.
+# ==============================================================================
+set -euo pipefail
+
+# 1. Detect WAN Interface and IP
+WAN_IF=""
+if command -v ip >/dev/null 2>&1; then
+    WAN_IF=$(ip route show default 2>/dev/null | awk '/default/ {print $5}' | head -n1 || true)
+fi
+
+if [ -z "$WAN_IF" ] && [ -d /sys/class/net ]; then
+    WAN_IF=$(ls -1 /sys/class/net 2>/dev/null | grep -E -v '^(lo|virbr|docker|veth|wg|tun)' | head -n1 || echo "eth0")
+fi
+[ -n "$WAN_IF" ] || WAN_IF="eth0"
+
+WAN_IP=""
+if command -v ip >/dev/null 2>&1; then
+    for _ in 1 2 3; do
+        WAN_IP=$(ip -4 addr show dev "$WAN_IF" 2>/dev/null | awk '/inet / && !/169\.254/ {print $2}' | cut -d/ -f1 | head -n1 || true)
+        [ -n "$WAN_IP" ] && break
+        sleep 1
+    done
+fi
+
+if [ -n "$WAN_IP" ]; then
+    WAN_DESC="${WAN_IF} (${WAN_IP})"
+else
+    WAN_DESC="${WAN_IF} (DHCP Client - Acquiring)"
+fi
+
+# 2. Detect LAN Interface and IP
+LAN_IF=""
+if [ -d /sys/class/net ]; then
+    LAN_IF=$(ls -1 /sys/class/net 2>/dev/null | grep -E -v '^(lo|virbr|docker|veth|wg|tun)' | grep -v "^${WAN_IF}$" | head -n1 || true)
+fi
+if [ -z "$LAN_IF" ]; then
+    LAN_IF="$WAN_IF"
+fi
+
+LAN_IP=""
+if command -v ip >/dev/null 2>&1; then
+    LAN_IP=$(ip -4 addr show dev "$LAN_IF" 2>/dev/null | awk '/inet / && !/169\.254/ {print $2}' | cut -d/ -f1 | head -n1 || true)
+fi
+
+# If LAN has no IP, check DB and activate default 192.168.1.1/24
+if [ -z "$LAN_IP" ]; then
+    DB_LAN_IP=""
+    if [ -f "/usr/local/micron/writable/micron_config.db" ] && command -v sqlite3 >/dev/null 2>&1; then
+        DB_LAN_IP=$(sqlite3 /usr/local/micron/writable/micron_config.db "SELECT ipv4_address FROM interfaces WHERE id='lan' AND enabled=1;" 2>/dev/null || true)
+    fi
+    [ -n "$DB_LAN_IP" ] || DB_LAN_IP="192.168.1.1"
+
+    if [ "$LAN_IF" != "$WAN_IF" ] && [ "${EUID:-$(id -u)}" -eq 0 ]; then
+        LL_ADDR=$(ip -4 addr show dev "$LAN_IF" 2>/dev/null | awk '/inet 169\.254/ {print $2}' | head -n1 || true)
+        [ -z "$LL_ADDR" ] || ip addr del "$LL_ADDR" dev "$LAN_IF" 2>/dev/null || true
+        ip addr add "${DB_LAN_IP}/24" dev "$LAN_IF" 2>/dev/null || true
+        ip link set dev "$LAN_IF" up 2>/dev/null || true
+        LAN_IP=$(ip -4 addr show dev "$LAN_IF" 2>/dev/null | awk '/inet / && !/169\.254/ {print $2}' | cut -d/ -f1 | head -n1 || echo "$DB_LAN_IP")
+    else
+        LAN_IP="$DB_LAN_IP"
+    fi
+fi
+
+if [ -n "$LAN_IP" ]; then
+    LAN_DESC="${LAN_IF} (${LAN_IP})"
+else
+    LAN_DESC="${LAN_IF} (192.168.1.1/24)"
+fi
+
+# 3. Determine Management Web IP
+MGMT_IP=""
+if [ -n "$LAN_IP" ] && [[ ! "$LAN_IP" =~ ^169\.254 ]]; then
+    MGMT_IP="$LAN_IP"
+elif [ -n "$WAN_IP" ] && [[ ! "$WAN_IP" =~ ^169\.254 ]]; then
+    MGMT_IP="$WAN_IP"
+fi
+[ -n "$MGMT_IP" ] || MGMT_IP="192.168.1.1"
+
+# 4. Detect Active Slot
+ROOT_DEV=$(findmnt -n -o SOURCE / 2>/dev/null || true)
+ACTIVE_SLOT="A"
+if [[ "$ROOT_DEV" =~ sda4|nvme0n1p4|vda4 ]] || [ "$ROOT_DEV" = "/dev/disk/by-label/MICRON_ROOT_B" ]; then
+    ACTIVE_SLOT="B"
+elif [[ "$ROOT_DEV" =~ sda3|nvme0n1p3|vda3 ]] || [ "$ROOT_DEV" = "/dev/disk/by-label/MICRON_ROOT_A" ]; then
+    ACTIVE_SLOT="A"
+elif [ -x /usr/local/micron/installer/micron-slot ]; then
+    s=$(/usr/local/micron/installer/micron-slot active 2>/dev/null || echo "a")
+    ACTIVE_SLOT="${s^^}"
+fi
+SLOT_INFO=" Active Root Slot : Slot ${ACTIVE_SLOT} (Active & Verified)"
+
+# 5. Construct Banner
+BANNER_FILE=$(mktemp /tmp/micron-banner.XXXXXX)
+cat << 'EOF' > "$BANNER_FILE"
+
+┌╦═╦═╦┐ ┌═╤╦╤═┐ ┌╦═══╦┐ ┌╦═══╦┐ ┌╦═══╦┐ ┌╦═╗ ╦┐      ┌╦═══╦┐ ┌╦═══╦┐
+│║ ║ ║│   │║│   │║      │╠══╦╩┘ │║   ║│ │║ ║ ║│      │║   ║│ └╩═══╦┐
+└╩   ╩┘ └═╧╩╧═┘ └╩═══╩┘ └╩  ╚═┘ └╩═══╩┘ └╩ ╚═╩┘      └╩═══╩┘ └╩═══╩┘
+ Enterprise Linux Firewall & Network Appliance
+
+ WAN Interface : @WAN_DESC@
+ LAN Interface : @LAN_DESC@
+
+ Management Web GUI : http://@MGMT_IP@/ (Port 80)
+EOF
+
+# Substitute parameters
+sed -i "s|@WAN_DESC@|${WAN_DESC}|g" "$BANNER_FILE"
+sed -i "s|@LAN_DESC@|${LAN_DESC}|g" "$BANNER_FILE"
+sed -i "s|@MGMT_IP@|${MGMT_IP}|g" "$BANNER_FILE"
+
+if [ -n "$SLOT_INFO" ]; then
+    echo "$SLOT_INFO" >> "$BANNER_FILE"
+fi
+echo "" >> "$BANNER_FILE"
+
+# 6. Apply to /etc/issue, /etc/issue.net, /etc/motd
+cp "$BANNER_FILE" /etc/issue
+cp "$BANNER_FILE" /etc/issue.net
+cp "$BANNER_FILE" /etc/motd
+
+rm -f "$BANNER_FILE"
+exit 0

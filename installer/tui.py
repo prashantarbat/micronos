@@ -19,9 +19,9 @@ def run_cmd(cmd):
 def main_menu():
     clear_screen()
     print("=" * 70)
-    print("      MICRON FIREWALL OS (MicronOS) APPLIANCE SETUP WIZARD")
+    print("        MICRON FIREWALL OS (Micron OS) APPLIANCE SETUP WIZARD")
     print("=" * 70)
-    print(" 1) Install MicronOS to Disk (Automated Partitioning & Format)")
+    print(" 1) Install Micron OS to Disk (Guided Partitioning & Formatting)")
     print(" 2) Configure Network Interfaces (Assign WAN / LAN)")
     print(" 3) Reset Admin Password (Reset 'Ministrator' to Factory Default)")
     print(" 4) Launch Recovery Shell (Bash)")

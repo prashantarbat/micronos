@@ -1,68 +1,41 @@
-﻿<?= $this->extend('layouts/main') ?>
+<?= $this->extend('layouts/main') ?>
 <?= $this->section('content') ?>
-
-<style>
-.modal-backdrop {
-  display: none;
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.75);
-  backdrop-filter: blur(4px);
-  z-index: 1000;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-}
-.modal-backdrop.active { display: flex; }
-.modal {
-  background: var(--color-surface-1);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  width: 100%;
-  max-height: 90vh;
-  overflow-y: auto;
-}
-.modal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 18px 22px;
-  border-bottom: 1px solid var(--color-border);
-}
-.modal-body { padding: 20px 22px; }
-.modal-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  padding: 16px 22px;
-  border-top: 1px solid var(--color-border);
-}
-.table-responsive { overflow-x: auto; }
-</style>
 
 <?php $canManage = session()->get('is_superadmin') || in_array('pppoe.server.manage', session()->get('permissions') ?? []); ?>
 
 <div class="page-header animate-in">
-  <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:16px;">
-    <div>
-      <h1 class="page-title">PPPoE Server</h1>
-      <p class="page-subtitle">Run an access concentrator on a local interface and authenticate subscribers</p>
+  <div class="page-header-content">
+    <div class="page-breadcrumb">
+      <a href="<?= base_url('dashboard') ?>">Dashboard</a>
+      <span class="sep">/</span>
+      <span>Interfaces</span>
+      <span class="sep">/</span>
+      <span class="current">PPPoE Server</span>
     </div>
-    <?php if ($canManage): ?>
-      <div style="display:flex; gap:8px;">
-        <form method="POST" action="<?= base_url('pppoe/apply') ?>"><?= csrf_field() ?>
-          <button type="submit" class="btn btn-ghost">
-            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>
-            Apply PPPoE Configuration
-          </button>
-        </form>
-        <button type="button" class="btn btn-primary" onclick="openServerModal()">
-          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
-          Add Server
-        </button>
+    <h1 class="page-title">
+      <div class="page-title-icon tone-emerald">
+        <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.953 11.953 0 0112 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0121 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0112 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 013 12c0-1.605.42-3.113 1.157-4.418"/>
+        </svg>
       </div>
-    <?php endif; ?>
+      PPPoE Server
+    </h1>
+    <p class="page-subtitle">Run an access concentrator on a local interface and authenticate subscribers.</p>
   </div>
+  <?php if ($canManage): ?>
+    <div class="page-header-actions">
+      <form method="POST" action="<?= base_url('pppoe/apply') ?>" style="margin:0;"><?= csrf_field() ?>
+        <button type="submit" class="btn btn-ghost btn-sm">
+          <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>
+          Apply PPPoE Configuration
+        </button>
+      </form>
+      <button type="button" class="btn btn-primary btn-sm" onclick="openServerModal()">
+        <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+        Add Server
+      </button>
+    </div>
+  <?php endif; ?>
 </div>
 
 <?php if (!empty($isMock)): ?>

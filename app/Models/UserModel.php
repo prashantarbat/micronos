@@ -35,6 +35,7 @@ class UserModel extends Model
         'shell',
         'ssh_keys',
         'uid',
+        'sso_sub',
         'created_at',
         'updated_at',
     ];

@@ -33,23 +33,35 @@
 </style>
 
 <div class="page-header animate-in">
-  <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:16px;">
-    <div>
-      <h1 class="page-title">Firewall Live Filter Logs</h1>
-      <p class="page-subtitle">Real-time packet filtering telemetry from Netfilter/nftables engine. Inspect passed sessions and blocked intrusions dynamically.</p>
+  <div class="page-header-content">
+    <div class="page-breadcrumb">
+      <a href="<?= base_url('dashboard') ?>">Dashboard</a>
+      <span class="sep">/</span>
+      <span>Diagnostics</span>
+      <span class="sep">/</span>
+      <span class="current">Live Filter Logs</span>
     </div>
-    <div style="display:flex; align-items:center; gap:12px;">
-      <span style="display:flex; align-items:center; gap:6px; font-size:0.75rem; font-weight:600; color:var(--text-secondary);">
-        <span class="live-pulse" id="liveDot"></span>
-        <span id="liveStatusText">LIVE STREAMING</span>
-      </span>
-      <button type="button" class="btn btn-secondary btn-sm" id="btnToggleLive" onclick="toggleStream()">
-        Pause Stream
-      </button>
-      <button type="button" class="btn btn-ghost btn-sm" onclick="clearLogs()">
-        Clear Display
-      </button>
-    </div>
+    <h1 class="page-title">
+      <div class="page-title-icon tone-emerald">
+        <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+        </svg>
+      </div>
+      Firewall Live Filter Logs
+    </h1>
+    <p class="page-subtitle">Real-time packet filtering telemetry from Netfilter/nftables engine. Inspect passed sessions and blocked intrusions dynamically.</p>
+  </div>
+  <div class="page-header-actions">
+    <span style="display:flex; align-items:center; gap:6px; font-size:0.75rem; font-weight:600; color:var(--text-secondary);">
+      <span class="live-pulse" id="liveDot"></span>
+      <span id="liveStatusText">LIVE STREAMING</span>
+    </span>
+    <button type="button" class="btn btn-secondary btn-sm" id="btnToggleLive" onclick="toggleStream()">
+      Pause Stream
+    </button>
+    <button type="button" class="btn btn-ghost btn-sm" onclick="clearLogs()">
+      Clear Display
+    </button>
   </div>
 </div>
 

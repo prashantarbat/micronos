@@ -1,0 +1,12 @@
+[Unit]
+Description=Micron OS Dynamic Console & Login Banner Generator
+After=network.target network-online.target
+Wants=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/micron-banner
+RemainAfterExit=true
+
+[Install]
+WantedBy=multi-user.target

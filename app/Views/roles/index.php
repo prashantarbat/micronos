@@ -1,15 +1,29 @@
-﻿<?= $this->extend('layouts/main') ?>
+<?= $this->extend('layouts/main') ?>
 <?= $this->section('content') ?>
 
 <div class="page-header animate-in">
-  <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:16px;">
-    <div>
-      <h1 class="page-title">Roles & Permissions</h1>
-      <p class="page-subtitle">Granular Role-Based Access Control (RBAC) and privilege delegation</p>
+  <div class="page-header-content">
+    <div class="page-breadcrumb">
+      <a href="<?= base_url('dashboard') ?>">Dashboard</a>
+      <span>/</span>
+      <span>System</span>
+      <span>/</span>
+      <span class="current">Roles &amp; Permissions</span>
     </div>
-    <?php if (session()->get('is_superadmin') || in_array('roles.create', session()->get('permissions') ?? [])): ?>
-      <a href="<?= base_url('roles/create') ?>" class="btn btn-primary">
+    <div style="display:flex; align-items:center; gap:12px;">
+      <div class="page-title-icon">
         <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+        </svg>
+      </div>
+      <h1 class="page-title">Roles &amp; Permissions</h1>
+    </div>
+    <p class="page-subtitle">Granular Role-Based Access Control (RBAC) and privilege delegation</p>
+  </div>
+  <div class="page-header-actions">
+    <?php if (session()->get('is_superadmin') || in_array('roles.create', session()->get('permissions') ?? [])): ?>
+      <a href="<?= base_url('roles/create') ?>" class="btn btn-primary btn-sm">
+        <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
           <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
         </svg>
         Create New Role

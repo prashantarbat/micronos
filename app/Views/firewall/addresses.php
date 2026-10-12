@@ -3,144 +3,6 @@
 
 <?= $this->include('firewall/_obj_tooltip') ?>
 
-<style>
-.mno-obj-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 8px;
-  border-radius: 4px;
-  font-size: 0.75rem;
-  font-weight: 500;
-  font-family: var(--font-mono);
-  background: rgba(255,255,255,0.06);
-  border: 1px solid rgba(255,255,255,0.12);
-  color: var(--text-primary);
-  margin: 1px 0;
-  white-space: nowrap;
-  line-height: 1.2;
-}
-.mno-chip-icon {
-  width: 13px;
-  height: 13px;
-  flex-shrink: 0;
-  display: inline-block;
-  vertical-align: middle;
-}
-.mno-obj-chip-addr {
-  background: rgba(59, 130, 246, 0.15);
-  border-color: rgba(59, 130, 246, 0.35);
-  color: #93c5fd;
-}
-.mno-obj-chip-fqdn {
-  background: rgba(6, 182, 212, 0.15);
-  border-color: rgba(6, 182, 212, 0.35);
-  color: #67e8f9;
-}
-.mno-obj-chip-wildcard {
-  background: rgba(20, 184, 166, 0.15);
-  border-color: rgba(20, 184, 166, 0.35);
-  color: #5eead4;
-}
-.mno-obj-chip-isdb {
-  background: rgba(14, 165, 233, 0.15);
-  border-color: rgba(14, 165, 233, 0.35);
-  color: #7dd3fc;
-}
-.mno-obj-chip-range {
-  background: rgba(245, 158, 11, 0.15);
-  border-color: rgba(245, 158, 11, 0.35);
-  color: #fcd34d;
-}
-.mno-obj-chip-all {
-  background: rgba(148, 163, 184, 0.15);
-  border-color: rgba(148, 163, 184, 0.3);
-  color: #cbd5e1;
-}
-.mno-obj-chip-geo {
-  background: rgba(168, 85, 247, 0.15);
-  border-color: rgba(168, 85, 247, 0.35);
-  color: #d8b4fe;
-}
-.mno-modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(0,0,0,0.75);
-  backdrop-filter: blur(4px);
-  z-index: 1000;
-  display: none;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-}
-.mno-modal-backdrop.active {
-  display: flex;
-}
-.mno-modal-dialog {
-  background: var(--color-surface-1);
-  border: 1px solid var(--color-border-bright);
-  border-radius: var(--radius-lg);
-  width: 100%;
-  max-width: 600px;
-  max-height: 90vh;
-  display: flex;
-  flex-direction: column;
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
-  overflow: hidden;
-  animation: modalSlideIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-}
-@keyframes modalSlideIn {
-  from { opacity: 0; transform: translateY(-20px) scale(0.98); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
-}
-.mno-modal-header {
-  padding: 16px 24px;
-  border-bottom: 1px solid var(--color-border);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  background: var(--color-surface-2);
-}
-.mno-modal-body {
-  padding: 24px;
-  overflow-y: auto;
-  flex: 1;
-}
-.mno-modal-footer {
-  padding: 16px 24px;
-  border-top: 1px solid var(--color-border);
-  background: var(--color-surface-2);
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-}
-.mno-table {
-  width: 100%;
-  border-collapse: separate;
-  border-spacing: 0;
-  font-size: 0.8125rem;
-}
-.mno-table th {
-  background: var(--color-surface-3);
-  color: var(--text-secondary);
-  font-weight: 600;
-  font-size: 0.72rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--color-border);
-  text-align: left;
-}
-.mno-table td {
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--color-border);
-  vertical-align: middle;
-}
-.mno-table tbody tr:hover {
-  background: rgba(255,255,255,0.02);
-}
-</style>
-
 <!-- Flash Messages -->
 <?php if (session()->getFlashdata('success')): ?>
   <div class="alert alert-success animate-in" style="margin-bottom:16px;"><?= esc(session()->getFlashdata('success')) ?></div>
@@ -151,53 +13,51 @@
 
 <!-- Page Header -->
 <div class="page-header animate-in">
-  <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:16px;">
-    <div>
-      <div style="display:flex; align-items:center; gap:10px;">
-        <h1 class="page-title">Firewall Addresses</h1>
-        <span class="badge badge-info" style="font-size:0.75rem;"><?= count($addresses) ?> Objects</span>
-      </div>
-      <p class="page-subtitle">Configure subnets, IP ranges, and FQDN objects for granular policy matching</p>
+  <div class="page-header-content">
+    <div style="display:flex; align-items:center; gap:10px;">
+      <h1 class="page-title">Firewall Addresses</h1>
+      <span class="badge badge-info" style="font-size:0.75rem;"><?= count($addresses) ?> Objects</span>
     </div>
-    <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-      <button type="button" class="btn btn-primary btn-sm" onclick="openCreateAddressModal()">
+    <p class="page-subtitle">Configure subnets, IP ranges, and FQDN objects for granular policy matching</p>
+  </div>
+  <div class="page-header-actions">
+    <button type="button" class="btn btn-primary btn-sm" onclick="openCreateAddressModal()">
+      <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+      </svg>
+      Create Address
+    </button>
+
+    <form method="POST" action="<?= base_url('firewall/addresses/resolve') ?>" style="display:inline;">
+      <?= csrf_field() ?>
+      <button type="submit" class="btn btn-ghost btn-sm" title="Resolve FQDN / internet-service / geography objects into offline address feeds now">
         <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+          <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
         </svg>
-        Create Address
+        Resolve Feeds
       </button>
+    </form>
 
-      <form method="POST" action="<?= base_url('firewall/addresses/resolve') ?>" style="display:inline;">
-        <?= csrf_field() ?>
-        <button type="submit" class="btn btn-ghost btn-sm" title="Resolve FQDN / internet-service / geography objects into offline address feeds now">
-          <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-          </svg>
-          Resolve Feeds
-        </button>
-      </form>
+    <a href="<?= base_url('firewall/addresses/export-csv') ?>" class="btn btn-ghost btn-sm" title="Export Addresses to CSV">
+      <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+      </svg>
+      Export CSV
+    </a>
 
-      <a href="<?= base_url('firewall/addresses/export-csv') ?>" class="btn btn-ghost btn-sm" title="Export Addresses to CSV">
-        <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
-        </svg>
-        Export CSV
-      </a>
+    <button type="button" class="btn btn-ghost btn-sm" onclick="openImportModal()" title="Import Addresses from CSV">
+      <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
+      </svg>
+      Import CSV
+    </button>
 
-      <button type="button" class="btn btn-ghost btn-sm" onclick="openImportModal()" title="Import Addresses from CSV">
-        <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
-        </svg>
-        Import CSV
-      </button>
-
-      <a href="<?= base_url('firewall/rules') ?>" class="btn btn-ghost btn-sm">
-        <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
-        </svg>
-        Firewall Rules
-      </a>
-    </div>
+    <a href="<?= base_url('firewall/rules') ?>" class="btn btn-ghost btn-sm">
+      <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+      </svg>
+      Firewall Rules
+    </a>
   </div>
 </div>
 

@@ -2,46 +2,58 @@
 <?= $this->section('content') ?>
 
 <div class="page-header animate-in">
-  <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:16px;">
-    <div>
-      <h1 class="page-title">Users & Identities</h1>
-      <p class="page-subtitle">Manage appliance operators, Micron OS accounts, and directory integration</p>
+  <div class="page-header-content">
+    <div class="page-breadcrumb">
+      <a href="<?= base_url('dashboard') ?>">Dashboard</a>
+      <span>/</span>
+      <span>System</span>
+      <span>/</span>
+      <span class="current">Users &amp; Identities</span>
     </div>
-    <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
-      <a href="<?= base_url('system#ldap') ?>" class="btn btn-ghost" title="Configure LDAP and RADIUS authentication servers">
-        <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
-          <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+    <div style="display:flex; align-items:center; gap:12px;">
+      <div class="page-title-icon">
+        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/>
         </svg>
-        Auth Providers
-      </a>
-      <form method="POST" action="<?= base_url('users/sync-os') ?>" style="display:inline;" onsubmit="return confirm('Synchronize Web GUI user accounts with Micron OS system users?');">
-        <?= csrf_field() ?>
-        <button type="submit" class="btn btn-ghost" title="Reconcile Web GUI users with Micron OS accounts">
-          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-          </svg>
-          Sync Micron OS
-        </button>
-      </form>
-      <form method="POST" action="<?= base_url('users/import-ldap') ?>" style="display:inline;" onsubmit="return confirm('Import and synchronize user accounts from Active Directory / LDAP?');">
-        <?= csrf_field() ?>
-        <button type="submit" class="btn btn-ghost" title="Synchronize users from Active Directory / LDAP">
-          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-          </svg>
-          Import LDAP Users
-        </button>
-      </form>
-      <?php if (session()->get('is_superadmin') || in_array('users.create', session()->get('permissions') ?? [])): ?>
-        <a href="<?= base_url('users/create') ?>" class="btn btn-primary">
-          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"/>
-          </svg>
-          Add User
-        </a>
-      <?php endif; ?>
+      </div>
+      <h1 class="page-title">Users &amp; Identities</h1>
     </div>
+    <p class="page-subtitle">Manage appliance operators, Micron OS accounts, and directory integration</p>
+  </div>
+  <div class="page-header-actions">
+    <a href="<?= base_url('system#ldap') ?>" class="btn btn-ghost btn-sm" title="Configure LDAP and RADIUS authentication servers">
+      <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+        <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+      </svg>
+      Auth Providers
+    </a>
+    <form method="POST" action="<?= base_url('users/sync-os') ?>" style="display:inline; margin:0;" onsubmit="return confirm('Synchronize Web GUI user accounts with Micron OS system users?');">
+      <?= csrf_field() ?>
+      <button type="submit" class="btn btn-ghost btn-sm" title="Reconcile Web GUI users with Micron OS accounts">
+        <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+        </svg>
+        Sync Micron OS
+      </button>
+    </form>
+    <form method="POST" action="<?= base_url('users/import-ldap') ?>" style="display:inline; margin:0;" onsubmit="return confirm('Import and synchronize user accounts from Active Directory / LDAP?');">
+      <?= csrf_field() ?>
+      <button type="submit" class="btn btn-ghost btn-sm" title="Synchronize users from Active Directory / LDAP">
+        <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+        </svg>
+        Import LDAP Users
+      </button>
+    </form>
+    <?php if (session()->get('is_superadmin') || in_array('users.create', session()->get('permissions') ?? [])): ?>
+      <a href="<?= base_url('users/create') ?>" class="btn btn-primary btn-sm">
+        <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"/>
+        </svg>
+        Add User
+      </a>
+    <?php endif; ?>
   </div>
 </div>
 

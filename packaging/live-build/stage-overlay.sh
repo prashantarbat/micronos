@@ -23,11 +23,16 @@
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-root="$(cd "${here}/../.." && pwd)"
+root="${MICRONOS_SRC:-$(cd "${here}/../.." && pwd)}"
 out="${here}/config/includes.chroot"
 
 while [ $# -gt 0 ]; do
     case "$1" in
+        --src)
+            [ -n "${2:-}" ] || { echo "stage-overlay: --src requires a directory." >&2; exit 2; }
+            root="$2"
+            shift 2
+            ;;
         --out)
             [ -n "${2:-}" ] || { echo "stage-overlay: --out requires a directory." >&2; exit 2; }
             out="$2"
@@ -80,10 +85,50 @@ install -d "${out}"
 rm -rf "${app_root}"
 install -d "${app_root}"
 
-# /usr/local/bin is on root's PATH (and on the recovery console's) in the image.
-# 0755 because the appliance runs it directly, not through `php`.
 install -d "${out}/usr/local/bin"
 install -m 0755 "${cli}" "${out}/usr/local/bin/microctl"
+
+if [ -f "${root}/system/micron-banner" ]; then
+    install -m 0755 "${root}/system/micron-banner" "${out}/usr/local/bin/micron-banner"
+fi
+
+if [ -f "${root}/bin/micron-menu" ]; then
+    install -m 0755 "${root}/bin/micron-menu" "${out}/usr/local/bin/micron-menu"
+fi
+
+if [ -f "${root}/installer/micron-slot-rescue" ]; then
+    install -m 0755 "${root}/installer/micron-slot-rescue" "${out}/usr/local/bin/micron-slot-rescue"
+fi
+
+if [ -f "${root}/system/micron-menu.sh" ]; then
+    install -d "${out}/etc/profile.d"
+    install -m 0644 "${root}/system/micron-menu.sh" "${out}/etc/profile.d/micron-menu.sh"
+fi
+
+if [ -f "${root}/system/micron-prompt.sh" ]; then
+    install -d "${out}/etc/profile.d"
+    install -m 0644 "${root}/system/micron-prompt.sh" "${out}/etc/profile.d/micron-prompt.sh"
+fi
+
+if [ -f "${root}/system/numlock.sh" ]; then
+    install -d "${out}/etc/profile.d"
+    install -m 0755 "${root}/system/numlock.sh" "${out}/etc/profile.d/numlock.sh"
+fi
+
+if [ -f "${root}/system/numlock.service" ]; then
+    install -d "${out}/etc/systemd/system"
+    install -m 0644 "${root}/system/numlock.service" "${out}/etc/systemd/system/numlock.service"
+fi
+
+if [ -f "${root}/system/os-release" ]; then
+    install -d "${out}/etc"
+    install -m 0644 "${root}/system/os-release" "${out}/etc/os-release"
+fi
+
+if [ -f "${root}/VERSION" ]; then
+    install -d "${out}/usr/local/micron"
+    install -m 0644 "${root}/VERSION" "${out}/usr/local/micron/VERSION"
+fi
 
 # Debian's bash-completion package lazy-loads this directory, which is why
 # bash-completion is a declared package in config/package-lists/micronos.list.chroot.
@@ -120,6 +165,7 @@ shipped=(
     composer.json
     composer.lock
     env
+    VERSION
     LICENSE
     README.md
 )
@@ -147,9 +193,12 @@ find "${app_root}" -type f -exec chmod 0644 {} +
 for executable in \
     spark \
     bin/microctl \
+    bin/micron-menu \
     installer/install.sh \
     installer/micron-slot \
+    installer/micron-slot-rescue \
     installer/micron-healthcheck \
+    system/micron-banner \
     system/micrond/micrond.py
 do
     if [ -f "${app_root}/${executable}" ]; then

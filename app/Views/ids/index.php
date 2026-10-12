@@ -1,51 +1,51 @@
-﻿<?= $this->extend('layouts/main') ?>
+<?= $this->extend('layouts/main') ?>
 <?= $this->section('content') ?>
 
 <!-- ── Page Header ── -->
 <div class="page-header animate-in">
-  <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:16px;">
-    <div>
-      <div style="display:flex; align-items:center; gap:8px; font-size:0.75rem; color:var(--text-muted); margin-bottom:4px;">
-        <a href="<?= base_url('dashboard') ?>" style="color:var(--text-muted); text-decoration:none;">Dashboard</a>
-        <span>/</span>
-        <span style="color:var(--text-primary); font-weight:600;">Security</span>
-        <span>/</span>
-        <span style="color:var(--text-primary); font-weight:600;">IDS & IPS</span>
-      </div>
-      <h1 class="page-title" style="display:flex; align-items:center; gap:10px;">
-        <svg width="26" height="26" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="color:var(--color-cyan);">
+  <div class="page-header-content">
+    <div class="page-breadcrumb">
+      <span>Security</span>
+      <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+      <span>IDS &amp; IPS Engine</span>
+    </div>
+    <div style="display:flex; align-items:center; gap:12px; margin-top:4px;">
+      <div class="page-title-icon" style="background:var(--tone-cyan-bg); color:var(--tone-cyan-fg); border:1px solid var(--tone-cyan-border);">
+        <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
           <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
         </svg>
-        Intrusion Detection & Prevention (IDS / IPS)
-      </h1>
-      <p class="page-subtitle">Suricata 7+ deep packet inspection engine with IP blacklist/whitelist and GeoIP country enforcement</p>
+      </div>
+      <div>
+        <h1 class="page-title">Intrusion Detection &amp; Prevention (IDS / IPS)</h1>
+        <p class="page-subtitle">Suricata 7+ deep packet inspection engine with IP blacklist/whitelist and GeoIP country enforcement</p>
+      </div>
     </div>
-    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
-      <?= \App\Libraries\ServiceStatus::widget('suricata') ?>
-      <?php if (session()->get('is_superadmin') || in_array('ids.apply', session()->get('permissions') ?? [])): ?>
-        <form method="POST" action="<?= base_url('ids/apply') ?>" style="margin:0;">
-          <?= csrf_field() ?>
-          <button type="submit" class="btn btn-success" style="display:inline-flex; align-items:center; gap:6px;">
-            <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-            </svg>
-            Apply Changes
-          </button>
-        </form>
-      <?php endif; ?>
+  </div>
+  <div class="page-header-actions">
+    <?= \App\Libraries\ServiceStatus::widget('suricata') ?>
+    <?php if (session()->get('is_superadmin') || in_array('ids.apply', session()->get('permissions') ?? [])): ?>
+      <form method="POST" action="<?= base_url('ids/apply') ?>" style="display:inline; margin:0;">
+        <?= csrf_field() ?>
+        <button type="submit" class="btn btn-success btn-sm">
+          <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+          </svg>
+          Apply Changes
+        </button>
+      </form>
+    <?php endif; ?>
 
-      <?php if (session()->get('is_superadmin') || in_array('ids.restart', session()->get('permissions') ?? [])): ?>
-        <form method="POST" action="<?= base_url('ids/restart') ?>" style="margin:0;">
-          <?= csrf_field() ?>
-          <button type="submit" class="btn btn-ghost" style="display:inline-flex; align-items:center; gap:6px;" title="Reload Suricata daemon">
-            <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-            </svg>
-            Restart Engine
-          </button>
-        </form>
-      <?php endif; ?>
-    </div>
+    <?php if (session()->get('is_superadmin') || in_array('ids.restart', session()->get('permissions') ?? [])): ?>
+      <form method="POST" action="<?= base_url('ids/restart') ?>" style="display:inline; margin:0;">
+        <?= csrf_field() ?>
+        <button type="submit" class="btn btn-ghost btn-sm" title="Reload Suricata daemon">
+          <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+          </svg>
+          Restart Engine
+        </button>
+      </form>
+    <?php endif; ?>
   </div>
 </div>
 

@@ -221,6 +221,16 @@ final class ServiceControlTest extends BaseTestCase
         $this->assertStringContainsString('test-daemon', $json['message']);
     }
 
+    public function testControlEndpointControlsDarkstatPluginDaemon(): void
+    {
+        $result = $this->post('services/darkstat/control', $this->csrf(['action' => 'start']));
+        $result->assertStatus(200);
+        $json = json_decode($result->getJSON(), true);
+        $this->assertTrue($json['ok']);
+        $this->assertSame('darkstat', $json['service']);
+        $this->assertSame('running', $json['status']);
+    }
+
     public function testControlEndpointRejectsInvalidActionAndUnknownService(): void
     {
         $bad = $this->post('services/' . self::TEST_ID . '/control', $this->csrf(['action' => 'explode']));

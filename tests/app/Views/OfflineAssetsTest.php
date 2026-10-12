@@ -185,7 +185,7 @@ final class OfflineAssetsTest extends CIUnitTestCase
     {
         $views = $this->designSystemViews();
 
-        $this->assertSame(3, count($views), 'the layout and the two standalone auth screens load the design system');
+        $this->assertSame(4, count($views), 'the layout, the two standalone auth screens, and the standalone ztna viewer load the design system');
 
         foreach ($views as $relative => $contents) {
             $this->assertSame(

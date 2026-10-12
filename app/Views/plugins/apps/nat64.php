@@ -42,9 +42,10 @@ $applyUrl  = base_url('plugins/nat64/apply');
       repository.
     </p>
   </div>
-  <div style="display:flex; gap:8px; flex-wrap:wrap;">
+  <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
     <a href="<?= base_url('plugins') ?>" class="btn btn-ghost btn-sm">All Plugins</a>
     <button type="button" class="btn btn-ghost btn-sm" onclick="n6Refresh()">Refresh status</button>
+    <?= \App\Libraries\ServiceStatus::widget('tayga') ?>
   </div>
 </div>
 
@@ -124,13 +125,6 @@ $applyUrl  = base_url('plugins/nat64/apply');
   </form>
 </div>
 
-<div class="card card-glass animate-in animate-in-delay-2" style="padding:16px 18px;">
-  <div style="font-weight:700; font-size:0.9rem; margin-bottom:8px;">Diagnostics</div>
-  <div style="font-size:.74rem; color:var(--text-muted); margin-bottom:10px;">
-    The translator's own service unit is controllable here, and its journal is available beside it.
-  </div>
-  <?= \App\Libraries\ServiceStatus::widget(['tayga'], ['tayga' => 'tayga NAT64']) ?>
-</div>
 
 <script>
 const N6_STATUS_URL = <?= json_encode($statusUrl, JSON_UNESCAPED_SLASHES) ?>;

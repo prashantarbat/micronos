@@ -77,9 +77,10 @@ class Filters extends BaseFilters
      */
     public array $globals = [
         'before' => [
-            // 'honeypot',
-            'csrf' => ['except' => ['wpad.dat', 'wpad.da', 'proxy.pac', 'wpad.pac']],
-            // 'invalidchars',
+            'csrf' => ['except' => [
+                'wpad.dat', 'wpad.da', 'proxy.pac', 'wpad.pac',
+                'auth/sso/saml/acs*',
+            ]],
             // Auth filter applied globally — excludes public auth and WPAD discovery routes.
             //
             // `.well-known/acme-challenge/*` is here for the same reason WPAD is:
@@ -93,6 +94,7 @@ class Filters extends BaseFilters
             'auth' => ['except' => [
                 '/',
                 'auth/*', 'auth/login', 'auth/logout',
+                'vpn/clientless-gateway/verify-auth*',
                 'wpad.dat', 'wpad.da', 'proxy.pac', 'wpad.pac',
                 '.well-known/acme-challenge/*',
             ]],

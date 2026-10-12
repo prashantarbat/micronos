@@ -3,270 +3,19 @@
 <?= $this->section('content') ?>
 
 <style>
-/* ── Object Chips (matching firewall/addresses, qos, ha, dhcp, portal) ── */
-.mno-obj-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 8px;
-  border-radius: 4px;
-  font-size: 0.75rem;
-  font-weight: 500;
-  font-family: var(--font-mono);
-  background: rgba(255,255,255,0.06);
-  border: 1px solid rgba(255,255,255,0.12);
-  color: var(--text-primary);
-  margin: 1px 0;
-  white-space: nowrap;
-  line-height: 1.2;
-}
-.mno-chip-icon {
-  width: 13px;
-  height: 13px;
-  flex-shrink: 0;
-  display: inline-block;
-  vertical-align: middle;
-}
-.mno-obj-chip-lan {
-  background: rgba(6, 182, 212, 0.15);
-  border-color: rgba(6, 182, 212, 0.35);
-  color: #67e8f9;
-}
-.mno-obj-chip-wan {
-  background: rgba(245, 158, 11, 0.15);
-  border-color: rgba(245, 158, 11, 0.35);
-  color: #fcd34d;
-}
-.mno-obj-chip-dmz {
-  background: rgba(139, 92, 246, 0.15);
-  border-color: rgba(139, 92, 246, 0.35);
-  color: #c4b5fd;
-}
-.mno-obj-chip-success {
-  background: rgba(16, 185, 129, 0.15);
-  border-color: rgba(16, 185, 129, 0.35);
-  color: #6ee7b7;
-}
-
-/* ── Custom Button Themes ── */
-.btn-warning {
-  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%) !important;
-  color: #030712 !important;
-  border: 1px solid #f59e0b !important;
-  font-weight: 700 !important;
-  display: inline-flex !important;
-  align-items: center !important;
-  gap: 6px !important;
-  box-shadow: 0 2px 10px rgba(245, 158, 11, 0.3) !important;
-  text-decoration: none !important;
-}
-.btn-warning:hover {
-  background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%) !important;
-  box-shadow: 0 4px 16px rgba(245, 158, 11, 0.45) !important;
-  color: #030712 !important;
-  transform: translateY(-1px);
-}
-.btn-cyan {
-  background: linear-gradient(135deg, var(--color-cyan) 0%, #0096c7 100%) !important;
-  color: #030712 !important;
-  border: 1px solid var(--color-cyan) !important;
-  font-weight: 700 !important;
-  display: inline-flex !important;
-  align-items: center !important;
-  gap: 6px !important;
-  box-shadow: 0 2px 10px rgba(0, 212, 255, 0.3) !important;
-  text-decoration: none !important;
-}
-.btn-cyan:hover {
-  background: linear-gradient(135deg, #38bdf8 0%, var(--color-cyan) 100%) !important;
-  box-shadow: 0 4px 16px rgba(0, 212, 255, 0.45) !important;
-  color: #030712 !important;
-  transform: translateY(-1px);
-}
-
-/* ── Summary Stats Grid ── */
-.cert-stats-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 16px;
-  margin-bottom: 24px;
-}
-
-/* ── Tabs Navigation ── */
-.cert-tabs {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 20px;
-  border-bottom: 1px solid var(--color-border);
-  padding-bottom: 12px;
-  flex-wrap: wrap;
-}
-.cert-tab {
-  padding: 8px 16px;
-  border-radius: var(--radius-sm);
-  font-size: 0.8125rem;
-  font-weight: 600;
-  color: var(--text-secondary);
-  background: var(--color-surface-2);
-  border: 1px solid var(--color-border);
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  transition: all var(--transition-fast);
-}
-.cert-tab:hover {
-  color: var(--text-primary);
-  background: var(--color-surface-3);
-  border-color: var(--color-border-bright);
-}
-.cert-tab.active {
-  background: rgba(0, 212, 255, 0.12);
-  color: var(--color-cyan);
-  border-color: rgba(0, 212, 255, 0.35);
-  font-weight: 600;
-}
-.cert-panel { display: none; }
-.cert-panel.active { display: block; }
-
-/* ── Table Styling (Matching firewall/addresses & service-groups) ── */
-.mno-table {
-  width: 100%;
-  border-collapse: separate;
-  border-spacing: 0;
-  font-size: 0.8125rem;
-}
-.mno-table th {
-  background: var(--color-surface-3);
-  color: var(--text-secondary);
-  font-weight: 600;
-  font-size: 0.72rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--color-border);
-  text-align: left;
-}
-.mno-table td {
-  padding: 11px 14px;
-  border-bottom: 1px solid var(--color-border);
-  vertical-align: middle;
-}
-.mno-table tbody tr:hover {
-  background: rgba(255,255,255,0.02);
-}
-
-/* ── Modal Architecture ── */
-.mno-modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(0,0,0,0.75);
-  backdrop-filter: blur(4px);
-  z-index: 1000;
-  display: none;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-}
-.mno-modal-backdrop.active {
-  display: flex;
-}
-.mno-modal-dialog {
-  background: var(--color-surface-2);
-  border: 1px solid var(--color-border-bright);
-  border-radius: var(--radius-md);
-  width: 100%;
-  max-width: 680px;
-  box-shadow: 0 20px 40px rgba(0,0,0,0.6);
-  animation: mnoModalIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-  overflow: hidden;
-}
-@keyframes mnoModalIn {
-  from { opacity: 0; transform: scale(0.96) translateY(-10px); }
-  to { opacity: 1; transform: scale(1) translateY(0); }
-}
-.mno-modal-header {
-  padding: 14px 20px;
-  background: var(--color-surface-3);
-  border-bottom: 1px solid var(--color-border);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.mno-modal-title {
-  font-size: 0.95rem;
-  font-weight: 700;
-  color: var(--text-primary);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.mno-modal-body {
-  padding: 20px;
-  max-height: calc(85vh - 120px);
-  overflow-y: auto;
-}
-.mno-modal-footer {
-  padding: 12px 20px;
-  background: var(--color-surface-1);
-  border-top: 1px solid var(--color-border);
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-}
-
-/* Form inputs */
-.mno-form-group {
-  margin-bottom: 16px;
-}
-.mno-form-label {
-  display: block;
-  font-size: 0.75rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-secondary);
-  margin-bottom: 6px;
-}
-.mno-input, .mno-select {
-  width: 100%;
-  padding: 8px 12px;
-  background: var(--color-surface-1);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  color: var(--text-primary);
-  font-size: 0.8125rem;
-  transition: border-color var(--transition-fast);
-  box-sizing: border-box;
-}
-.mno-input:focus, .mno-select:focus {
-  outline: none;
-  border-color: var(--color-cyan);
-  box-shadow: 0 0 0 2px rgba(0, 212, 255, 0.2);
-}
-.mno-grid-2 {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 14px;
-}
-@media (max-width: 640px) {
-  .mno-grid-2 {
-    grid-template-columns: 1fr;
-  }
-}
-
-/* Guide Cards */
+/* Page-specific Guide Cards */
 .guide-card {
   background: var(--color-surface-1);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   padding: 16px;
   height: 100%;
   transition: all var(--transition-fast);
 }
 .guide-card:hover {
-  border-color: rgba(0, 212, 255, 0.35);
-  background: rgba(0, 212, 255, 0.02);
+  border-color: var(--color-cyan);
+  background: var(--tone-cyan-bg);
+  transform: translateY(-2px);
 }
 </style>
 
@@ -406,34 +155,34 @@
 </div>
 
 <!-- ── Navigation Tabs ── -->
-<div class="cert-tabs animate-in animate-in-delay-1">
-  <button type="button" class="cert-tab active" onclick="switchCertTab('tab-certs', this)">
+<div class="tab-bar cert-tabs animate-in animate-in-delay-1">
+  <button type="button" class="tab-item cert-tab active" onclick="switchCertTab('tab-certs', this)">
     <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
       <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
     </svg>
     Issued Certificates (<?= count($certs) ?>)
   </button>
-  <button type="button" class="cert-tab" onclick="switchCertTab('tab-cas', this)">
+  <button type="button" class="tab-item cert-tab" onclick="switchCertTab('tab-cas', this)">
     <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
       <path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
     </svg>
     Certificate Authorities (<?= count($cas) ?>)
   </button>
-  <button type="button" class="cert-tab" onclick="switchCertTab('tab-portal', this)">
+  <button type="button" class="tab-item cert-tab" onclick="switchCertTab('tab-portal', this)">
     <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
       <path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"/>
     </svg>
     Portal SSL (Web GUI)
   </button>
   <?php if ($acmeCanManage): ?>
-  <button type="button" class="cert-tab" onclick="switchCertTab('tab-acme', this)">
+  <button type="button" class="tab-item cert-tab" onclick="switchCertTab('tab-acme', this)">
     <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
       <path stroke-linecap="round" stroke-linejoin="round" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
     </svg>
     ACME / Let's Encrypt<?= $acmeDue !== [] ? ' (' . count($acmeDue) . ' due)' : '' ?>
   </button>
   <?php endif; ?>
-  <button type="button" class="cert-tab" onclick="switchCertTab('tab-guide', this)">
+  <button type="button" class="tab-item cert-tab" onclick="switchCertTab('tab-guide', this)">
     <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
       <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
     </svg>

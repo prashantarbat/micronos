@@ -1419,6 +1419,23 @@ final class PluginsControllerTest extends BaseTestCase
         ]);
     }
 
+    public function testLightsquidReportRendersConsoleWhenNoReportsExist(): void
+    {
+        $this->installRow('lightsquid');
+
+        $result = $this->withSession($this->session())->get('lightsquid');
+
+        $result->assertOK();
+        $result->assertSee('LightSquid Console');
+        $result->assertSee('Refresh Today');
+    }
+
+    public function testDirectPluginUrlsRedirect(): void
+    {
+        $result = $this->withSession($this->session())->get('darkstat');
+        $result->assertRedirectTo('plugins/darkstat');
+    }
+
     private function writePlugin(string $id, array $manifest): void
     {
         mkdir($this->dir . '/' . $id, 0700, true);

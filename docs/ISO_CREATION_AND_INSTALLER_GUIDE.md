@@ -17,8 +17,9 @@
 10. [Compiling & Generating the Hybrid ISO](#10-compiling--generating-the-hybrid-iso)
 11. [Testing & Emulation (QEMU, Proxmox VE, VirtualBox)](#11-testing--emulation-qemu-proxmox-ve-virtualbox)
 12. [Physical Media Flashing (dd, Rufus, BalenaEtcher)](#12-physical-media-flashing-dd-rufus-balenaetcher)
-13. [Headless Unattended Installation (Preseed Alternative)](#13-headless-unattended-installation-preseed-alternative)
+13. [Headless Unattended Installation — Kickstart Engine](#13-headless-unattended-installation--kickstart-engine)
 14. [Automated CI/CD ISO Build Pipeline (Docker & GitHub Actions)](#14-automated-cicd-iso-build-pipeline-docker--github-actions)
+15. [Manual ISO Generation — Complete Step-by-Step Walkthrough](#15-manual-iso-generation--complete-step-by-step-walkthrough)
 
 ---
 
@@ -153,10 +154,10 @@ lb config noauto \
     --distribution trixie \
     --architectures amd64 \
     --archive-areas "main contrib non-free non-free-firmware" \
-    --image-name "micronos-2.0.0-amd64" \
+    --image-name "micronos-0.1.25-amd64" \
     --iso-application "Micron Firewall OS" \
     --iso-publisher "Micron Network Systems" \
-    --iso-volume "MICRONOS_200" \
+    --iso-volume "MICRONOS_0125" \
     --bootloader grub-efi \
     --binary-images iso-hybrid \
     --memtest none \
@@ -374,6 +375,10 @@ server {
         add_header Cache-Control "public, max-age=31536000, immutable";
     }
     location ^~ /assets/vendor/ {
+        access_log off;
+        add_header Cache-Control "public, max-age=31536000, immutable";
+    }
+    location = /css/micronos.css {
         access_log off;
         add_header Cache-Control "public, max-age=31536000, immutable";
     }
@@ -660,22 +665,17 @@ nft -f /etc/nftables.conf
 systemctl enable --now apache2 php8.4-fpm micrond
 
 # 7. Print Console Banner
-cat << BANNER > /etc/issue
+cat << 'BANNER' > /etc/issue
 
-  __  __ _                      ___  ____  
- |  \/  (_) ___ _ __ ___  _ __ / _ \/ ___| 
- | |\/| | |/ __| '__/ _ \| '_ \ | | \___ \ 
- | |  | | | (__| | | (_) | | | | |_| |___) |
- |_|  |_|_|\___|_|  \___/|_| |_|\___/|____/ 
+┌╦═╦═╦┐ ┌═╤╦╤═┐ ┌╦═══╦┐ ┌╦═══╦┐ ┌╦═══╦┐ ┌╦═╗ ╦┐      ┌╦═══╦┐ ┌╦═══╦┐
+│║ ║ ║│   │║│   │║      │╠══╦╩┘ │║   ║│ │║ ║ ║│      │║   ║│ └╩═══╦┐
+└╩   ╩┘ └═╧╩╧═┘ └╩═══╩┘ └╩  ╚═┘ └╩═══╩┘ └╩ ╚═╩┘      └╩═══╩┘ └╩═══╩┘
  Enterprise Linux Firewall & Network Appliance
 
  WAN Interface : $WAN_IF (DHCP Client)
  LAN Interface : $LAN_IF (192.168.1.1/24)
 
  Management Web GUI : http://<IP>/ (Port 80)
- Web & CLI Username : Ministrator / ministrator
- Web & CLI Password : M1Cr0N (Unified credentials for Web, SSH & Console)
- Root Account       : root / M1Cr0N
 
 BANNER
 
@@ -778,34 +778,126 @@ sudo dd if=micronos-2.0.0-amd64.hybrid.iso of=/dev/sdX bs=4M status=progress ofl
 
 ---
 
-## 13. Headless Unattended Installation (Preseed Alternative)
+## 13. Headless Unattended Installation — Kickstart Engine
 
-For automated mass rollouts in data centers or branch offices without a monitor/keyboard, MicronOS supports unattended installation via Debian Preseed.
+MicronOS ships its **own Kickstart engine** inside `installer/install.sh`, replacing the older Debian preseed approach. It provides zero-touch, fully unattended installation with richer hardware detection, A/B slot provisioning, bridge support, and remote file delivery.
 
-Add `config/includes.binary/preseed.cfg`:
+### 13.1 How the Kickstart Engine Works
 
-```ini
-# Localization
-d-i debian-installer/locale string en_US
-d-i console-setup/ask_detect boolean false
-d-i keyboard-configuration/xkb-keymap select us
+When `install.sh` launches it checks for an answer file in this priority order:
 
-# Automated Partitioning
-d-i partman-auto/method string regular
-d-i partman-auto/choose_recipe select atomic
-d-i partman-partitioning/confirm_write_new_label boolean true
-d-i partman/choose_partition select finish
-d-i partman/confirm boolean true
-d-i partman/confirm_nooverwrite boolean true
+1. **CLI flag** — `./install.sh --kickstart /path/to/micron-kickstart.cfg` or `-k URL`
+2. **Kernel command-line** — `micron.kickstart=<path|URL>` or `micron.ks=<URL>` passed to the live kernel via GRUB
+3. **Well-known search paths** (scanned in order):
+   - `/run/live/medium/micron-kickstart.cfg` (on-boot-media, same USB)
+   - `/run/live/medium/kickstart.cfg`
+   - `/etc/micron/kickstart.cfg`
+   - `/micron-kickstart.cfg`
+4. **OEMDRV / MICRON\_KS volume** — any attached block device with label `OEMDRV` or `MICRON_KS` is mounted and scanned for `micron-kickstart.cfg`, `kickstart.cfg`, or `ks.cfg`
+5. **Remote URL (PXE/HTTP/FTP)** — if the resolved file starts with `https://`, `http://`, or `ftp://`, it is fetched with `curl` (or `wget` as fallback) into `/tmp/` before sourcing
 
-# Automated Post-Install Hook
-d-i preseed/late_command string \
-    in-target /usr/local/bin/micron-firstboot.sh; \
-    in-target systemctl enable apache2 php8.4-fpm micrond;
+If none of the above resolves, the installer falls back to **interactive TUI mode** automatically — no flag is required to run interactively.
 
-# Finish & Reboot
-d-i finish-install/reboot_in_progress note
+### 13.2 Kickstart Answer-File Reference
+
+Create your kickstart file as a plain shell script fragment (it is `source`-d directly).
+The canonical template is [`installer/micron-kickstart.cfg.example`](../installer/micron-kickstart.cfg.example):
+
+```bash
+# ==============================================================================
+# Micron OS — Automated Kickstart Installation Configuration (ks.cfg)
+# ==============================================================================
+
+# 1. Keyboard Layout & Localization
+# Supported: us, uk, de, fr, es, it, br, jp, pl, ru, se
+KEYMAP="us"
+
+# 2. System Timezone (Olson name)
+TIMEZONE="Asia/Kolkata"
+
+# 3. Target Storage Disk
+# 'auto' or 'first' = auto-select first suitable drive (>= 27 GB)
+# Or explicit device: /dev/sda, /dev/nvme0n1, /dev/vda
+TARGET_DISK="auto"
+
+# 4. Storage Partitioning Strategy
+# PART_STRATEGY=1 : Guided A/B Dual Slot (ESP + Swap + Root A + Root B + Data)
+# SLOT_SIZE       : Size of each Root Slot partition (Slot A & Slot B)
+PART_STRATEGY="1"
+SLOT_SIZE="10G"
+
+# 5. Administrative Credentials
+# Unified password for Web GUI ('ministrator') and OS ('root', 'ministrator')
+ADMIN_PW="M1Cr0N"
+
+# 6. Automatic Reboot Behavior
+# 'yes' = auto-reboot after install (5 s countdown); 'no' = stay on completion screen
+REBOOT="yes"
+
+# 7. Optional Initial Network Configuration (single physical LAN port)
+WAN_IF=""
+LAN_IF=""
+LAN_IP="10.10.10.10"
+LAN_NETMASK="255.255.255.0"
+
+# 8. Layer 2 Switch Bridge — Multi-Port Appliance Mode
+# Set LAN_IS_BRIDGE="yes" to bundle slave ports into a single Layer 2 switch (br0).
+# BRIDGE_SLAVES is a space-separated list of physical ports to enslave.
+# LAN_IP is applied to the bridge interface (br0); STP is auto-enabled.
+#
+# Example — 4-port appliance (eth0=WAN, eth1/eth2/eth3 → br0 LAN):
+#   WAN_IF="eth0"
+#   LAN_IS_BRIDGE="yes"
+#   BRIDGE_SLAVES="eth1 eth2 eth3"
+#   LAN_IP="10.10.10.10"
+LAN_IS_BRIDGE=""
+BRIDGE_SLAVES=""
 ```
+
+> [!NOTE]
+> When `WAN_IF` is left empty the installer configures base networking as *unconfigured*, relying on the interactive CLI option **1) Assign Interfaces** after first boot.
+
+### 13.3 Delivering a Kickstart File via USB (OEMDRV Volume)
+
+This is the easiest zero-network method for batch provisioning:
+
+1. Format a USB flash drive (or partition) with volume label **`OEMDRV`**:
+   ```bash
+   # Linux
+   sudo mkfs.vfat -n OEMDRV /dev/sdX1
+
+   # Windows (PowerShell)
+   Format-Volume -DriveLetter E -FileSystem FAT32 -NewFileSystemLabel OEMDRV
+   ```
+2. Copy your answer file to the root of that volume as **`micron-kickstart.cfg`**.
+3. Insert *both* the MicronOS ISO boot USB and the OEMDRV USB into the appliance.
+4. Boot from the MicronOS USB — the installer auto-discovers and mounts `OEMDRV` and applies the kickstart silently.
+
+### 13.4 Delivering a Kickstart File via Network (PXE / HTTP)
+
+Pass the URL as a kernel parameter in GRUB (PXE or local GRUB edit):
+
+```
+micron.ks=http://192.168.1.50/micron-kickstart.cfg
+```
+
+Or invoke the installer directly from a maintenance shell:
+```bash
+/usr/local/micron/installer/install.sh \
+    --kickstart http://192.168.1.50/ks/branch-office.cfg
+```
+
+### 13.5 Interactive Installer — Y/n Prompt Behaviour
+
+All interactive confirmation prompts in `install.sh` follow the **`[Y/n]`** convention — pressing **Enter** accepts the default (Yes):
+
+```
+Are you sure you want to completely erase /dev/sda? [Y/n]: ↵
+Proceed with partitioning and installation? [Y/n]: ↵
+Reboot appliance now? [Y/n]: ↵
+```
+
+The installer never blocks waiting for explicit `yes` — blank input is treated as confirmation.
 
 ---
 
@@ -867,6 +959,272 @@ jobs:
 
 ---
 
-*Document Version:* 1.0.0 (Production Release)  
+## 15. Manual ISO Generation — Complete Step-by-Step Walkthrough
+
+This section documents the exact workflow used to produce production MicronOS ISO releases on a **Windows 11 development host using WSL2 (Kali Linux)**. Use this procedure when the CI/CD pipeline is unavailable, for local development builds, or when you need to rebuild the ISO after source changes.
+
+### 15.1 Prerequisites
+
+| Requirement | Detail |
+|---|---|
+| Host OS | Windows 10/11 with WSL2 enabled |
+| WSL Distro | Kali Linux (preferred) or Debian/Ubuntu |
+| Disk Space | ~30 GB free inside WSL filesystem (native ext4 — **not** `/mnt/...`) |
+| RAM | 8 GB minimum; 16 GB recommended |
+| Network | Internet access from WSL for `debootstrap` |
+
+> [!IMPORTANT]
+> **Always build on the native WSL filesystem** (e.g. `/root/micronos-builder`), **not** on the Windows-mounted path (`/mnt/d/...`). The Windows NTFS mount uses `drvfs`, which does not support `chown`/`chmod` correctly. Building inside `/mnt/` produces a broken SquashFS image — the appliance will boot but `www-data` will be unable to write to `writable/`, PHP-FPM will fail, and the management plane will return 500 errors.
+
+### 15.2 Install Build Toolchain Inside WSL
+
+```bash
+# Open WSL (Kali) and switch to root
+wsl -d kali-linux
+sudo -i    # or: su -
+
+# Install all required build tools
+apt update
+apt install -y \
+    live-build \
+    debootstrap \
+    xorriso \
+    isolinux \
+    syslinux-efi \
+    grub-pc-bin \
+    grub-efi-amd64-bin \
+    mtools \
+    dosfstools \
+    squashfs-tools \
+    rsync \
+    curl \
+    git \
+    dialog \
+    openssl
+```
+
+### 15.3 Prepare the Builder Workspace
+
+Create the builder directory **inside the WSL native filesystem**:
+
+```bash
+mkdir -p /root/micronos-builder
+cd /root/micronos-builder
+```
+
+Then populate it from the Windows-side repository using `rsync` over the `/mnt/` mount:
+
+```bash
+# Stage the live-build configuration from the repository
+rsync -av /mnt/d/laragon/www/micronos/micronos/packaging/live-build/ /root/micronos-builder/
+chmod +x auto/config auto/clean auto/build 2>/dev/null || true
+```
+
+### 15.4 Stage the Application Overlay
+
+The `stage-overlay.sh` script copies the web application, CLI binary, and offline assets from the repository tree into `config/includes.chroot/` so they get baked into the ISO image. **Always run this before building or rebuilding** — it is idempotent and safe to re-run.
+
+```bash
+# Run from inside the builder workspace
+bash packaging/live-build/stage-overlay.sh
+
+# Or, if auto/config calls it automatically (default):
+# It will run as part of the next step
+```
+
+> [!TIP]
+> `stage-overlay.sh` accepts `--out <dir>` to target a different output directory. Without the flag it writes into `config/includes.chroot/` relative to the current directory.
+
+### 15.5 Configure `live-build`
+
+```bash
+cd /root/micronos-builder
+
+# Run the auto/config script (stages overlay + runs lb config)
+sudo bash auto/config
+
+# Equivalent manual steps:
+# sudo ./packaging/live-build/stage-overlay.sh
+# lb config
+```
+
+This generates the full `config/` tree with all live-build flags (`--distribution trixie`, `--architectures amd64`, `--binary-images iso-hybrid`, etc.).
+
+### 15.6 Clean Previous Build Artifacts (If Rebuilding)
+
+Before a fresh rebuild, always purge the previous chroot and binary caches:
+
+```bash
+sudo lb clean --purge
+```
+
+> [!WARNING]
+> `lb clean --purge` removes the cached debootstrap chroot. The subsequent build will re-download and re-debootstrap Debian Trixie (~500 MB). Omit `--purge` and use just `sudo lb clean` to keep the chroot cache and only rebuild the overlay / binary stage.
+
+### 15.7 Build the ISO
+
+```bash
+sudo lb build 2>&1 | tee /root/micronos-builder/build.log
+```
+
+A successful build takes **15–45 minutes** depending on network speed and CPU. The `build.log` captures the full output for post-mortem debugging.
+
+When finished, the following file is created in the builder root:
+
+```
+/root/micronos-builder/micronos-2.0.0-amd64.hybrid.iso
+```
+
+Verify the image was produced and check its size:
+
+```bash
+ls -lh /root/micronos-builder/*.iso
+# Expected: ~900 MB – 1.1 GB
+```
+
+### 15.8 Copy the ISO to Windows
+
+Copy the generated ISO from the WSL native filesystem back to your Windows workspace:
+
+```bash
+# Copy to the Windows project directory
+cp /root/micronos-builder/micronos-2.0.0-amd64.hybrid.iso \
+   /mnt/d/laragon/www/micronos/micronos/micronos-2.0.0-amd64.hybrid.iso
+
+# Or to your Desktop
+cp /root/micronos-builder/micronos-2.0.0-amd64.hybrid.iso \
+   "/mnt/c/Users/$USER/Desktop/micronos-2.0.0-amd64.hybrid.iso"
+```
+
+On the Windows side the file is then accessible from File Explorer, Rufus, Hyper-V, VirtualBox, or any other tool.
+
+### 15.9 Quick Rebuild After Source Changes
+
+When only the PHP application or CLI changed (no package additions), skip the full chroot rebuild to save time:
+
+```bash
+cd /root/micronos-builder
+
+# 1. Re-stage the overlay (picks up all application changes)
+bash /mnt/d/laragon/www/micronos/micronos/packaging/live-build/stage-overlay.sh
+
+# 2. Clean only the binary layer (keeps the chroot)
+sudo lb clean
+
+# 3. Rebuild the binary ISO from the existing chroot
+sudo lb build 2>&1 | tee build.log
+```
+
+This cuts rebuild time from ~30 minutes to **3–8 minutes**.
+
+### 15.10 Complete Manual Build Script (`rebuild_iso.sh`)
+
+Save this as `/root/rebuild_iso.sh` inside WSL for one-command rebuilds:
+
+```bash
+#!/bin/bash
+# ==============================================================================
+# MicronOS — Manual ISO Rebuild Script (WSL2 / Native Linux)
+# Usage: sudo bash rebuild_iso.sh [--full]
+#   --full  : purge chroot cache and rebuild from scratch (slow, ~30–45 min)
+#   default : keep chroot, re-stage overlay and rebuild binary only (fast, ~5 min)
+# ==============================================================================
+set -e
+
+REPO_WIN_PATH="/mnt/d/laragon/www/micronos/micronos"
+BUILD_DIR="/root/micronos-builder"
+OUT_ISO_NAME="micronos-2.0.0-amd64.hybrid.iso"
+
+FULL_BUILD=0
+[ "$1" = "--full" ] && FULL_BUILD=1
+
+echo "=== MicronOS ISO Builder ==="
+echo "Repository : $REPO_WIN_PATH"
+echo "Build Dir  : $BUILD_DIR"
+echo "Mode       : $([ $FULL_BUILD -eq 1 ] && echo 'FULL (purge + rebuild)' || echo 'FAST (overlay only)')"
+echo ""
+
+mkdir -p "$BUILD_DIR"
+cd "$BUILD_DIR"
+
+# Stage the live-build config from the repository (idempotent)
+rsync -av --exclude='.git' \
+    "$REPO_WIN_PATH/packaging/live-build/" "$BUILD_DIR/"
+chmod +x auto/config auto/clean auto/build 2>/dev/null || true
+
+# Stage the application overlay
+bash "$REPO_WIN_PATH/packaging/live-build/stage-overlay.sh"
+
+# Configure live-build (runs lb config)
+lb config
+
+# Clean
+if [ $FULL_BUILD -eq 1 ]; then
+    echo "--- Purging build caches (full rebuild)..."
+    lb clean --purge
+else
+    echo "--- Cleaning binary layer only (fast rebuild)..."
+    lb clean
+fi
+
+# Build
+echo "--- Starting lb build (output logged to build.log)..."
+lb build 2>&1 | tee build.log
+
+# Verify
+if [ -f "$BUILD_DIR/$OUT_ISO_NAME" ]; then
+    SIZE=$(du -sh "$BUILD_DIR/$OUT_ISO_NAME" | cut -f1)
+    echo ""
+    echo "=== Build Successful ==="
+    echo "ISO : $BUILD_DIR/$OUT_ISO_NAME"
+    echo "Size: $SIZE"
+    # Copy to Windows workspace
+    cp "$BUILD_DIR/$OUT_ISO_NAME" "$REPO_WIN_PATH/$OUT_ISO_NAME"
+    echo "Copied to Windows: $REPO_WIN_PATH/$OUT_ISO_NAME"
+else
+    echo "ERROR: ISO not found after build. Check build.log for errors."
+    exit 1
+fi
+```
+
+**Usage:**
+```bash
+# Fast rebuild (keeps chroot, ~5 min)
+sudo bash /root/rebuild_iso.sh
+
+# Full rebuild from scratch (~30-45 min)
+sudo bash /root/rebuild_iso.sh --full
+```
+
+### 15.11 Installer Error Handling & Recovery
+
+The `install.sh` installer includes a comprehensive error recovery system:
+
+| Condition | Behaviour |
+|---|---|
+| **Ctrl+C pressed** | Installer restarts from scratch automatically |
+| **Unhandled error** (`set -e` trap) | Shows error dialog with line number and exit code; offers: Retry / Maintenance Shell / Reboot / Power Off |
+| **No disks found** | Prints coloured error and exits gracefully |
+| **Kickstart URL fetch fails** | Falls back to interactive mode with a warning |
+| **Kickstart file not found** | Falls back to interactive mode silently |
+
+The **Maintenance Shell** option (choice 2 in the error dialog) drops to a root `bash -i` interactive session. Type `exit` to return to the installer wizard.
+
+### 15.12 Installer Feature Reference
+
+| Feature | Detail |
+|---|---|
+| **NUM LOCK** | Forced ON at installer start, across all TTYs (`/dev/tty[1-6]`, `/dev/tty0`, `/dev/console`) and persisted into the installed system via a `numlock-enable.service` systemd unit |
+| **Kickstart engine** | Sources a shell-fragment answer file; supports CLI path, kernel cmdline, OEMDRV USB, and remote HTTP/FTP URL |
+| **Y/n prompts** | All confirmations default to Yes on bare Enter — installer never blocks for explicit "yes" |
+| **Bridge LAN** | `LAN_IS_BRIDGE=yes` + `BRIDGE_SLAVES="eth1 eth2 eth3"` creates `br0` with STP and enslaves member ports; writes `/etc/network/interfaces` bridge stanza and inserts into `interface_bridges` SQLite table |
+| **LAN IP** | Default LAN management address is `10.10.10.10/24` (configurable via `LAN_IP` in kickstart or interactively) |
+| **A/B Slots** | Installs ESP + Swap + Root Slot A (active) + Root Slot B (standby) + Data partition; registers GRUB boot-slot selector (`grub.d/09_micron_slots`) |
+| **UEFI + BIOS** | Installs GRUB for both `x86_64-efi` and MBR/BIOS fallback |
+| **Headless reboot** | `REBOOT=yes` in kickstart triggers 5-second countdown reboot; `REBOOT=no` leaves appliance at completion screen |
+
+---
+
+*Document Version:* 2.0.0 (Updated — Kickstart Engine, Bridge LAN, Manual WSL Build Workflow)  
 *Project:* Micron Firewall OS (MicronOS)  
 *Component:* Appliance Image Builder & Installer  

@@ -1,0 +1,13 @@
+[Unit]
+Description=Enable NumLock on Virtual Consoles
+DefaultDependencies=no
+After=systemd-vconsole-setup.service console-setup.service
+Before=getty.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'for tty in /dev/tty[1-6] /dev/tty0 /dev/console; do [ -e "$$tty" ] && /usr/bin/setleds -D +num < "$$tty" >/dev/null 2>&1 || true; done'
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

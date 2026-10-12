@@ -1,0 +1,14 @@
+# ==============================================================================
+# Micron OS Interactive Root Shell RC
+# ==============================================================================
+[ -f /etc/bash.bashrc ] && . /etc/bash.bashrc 2>/dev/null
+[ -f /root/.bashrc ] && . /root/.bashrc 2>/dev/null
+[ -f ~/.bashrc ] && . ~/.bashrc 2>/dev/null
+
+export MICRON_SHELL=1
+export IN_MICRON_MENU=1
+export PS1='\[\033[01;31m\][MicronOS] \w # \[\033[00m\]'
+
+if command -v setleds >/dev/null 2>&1; then
+    setleds -D +num 2>/dev/null || true
+fi

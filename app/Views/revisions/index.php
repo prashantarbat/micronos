@@ -1,45 +1,44 @@
 <?= $this->extend('layouts/main') ?>
 
 <?= $this->section('content') ?>
-<div class="container-fluid p-4">
-
-  <!-- Header Banner -->
-  <div class="card mb-4" style="background: linear-gradient(135deg, rgba(30, 41, 59, 0.7) 0%, rgba(15, 23, 42, 0.85) 100%); border: 1px solid var(--color-border); border-radius: var(--radius-lg, 12px); box-shadow: 0 8px 24px rgba(0,0,0,0.15);">
-    <div class="card-body p-4">
-      <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
-        <div>
-          <div class="d-flex align-items-center gap-2 mb-2">
-            <span class="badge bg-primary" style="background: linear-gradient(135deg, #6366f1, #8b5cf6) !important; font-size:0.75rem; letter-spacing:0.05em; text-transform:uppercase;">Git Revision Engine</span>
-            <span class="badge" style="background:var(--color-surface-2); border:1px solid var(--color-border); color:var(--text-secondary); font-family:var(--font-mono);">v<?= esc($version) ?></span>
-            <span class="badge <?= ($channel === 'Development') ? 'badge-warning' : 'badge-success' ?>" style="font-size:0.72rem; letter-spacing:0.04em; text-transform:uppercase; font-weight:700;">
-              <?= esc($channel) ?>
-            </span>
-          </div>
-          <h1 class="h3 fw-bold mb-1" style="color:var(--text-primary); letter-spacing:-0.02em;">
-            Configuration Revisions &amp; Diff
-          </h1>
-          <p class="text-muted mb-0" style="font-size:0.9rem;">
-            Git-backed audit trail for all appliance configuration changes in <?= esc($projectName) ?>. Inspect unified line-by-line diffs and perform zero-downtime rollbacks.
-          </p>
-        </div>
-
-        <div class="d-flex gap-2 align-items-center">
-          <button type="button" class="btn btn-outline-secondary btn-sm" onclick="location.reload()" title="Refresh timeline">
-            <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" class="me-1">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-            </svg>
-            Refresh
-          </button>
-          <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#manualCheckpointModal" style="background: linear-gradient(135deg, #3b82f6, #6366f1); border:none; box-shadow:0 4px 12px rgba(99,102,241,0.3);">
-            <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" class="me-1">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
-            </svg>
-            Create Checkpoint
-          </button>
-        </div>
-      </div>
+<div class="page-header animate-in">
+  <div class="page-header-content">
+    <div class="page-breadcrumb">
+      <a href="<?= base_url('dashboard') ?>">Dashboard</a>
+      <span>/</span>
+      <span>System</span>
+      <span>/</span>
+      <span class="current">Revisions &amp; Diff</span>
     </div>
+    <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+      <div class="page-title-icon">
+        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+        </svg>
+      </div>
+      <h1 class="page-title">Configuration Revisions &amp; Diff</h1>
+      <span class="badge badge-purple" style="font-size:0.7rem; font-family:var(--font-mono);">v<?= esc($version) ?></span>
+      <span class="badge <?= ($channel === 'Development') ? 'badge-warning' : 'badge-success' ?>" style="font-size:0.7rem; font-weight:700;">
+        <?= esc($channel) ?>
+      </span>
+    </div>
+    <p class="page-subtitle">Git Revision Engine audit trail for all appliance configuration changes in <?= esc($projectName) ?>. Inspect unified line-by-line diffs and perform zero-downtime rollbacks.</p>
   </div>
+  <div class="page-header-actions">
+    <button type="button" class="btn btn-ghost btn-sm" onclick="location.reload()" title="Refresh timeline">
+      <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+      </svg>
+      Refresh
+    </button>
+    <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#manualCheckpointModal">
+      <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+      </svg>
+      Create Checkpoint
+    </button>
+  </div>
+</div>
 
   <!-- Revisions List -->
   <div class="card" style="border: 1px solid var(--color-border); border-radius: var(--radius-lg, 12px); overflow:hidden;">
@@ -178,7 +177,6 @@
     </div>
   </div>
 
-</div>
 
 <!-- Modal: Manual Checkpoint -->
 <div class="modal fade" id="manualCheckpointModal" tabindex="-1" aria-labelledby="manualCheckpointTitle" aria-hidden="true">

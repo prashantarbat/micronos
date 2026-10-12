@@ -3,157 +3,12 @@
 <?= $this->section('content') ?>
 
 <style>
-/* ── Object Chips (matching firewall/addresses, qos, ha, dhcp, certificates) ── */
-.mno-obj-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 8px;
-  border-radius: 4px;
-  font-size: 0.75rem;
-  font-weight: 500;
-  font-family: var(--font-mono);
-  background: rgba(255,255,255,0.06);
-  border: 1px solid rgba(255,255,255,0.12);
-  color: var(--text-primary);
-  margin: 1px 0;
-  white-space: nowrap;
-  line-height: 1.2;
-}
-.mno-chip-icon {
-  width: 13px;
-  height: 13px;
-  flex-shrink: 0;
-  display: inline-block;
-  vertical-align: middle;
-}
-.mno-obj-chip-lan {
-  background: rgba(6, 182, 212, 0.15);
-  border-color: rgba(6, 182, 212, 0.35);
-  color: #67e8f9;
-}
-.mno-obj-chip-wan {
-  background: rgba(245, 158, 11, 0.15);
-  border-color: rgba(245, 158, 11, 0.35);
-  color: #fcd34d;
-}
-.mno-obj-chip-dmz {
-  background: rgba(139, 92, 246, 0.15);
-  border-color: rgba(139, 92, 246, 0.35);
-  color: #c4b5fd;
-}
-.mno-obj-chip-success {
-  background: rgba(16, 185, 129, 0.15);
-  border-color: rgba(16, 185, 129, 0.35);
-  color: #6ee7b7;
-}
-
-/* ── Custom Button Themes ── */
-.btn-warning {
-  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%) !important;
-  color: #030712 !important;
-  border: 1px solid #f59e0b !important;
-  font-weight: 700 !important;
-  display: inline-flex !important;
-  align-items: center !important;
-  gap: 6px !important;
-  box-shadow: 0 2px 10px rgba(245, 158, 11, 0.3) !important;
-  text-decoration: none !important;
-}
-.btn-warning:hover {
-  background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%) !important;
-  box-shadow: 0 4px 16px rgba(245, 158, 11, 0.45) !important;
-  color: #030712 !important;
-  transform: translateY(-1px);
-}
-.btn-cyan {
-  background: linear-gradient(135deg, var(--color-cyan) 0%, #0096c7 100%) !important;
-  color: #030712 !important;
-  border: 1px solid var(--color-cyan) !important;
-  font-weight: 700 !important;
-  display: inline-flex !important;
-  align-items: center !important;
-  gap: 6px !important;
-  box-shadow: 0 2px 10px rgba(0, 212, 255, 0.3) !important;
-  text-decoration: none !important;
-}
-.btn-cyan:hover {
-  background: linear-gradient(135deg, #38bdf8 0%, var(--color-cyan) 100%) !important;
-  box-shadow: 0 4px 16px rgba(0, 212, 255, 0.45) !important;
-  color: #030712 !important;
-  transform: translateY(-1px);
-}
-
 /* ── Summary Stats Grid ── */
 .backup-stats-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 16px;
   margin-bottom: 24px;
-}
-
-/* ── Navigation Tabs ── */
-.backup-tabs {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 20px;
-  border-bottom: 1px solid var(--color-border);
-  padding-bottom: 12px;
-  flex-wrap: wrap;
-}
-.backup-tab {
-  padding: 8px 16px;
-  border-radius: var(--radius-sm);
-  font-size: 0.8125rem;
-  font-weight: 600;
-  color: var(--text-secondary);
-  background: var(--color-surface-2);
-  border: 1px solid var(--color-border);
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  transition: all var(--transition-fast);
-}
-.backup-tab:hover {
-  color: var(--text-primary);
-  background: var(--color-surface-3);
-  border-color: var(--color-border-bright);
-}
-.backup-tab.active {
-  background: rgba(0, 212, 255, 0.12);
-  color: var(--color-cyan);
-  border-color: rgba(0, 212, 255, 0.35);
-  font-weight: 600;
-}
-.backup-panel { display: none; }
-.backup-panel.active { display: block; }
-
-/* ── Table Styling ── */
-.mno-table {
-  width: 100%;
-  border-collapse: separate;
-  border-spacing: 0;
-  font-size: 0.8125rem;
-}
-.mno-table th {
-  background: var(--color-surface-3);
-  color: var(--text-secondary);
-  font-weight: 600;
-  font-size: 0.72rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--color-border);
-  text-align: left;
-}
-.mno-table td {
-  padding: 11px 14px;
-  border-bottom: 1px solid var(--color-border);
-  vertical-align: middle;
-}
-.mno-table tbody tr:hover {
-  background: rgba(255,255,255,0.02);
 }
 
 /* ── Form Inputs & Cards ── */
@@ -215,65 +70,6 @@
   box-shadow: 0 0 0 2px rgba(0, 212, 255, 0.2);
 }
 
-/* ── Modal Architecture ── */
-.mno-modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(0,0,0,0.75);
-  backdrop-filter: blur(4px);
-  z-index: 1000;
-  display: none;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-}
-.mno-modal-backdrop.active {
-  display: flex;
-}
-.mno-modal-dialog {
-  background: var(--color-surface-2);
-  border: 1px solid var(--color-border-bright);
-  border-radius: var(--radius-md);
-  width: 100%;
-  max-width: 650px;
-  box-shadow: 0 20px 40px rgba(0,0,0,0.6);
-  animation: mnoModalIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-  overflow: hidden;
-}
-@keyframes mnoModalIn {
-  from { opacity: 0; transform: scale(0.96) translateY(-10px); }
-  to { opacity: 1; transform: scale(1) translateY(0); }
-}
-.mno-modal-header {
-  padding: 14px 20px;
-  background: var(--color-surface-3);
-  border-bottom: 1px solid var(--color-border);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.mno-modal-title {
-  font-size: 0.95rem;
-  font-weight: 700;
-  color: var(--text-primary);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.mno-modal-body {
-  padding: 20px;
-  max-height: calc(85vh - 120px);
-  overflow-y: auto;
-}
-.mno-modal-footer {
-  padding: 12px 20px;
-  background: var(--color-surface-1);
-  border-top: 1px solid var(--color-border);
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-}
-
 /* Checkbox pill selector */
 .selective-checkbox-item {
   display: flex;
@@ -305,42 +101,54 @@
 
 <!-- ── Page Header ── -->
 <div class="page-header animate-in">
-  <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:16px;">
-    <div>
-      <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-        <h1 class="page-title">Backup &amp; Disaster Recovery</h1>
-        <span class="badge badge-purple" style="font-size:0.75rem;">AES-256-GCM ENCRYPTED</span>
-        <span class="badge badge-success" style="font-size:0.75rem;">WATCHDOG ROLLBACK (60S)</span>
-        <span class="badge badge-cyan" style="font-size:0.75rem;"><?= count($backups) ?> Snapshots</span>
-      </div>
-      <p class="page-subtitle">Cryptographic appliance state archives, dissimilar hardware NIC remapping, and selective component restoration</p>
+  <div class="page-header-content">
+    <div class="page-breadcrumb">
+      <span>System</span>
+      <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+      <span>Disaster Recovery</span>
     </div>
-    <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-      <?php if (session()->get('is_superadmin') || in_array('backup.create', session()->get('permissions') ?? [])): ?>
-        <button type="button" class="btn btn-primary btn-sm" onclick="openModal('createBackupModal')">
-          <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
-          </svg>
-          Create Snapshot
-        </button>
-      <?php endif; ?>
-
-      <?php if (session()->get('is_superadmin') || in_array('backup.restore', session()->get('permissions') ?? [])): ?>
-        <button type="button" class="btn btn-warning btn-sm" onclick="switchBackupTab('tab-restore', document.querySelectorAll('.backup-tab')[2])">
-          <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-          </svg>
-          Restore Archive
-        </button>
-      <?php endif; ?>
-
-      <a href="<?= base_url('system/commit/status') ?>" class="btn btn-ghost btn-sm">
-        <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+    <div style="display:flex; align-items:center; gap:12px; margin-top:4px;">
+      <div class="page-title-icon" style="background:var(--tone-purple-bg); color:var(--tone-purple-fg); border:1px solid var(--tone-purple-border);">
+        <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2"/>
         </svg>
-        Commit Status
-      </a>
+      </div>
+      <div>
+        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+          <h1 class="page-title">Backup &amp; Disaster Recovery</h1>
+          <span class="badge badge-purple" style="font-size:0.75rem;">AES-256-GCM ENCRYPTED</span>
+          <span class="badge badge-success" style="font-size:0.75rem;">WATCHDOG ROLLBACK (60S)</span>
+          <span class="badge badge-cyan" style="font-size:0.75rem;"><?= count($backups) ?> Snapshots</span>
+        </div>
+        <p class="page-subtitle">Cryptographic appliance state archives, dissimilar hardware NIC remapping, and selective component restoration</p>
+      </div>
     </div>
+  </div>
+  <div class="page-header-actions">
+    <?php if (session()->get('is_superadmin') || in_array('backup.create', session()->get('permissions') ?? [])): ?>
+      <button type="button" class="btn btn-primary btn-sm" onclick="openModal('createBackupModal')">
+        <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+        </svg>
+        Create Snapshot
+      </button>
+    <?php endif; ?>
+
+    <?php if (session()->get('is_superadmin') || in_array('backup.restore', session()->get('permissions') ?? [])): ?>
+      <button type="button" class="btn btn-warning btn-sm" onclick="switchBackupTab('tab-restore', document.querySelectorAll('.backup-tab')[2])">
+        <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+        </svg>
+        Restore Archive
+      </button>
+    <?php endif; ?>
+
+    <a href="<?= base_url('system/commit/status') ?>" class="btn btn-ghost btn-sm">
+      <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+      </svg>
+      Commit Status
+    </a>
   </div>
 </div>
 
@@ -420,26 +228,26 @@
 </div>
 
 <!-- ── Navigation Tabs ── -->
-<div class="backup-tabs animate-in animate-in-delay-1">
-  <button type="button" class="backup-tab active" onclick="switchBackupTab('tab-snapshots', this)">
+<div class="tab-bar backup-tabs animate-in animate-in-delay-1">
+  <button type="button" class="tab-item backup-tab active" onclick="switchBackupTab('tab-snapshots', this)">
     <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
       <path stroke-linecap="round" stroke-linejoin="round" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/>
     </svg>
     Configuration Snapshots (<?= count($backups) ?>)
   </button>
-  <button type="button" class="backup-tab" onclick="switchBackupTab('tab-create', this)">
+  <button type="button" class="tab-item backup-tab" onclick="switchBackupTab('tab-create', this)">
     <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
       <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
     </svg>
     Create Snapshot
   </button>
-  <button type="button" class="backup-tab" onclick="switchBackupTab('tab-restore', this)">
+  <button type="button" class="tab-item backup-tab" onclick="switchBackupTab('tab-restore', this)">
     <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
       <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
     </svg>
     Restore &amp; Disaster Recovery
   </button>
-  <button type="button" class="backup-tab" onclick="switchBackupTab('tab-guide', this)">
+  <button type="button" class="tab-item backup-tab" onclick="switchBackupTab('tab-guide', this)">
     <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
       <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
     </svg>

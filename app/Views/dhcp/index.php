@@ -1,130 +1,9 @@
-﻿<?= $this->extend('layouts/main') ?>
+<?= $this->extend('layouts/main') ?>
 <?= $this->section('content') ?>
 
 <?= $this->include('firewall/_obj_tooltip') ?>
 
 <style>
-/* ── Chips (Matching firewall/addresses, service-groups, qos, ha) ── */
-.mno-obj-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 8px;
-  border-radius: 4px;
-  font-size: 0.75rem;
-  font-weight: 500;
-  font-family: var(--font-mono);
-  background: rgba(255,255,255,0.06);
-  border: 1px solid rgba(255,255,255,0.12);
-  color: var(--text-primary);
-  margin: 1px 0;
-  white-space: nowrap;
-  line-height: 1.2;
-}
-.mno-chip-icon {
-  width: 13px;
-  height: 13px;
-  flex-shrink: 0;
-  display: inline-block;
-  vertical-align: middle;
-}
-.mno-obj-chip-lan {
-  background: rgba(6, 182, 212, 0.15);
-  border-color: rgba(6, 182, 212, 0.35);
-  color: #67e8f9;
-}
-.mno-obj-chip-wan {
-  background: rgba(245, 158, 11, 0.15);
-  border-color: rgba(245, 158, 11, 0.35);
-  color: #fcd34d;
-}
-.mno-obj-chip-dmz {
-  background: rgba(139, 92, 246, 0.15);
-  border-color: rgba(139, 92, 246, 0.35);
-  color: #c4b5fd;
-}
-
-/* ── Modal Architecture (Matching firewall/addresses) ── */
-.mno-modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(0,0,0,0.75);
-  backdrop-filter: blur(4px);
-  z-index: 1000;
-  display: none;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-}
-.mno-modal-backdrop.active {
-  display: flex;
-}
-.mno-modal-dialog {
-  background: var(--color-surface-1);
-  border: 1px solid var(--color-border-bright);
-  border-radius: var(--radius-lg);
-  width: 100%;
-  max-width: 600px;
-  max-height: 90vh;
-  display: flex;
-  flex-direction: column;
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
-  overflow: hidden;
-  animation: modalSlideIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-}
-@keyframes modalSlideIn {
-  from { opacity: 0; transform: translateY(-20px) scale(0.98); }
-  to   { opacity: 1; transform: translateY(0) scale(1); }
-}
-.mno-modal-header {
-  padding: 16px 24px;
-  border-bottom: 1px solid var(--color-border);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  background: var(--color-surface-2);
-}
-.mno-modal-body {
-  padding: 24px;
-  overflow-y: auto;
-  flex: 1;
-}
-.mno-modal-footer {
-  padding: 14px 24px;
-  border-top: 1px solid var(--color-border);
-  background: var(--color-surface-2);
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-}
-
-/* ── Table Styling ── */
-.mno-table {
-  width: 100%;
-  border-collapse: separate;
-  border-spacing: 0;
-  font-size: 0.8125rem;
-}
-.mno-table th {
-  background: var(--color-surface-3);
-  color: var(--text-secondary);
-  font-weight: 600;
-  font-size: 0.72rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--color-border);
-  text-align: left;
-}
-.mno-table td {
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--color-border);
-  vertical-align: middle;
-}
-.mno-table tbody tr:hover {
-  background: rgba(255,255,255,0.02);
-}
-
 /* ── Interface Selector Bar ── */
 .iface-selector-bar {
   display: flex;
@@ -161,43 +40,6 @@
   border-color: rgba(0, 212, 255, 0.4);
 }
 
-/* ── Tabs Navigation ── */
-.dhcp-tabs {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 20px;
-  border-bottom: 1px solid var(--color-border);
-  padding-bottom: 12px;
-  flex-wrap: wrap;
-}
-.dhcp-tab {
-  padding: 8px 16px;
-  border-radius: var(--radius-sm);
-  font-size: 0.8125rem;
-  font-weight: 600;
-  color: var(--text-secondary);
-  background: var(--color-surface-2);
-  border: 1px solid var(--color-border);
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  transition: all var(--transition-fast);
-}
-.dhcp-tab:hover {
-  color: var(--text-primary);
-  background: var(--color-surface-3);
-  border-color: var(--color-border-bright);
-}
-.dhcp-tab.active {
-  background: rgba(0, 212, 255, 0.12);
-  color: var(--color-cyan);
-  border-color: rgba(0, 212, 255, 0.35);
-  font-weight: 600;
-}
-.dhcp-panel { display: none; }
-.dhcp-panel.active { display: block; }
-
 /* ── Summary Stats Grid ── */
 .dhcp-stats-grid {
   display: grid;
@@ -207,48 +49,60 @@
 }
 </style>
 
-<!-- ── Page Header (Identical structure to firewall/addresses) ── -->
+<!-- ── Page Header ── -->
 <div class="page-header animate-in">
-  <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:16px;">
-    <div>
-      <div style="display:flex; align-items:center; gap:10px;">
-        <h1 class="page-title">DHCP Server &amp; Dynamic Leases</h1>
-        <span class="badge badge-info" style="font-size:0.75rem;"><?= esc(strtoupper($currentIface['name'] ?? $currentIfaceId)) ?></span>
-        <span class="badge <?= !empty($settings['enabled']) ? 'badge-success' : 'badge-muted' ?>" style="font-size:0.75rem;">
-          <?= !empty($settings['enabled']) ? 'KEA DHCP ACTIVE' : 'DISABLED' ?>
-        </span>
-        <span class="badge badge-cyan" style="font-size:0.75rem;"><?= count($leases) ?> Leases</span>
+  <div class="page-header-content">
+    <div class="page-breadcrumb">
+      <span>Network</span>
+      <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+      <span>DHCP &amp; IPAM</span>
+    </div>
+    <div style="display:flex; align-items:center; gap:12px; margin-top:4px;">
+      <div class="page-title-icon" style="background:var(--tone-emerald-bg); color:var(--tone-emerald-fg); border:1px solid var(--tone-emerald-border);">
+        <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01"/>
+        </svg>
       </div>
-      <p class="page-subtitle">Per-interface Kea DHCPv4 service, dynamic address pools, PXE/TFTP boot options, and static hardware reservations</p>
+      <div>
+        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+          <h1 class="page-title">DHCP Server &amp; Dynamic Leases</h1>
+          <span class="badge badge-info" style="font-size:0.75rem;"><?= esc(strtoupper($currentIface['name'] ?? $currentIfaceId)) ?></span>
+          <span class="badge <?= !empty($settings['enabled']) ? 'badge-success' : 'badge-muted' ?>" style="font-size:0.75rem;">
+            <?= !empty($settings['enabled']) ? 'KEA DHCP ACTIVE' : 'DISABLED' ?>
+          </span>
+          <span class="badge badge-cyan" style="font-size:0.75rem;"><?= count($leases) ?> Leases</span>
+        </div>
+        <p class="page-subtitle">Per-interface Kea DHCPv4 service, dynamic address pools, PXE/TFTP boot options, and static hardware reservations</p>
+      </div>
     </div>
-    <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-      <?= \App\Libraries\ServiceStatus::widget('kea-dhcp4') ?>
-      <button type="button" class="btn btn-primary btn-sm" onclick="openAddReservationModal()">
-        <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
-        </svg>
-        Add Static Mapping
-      </button>
+  </div>
+  <div class="page-header-actions">
+    <?= \App\Libraries\ServiceStatus::widget('kea-dhcp4') ?>
+    <button type="button" class="btn btn-primary btn-sm" onclick="openAddReservationModal()">
+      <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+      </svg>
+      Add Static Mapping
+    </button>
 
-      <?php if (session()->get('is_superadmin') || in_array('dhcp.restart', session()->get('permissions') ?? [])): ?>
-        <form method="POST" action="<?= base_url('dhcp/restart') ?>" style="display:inline;">
-          <?= csrf_field() ?>
-          <button type="submit" class="btn btn-success btn-sm" title="Reload Kea DHCPv4 service daemon">
-            <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-            </svg>
-            Restart DHCP Service
-          </button>
-        </form>
-      <?php endif; ?>
+    <?php if (session()->get('is_superadmin') || in_array('dhcp.restart', session()->get('permissions') ?? [])): ?>
+      <form method="POST" action="<?= base_url('dhcp/restart') ?>" style="display:inline;">
+        <?= csrf_field() ?>
+        <button type="submit" class="btn btn-success btn-sm" title="Reload Kea DHCPv4 service daemon">
+          <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+          </svg>
+          Restart DHCP Service
+        </button>
+      </form>
+    <?php endif; ?>
 
-      <a href="<?= base_url('firewall/rules') ?>" class="btn btn-ghost btn-sm">
-        <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
-        </svg>
-        Firewall Rules
-      </a>
-    </div>
+    <a href="<?= base_url('firewall/rules') ?>" class="btn btn-ghost btn-sm">
+      <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+      </svg>
+      Firewall Rules
+    </a>
   </div>
 </div>
 
@@ -339,15 +193,15 @@
 </div>
 
 <!-- ── Tabs Navigation ── -->
-<div class="dhcp-tabs animate-in animate-in-delay-1">
-  <button type="button" class="dhcp-tab active" id="tab-config-btn" onclick="switchDhcpTab('config', this)">
+<div class="tab-bar dhcp-tabs animate-in animate-in-delay-1">
+  <button type="button" class="tab-item dhcp-tab active" id="tab-config-btn" onclick="switchDhcpTab('config', this)">
     <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
       <path stroke-linecap="round" stroke-linejoin="round" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"/>
     </svg>
     Server Configuration
   </button>
 
-  <button type="button" class="dhcp-tab" id="tab-leases-btn" onclick="switchDhcpTab('leases', this)">
+  <button type="button" class="tab-item dhcp-tab" id="tab-leases-btn" onclick="switchDhcpTab('leases', this)">
     <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
       <rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
     </svg>
@@ -355,7 +209,7 @@
     <span class="badge badge-cyan" style="font-size:0.65rem; padding:1px 6px;"><?= count($leases) ?></span>
   </button>
 
-  <button type="button" class="dhcp-tab" id="tab-reservations-btn" onclick="switchDhcpTab('reservations', this)">
+  <button type="button" class="tab-item dhcp-tab" id="tab-reservations-btn" onclick="switchDhcpTab('reservations', this)">
     <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
       <path stroke-linecap="round" stroke-linejoin="round" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"/>
     </svg>

@@ -1,245 +1,56 @@
-﻿<?= $this->extend('layouts/main') ?>
+<?= $this->extend('layouts/main') ?>
 <?= $this->section('content') ?>
 
-<style>
-/* ── Chips (Matching firewall/addresses, service-groups, qos) ── */
-.mno-obj-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 8px;
-  border-radius: 4px;
-  font-size: 0.75rem;
-  font-weight: 500;
-  font-family: var(--font-mono);
-  background: rgba(255,255,255,0.06);
-  border: 1px solid rgba(255,255,255,0.12);
-  color: var(--text-primary);
-  margin: 1px 0;
-  white-space: nowrap;
-  line-height: 1.2;
-}
-.mno-chip-icon {
-  width: 13px;
-  height: 13px;
-  flex-shrink: 0;
-  display: inline-block;
-  vertical-align: middle;
-}
-.mno-obj-chip-master {
-  background: rgba(16, 185, 129, 0.15);
-  border-color: rgba(16, 185, 129, 0.35);
-  color: #6ee7b7;
-}
-.mno-obj-chip-backup {
-  background: rgba(59, 130, 246, 0.15);
-  border-color: rgba(59, 130, 246, 0.35);
-  color: #93c5fd;
-}
-.mno-obj-chip-vrrp {
-  background: rgba(245, 158, 11, 0.15);
-  border-color: rgba(245, 158, 11, 0.35);
-  color: #fcd34d;
-}
-.mno-obj-chip-alias {
-  background: rgba(139, 92, 246, 0.15);
-  border-color: rgba(139, 92, 246, 0.35);
-  color: #c4b5fd;
-}
-
-/* ── Modal Architecture (Matching firewall/addresses) ── */
-.mno-modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(0,0,0,0.75);
-  backdrop-filter: blur(4px);
-  z-index: 1000;
-  display: none;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-}
-.mno-modal-backdrop.active {
-  display: flex;
-}
-.mno-modal-dialog {
-  background: var(--color-surface-1);
-  border: 1px solid var(--color-border-bright);
-  border-radius: var(--radius-lg);
-  width: 100%;
-  max-width: 620px;
-  max-height: 90vh;
-  display: flex;
-  flex-direction: column;
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
-  overflow: hidden;
-  animation: modalSlideIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-}
-@keyframes modalSlideIn {
-  from { opacity: 0; transform: translateY(-20px) scale(0.98); }
-  to   { opacity: 1; transform: translateY(0) scale(1); }
-}
-.mno-modal-header {
-  padding: 16px 24px;
-  border-bottom: 1px solid var(--color-border);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  background: var(--color-surface-2);
-}
-.mno-modal-body {
-  padding: 24px;
-  overflow-y: auto;
-  flex: 1;
-}
-.mno-modal-footer {
-  padding: 14px 24px;
-  border-top: 1px solid var(--color-border);
-  background: var(--color-surface-2);
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-}
-
-/* ── Table Styling (Matching firewall/addresses & service-groups) ── */
-.mno-table {
-  width: 100%;
-  border-collapse: separate;
-  border-spacing: 0;
-  font-size: 0.8125rem;
-}
-.mno-table th {
-  background: var(--color-surface-3);
-  color: var(--text-secondary);
-  font-weight: 600;
-  font-size: 0.72rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--color-border);
-  text-align: left;
-}
-.mno-table td {
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--color-border);
-  vertical-align: middle;
-}
-.mno-table tbody tr:hover {
-  background: rgba(255,255,255,0.02);
-}
-
-/* ── Tabs Navigation ── */
-.ha-tabs {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 20px;
-  border-bottom: 1px solid var(--color-border);
-  padding-bottom: 12px;
-  flex-wrap: wrap;
-}
-.ha-tab {
-  padding: 8px 16px;
-  border-radius: var(--radius-sm);
-  font-size: 0.8125rem;
-  font-weight: 600;
-  color: var(--text-secondary);
-  background: var(--color-surface-2);
-  border: 1px solid var(--color-border);
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  transition: all var(--transition-fast);
-}
-.ha-tab:hover {
-  color: var(--text-primary);
-  background: var(--color-surface-3);
-  border-color: var(--color-border-bright);
-}
-.ha-tab.active {
-  background: rgba(0, 212, 255, 0.12);
-  color: var(--color-cyan);
-  border-color: rgba(0, 212, 255, 0.35);
-  font-weight: 600;
-}
-.ha-panel { display: none; }
-.ha-panel.active { display: block; }
-
-/* ── Summary Stats Grid ── */
-.ha-stats-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 16px;
-  margin-bottom: 24px;
-}
-
-/* ── Terminal Output Box ── */
-.conf-terminal {
-  background: #090d16;
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: var(--radius-md);
-  font-family: var(--font-mono, monospace);
-  font-size: 0.8rem;
-  padding: 18px;
-  max-height: 480px;
-  overflow-y: auto;
-  color: #6ee7b7;
-  line-height: 1.6;
-}
-</style>
-
-<!-- ── Page Header (Identical structure to firewall/addresses) ── -->
+<!-- ── Page Header ── -->
 <div class="page-header animate-in">
-  <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:16px;">
-    <div>
-      <div style="display:flex; align-items:center; gap:10px;">
-        <h1 class="page-title">High Availability &amp; Stateful Failover</h1>
-        <span class="badge badge-info" style="font-size:0.75rem;"><?= count($vips) ?> VIPs</span>
-        <span class="badge <?= !empty($settings['enabled']) ? 'badge-success' : 'badge-muted' ?>" style="font-size:0.75rem;">
-          <?= !empty($settings['enabled']) ? 'VRRP ACTIVE' : 'DISABLED' ?>
-        </span>
-        <span class="badge <?= (($settings['mode'] ?? 'master') === 'master') ? 'badge-cyan' : 'badge-purple' ?>" style="font-size:0.75rem;">
-          <?= strtoupper($settings['mode'] ?? 'MASTER') ?>
-        </span>
-      </div>
-      <p class="page-subtitle">Active-Passive VRRP cluster redundancy, Virtual IP (VIP) sharing, and conntrackd state table replication</p>
+  <div class="page-header-content">
+    <div style="display:flex; align-items:center; gap:10px;">
+      <h1 class="page-title">High Availability &amp; Stateful Failover</h1>
+      <span class="badge badge-info" style="font-size:0.75rem;"><?= count($vips) ?> VIPs</span>
+      <span class="badge <?= !empty($settings['enabled']) ? 'badge-success' : 'badge-muted' ?>" style="font-size:0.75rem;">
+        <?= !empty($settings['enabled']) ? 'VRRP ACTIVE' : 'DISABLED' ?>
+      </span>
+      <span class="badge <?= (($settings['mode'] ?? 'master') === 'master') ? 'badge-cyan' : 'badge-purple' ?>" style="font-size:0.75rem;">
+        <?= strtoupper($settings['mode'] ?? 'MASTER') ?>
+      </span>
     </div>
-    <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-      <?= \App\Libraries\ServiceStatus::widget(['keepalived', 'conntrackd']) ?>
-      <button type="button" class="btn btn-primary btn-sm" onclick="openAddVipModal()">
+    <p class="page-subtitle">Active-Passive VRRP cluster redundancy, Virtual IP (VIP) sharing, and conntrackd state table replication</p>
+  </div>
+  <div class="page-header-actions">
+    <?= \App\Libraries\ServiceStatus::widget(['keepalived', 'conntrackd']) ?>
+    <button type="button" class="btn btn-primary btn-sm" onclick="openAddVipModal()">
+      <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+      </svg>
+      Add Virtual IP
+    </button>
+
+    <form action="<?= base_url('ha/sync') ?>" method="POST" style="display:inline;">
+      <?= csrf_field() ?>
+      <button type="submit" class="btn btn-ghost btn-sm" title="Push full cluster configuration to peer node">
         <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+          <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
         </svg>
-        Add Virtual IP
+        Sync to Peer
       </button>
+    </form>
 
-      <form action="<?= base_url('ha/sync') ?>" method="POST" style="display:inline;">
-        <?= csrf_field() ?>
-        <button type="submit" class="btn btn-ghost btn-sm" title="Push full cluster configuration to peer node">
-          <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-          </svg>
-          Sync to Peer
-        </button>
-      </form>
-
-      <form action="<?= base_url('ha/failover') ?>" method="POST" style="display:inline;" onsubmit="return confirm('Initiate manual cluster failover? This will swap MASTER/BACKUP priority and transition active traffic to peer node.');">
-        <?= csrf_field() ?>
-        <button type="submit" class="btn btn-sm" style="background:rgba(245,158,11,0.18); border:1px solid rgba(245,158,11,0.4); color:#fcd34d;">
-          <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/>
-          </svg>
-          Trigger Failover
-        </button>
-      </form>
-
-      <a href="<?= base_url('firewall/rules') ?>" class="btn btn-ghost btn-sm">
+    <form action="<?= base_url('ha/failover') ?>" method="POST" style="display:inline;" onsubmit="return confirm('Initiate manual cluster failover? This will swap MASTER/BACKUP priority and transition active traffic to peer node.');">
+      <?= csrf_field() ?>
+      <button type="submit" class="btn btn-sm" style="background:var(--tone-amber-bg); border:1px solid var(--tone-amber-border); color:var(--tone-amber-fg);">
         <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+          <path stroke-linecap="round" stroke-linejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/>
         </svg>
-        Firewall Rules
-      </a>
-    </div>
+        Trigger Failover
+      </button>
+    </form>
+
+    <a href="<?= base_url('firewall/rules') ?>" class="btn btn-ghost btn-sm">
+      <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+      </svg>
+      Firewall Rules
+    </a>
   </div>
 </div>
 
@@ -338,8 +149,8 @@
 </div>
 
 <!-- ── Tabs Navigation ── -->
-<div class="ha-tabs animate-in animate-in-delay-1">
-  <button type="button" class="ha-tab active" id="tab-vips-btn" onclick="switchHaTab('vips', this)">
+<div class="tab-bar ha-tabs animate-in animate-in-delay-1">
+  <button type="button" class="tab-item ha-tab active" id="tab-vips-btn" onclick="switchHaTab('vips', this)">
     <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
       <rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/>
     </svg>
@@ -347,28 +158,28 @@
     <span class="badge badge-info" style="font-size:0.65rem; padding:1px 6px;"><?= count($vips) ?></span>
   </button>
 
-  <button type="button" class="ha-tab" id="tab-vrrp-btn" onclick="switchHaTab('vrrp', this)">
+  <button type="button" class="tab-item ha-tab" id="tab-vrrp-btn" onclick="switchHaTab('vrrp', this)">
     <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
       <path stroke-linecap="round" stroke-linejoin="round" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"/>
     </svg>
     VRRP Protocol Settings
   </button>
 
-  <button type="button" class="ha-tab" id="tab-conntrack-btn" onclick="switchHaTab('conntrack', this)">
+  <button type="button" class="tab-item ha-tab" id="tab-conntrack-btn" onclick="switchHaTab('conntrack', this)">
     <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
       <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
     </svg>
     State Replication (`conntrackd`)
   </button>
 
-  <button type="button" class="ha-tab" id="tab-sync-btn" onclick="switchHaTab('sync', this)">
+  <button type="button" class="tab-item ha-tab" id="tab-sync-btn" onclick="switchHaTab('sync', this)">
     <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
       <path stroke-linecap="round" stroke-linejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
     </svg>
     Config Synchronization
   </button>
 
-  <button type="button" class="ha-tab" id="tab-preview-btn" onclick="switchHaTab('preview', this)">
+  <button type="button" class="tab-item ha-tab" id="tab-preview-btn" onclick="switchHaTab('preview', this)">
     <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
       <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
     </svg>

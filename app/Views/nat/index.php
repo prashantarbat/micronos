@@ -25,30 +25,42 @@ $__schedTip = static function (string $n) use ($__schedMap): string {
 
 <!-- ── Page Header ── -->
 <div class="page-header animate-in">
-  <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:16px;">
-    <div>
-      <h1 class="page-title">Network Address Translation (NAT)</h1>
-      <p class="page-subtitle">Named NAT objects referenced from firewall policies — destination NAT (DNAT rules) and source NAT (SNAT pools)</p>
+  <div class="page-header-content">
+    <div class="page-breadcrumb">
+      <span>Firewall</span>
+      <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+      <span>NAT Policy</span>
     </div>
-    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
-      <button type="button" class="btn btn-ghost" data-compact-toggle onclick="micronToggleCompact()" aria-pressed="false" title="Toggle compact (stacked) table view">
-        <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"/></svg>
-        <span data-compact-label>Compact view</span>
-      </button>
-      <a href="<?= base_url('firewall/rules') ?>" class="btn btn-ghost">Firewall Policies</a>
-      <?php if (session()->get('is_superadmin') || in_array('nat.apply', session()->get('permissions') ?? [])): ?>
-        <form method="POST" action="<?= base_url('nat/apply') ?>">
-          <?= csrf_field() ?>
-          <input type="hidden" name="tab" value="<?= esc($activeTab) ?>">
-          <button type="submit" class="btn btn-success">
-            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-            </svg>
-            Apply Changes
-          </button>
-        </form>
-      <?php endif; ?>
+    <div style="display:flex; align-items:center; gap:12px; margin-top:4px;">
+      <div class="page-title-icon" style="background:var(--tone-cyan-bg); color:var(--tone-cyan-fg); border:1px solid var(--tone-cyan-border);">
+        <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/>
+        </svg>
+      </div>
+      <div>
+        <h1 class="page-title">Network Address Translation (NAT)</h1>
+        <p class="page-subtitle">Named NAT objects referenced from firewall policies &mdash; destination NAT (DNAT rules), source NAT (SNAT pools), and NPTv6</p>
+      </div>
     </div>
+  </div>
+  <div class="page-header-actions">
+    <button type="button" class="btn btn-ghost btn-sm" data-compact-toggle onclick="micronToggleCompact()" aria-pressed="false" title="Toggle compact (stacked) table view">
+      <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"/></svg>
+      <span data-compact-label>Compact view</span>
+    </button>
+    <a href="<?= base_url('firewall/rules') ?>" class="btn btn-ghost btn-sm">Firewall Policies</a>
+    <?php if (session()->get('is_superadmin') || in_array('nat.apply', session()->get('permissions') ?? [])): ?>
+      <form method="POST" action="<?= base_url('nat/apply') ?>" style="display:inline;">
+        <?= csrf_field() ?>
+        <input type="hidden" name="tab" value="<?= esc($activeTab) ?>">
+        <button type="submit" class="btn btn-success btn-sm">
+          <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+          </svg>
+          Apply Changes
+        </button>
+      </form>
+    <?php endif; ?>
   </div>
 </div>
 
@@ -60,23 +72,23 @@ $__schedTip = static function (string $n) use ($__schedMap): string {
 <?php endif; ?>
 
 <!-- ── Tab Bar ── -->
-<div class="rt-tabs animate-in">
-  <button type="button" class="rt-tab <?= $activeTab === 'dnat' ? 'active' : '' ?>" onclick="switchTab('dnat', this)">
+<div class="tab-bar rt-tabs animate-in">
+  <button type="button" class="tab-item rt-tab <?= $activeTab === 'dnat' ? 'active' : '' ?>" onclick="switchTab('dnat', this)">
     <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
     Destination NAT
-    <span class="rt-tab-count"><?= count($dnatRules) ?></span>
+    <span class="tab-badge rt-tab-count"><?= count($dnatRules) ?></span>
   </button>
-  <button type="button" class="rt-tab <?= $activeTab === 'snat' ? 'active' : '' ?>" onclick="switchTab('snat', this)">
+  <button type="button" class="tab-item rt-tab <?= $activeTab === 'snat' ? 'active' : '' ?>" onclick="switchTab('snat', this)">
     <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4"/></svg>
     SNAT Pools
-    <span class="rt-tab-count"><?= count($snatPools) ?></span>
+    <span class="tab-badge rt-tab-count"><?= count($snatPools) ?></span>
   </button>
-  <button type="button" class="rt-tab <?= $activeTab === 'npt' ? 'active' : '' ?>" onclick="switchTab('npt', this)">
+  <button type="button" class="tab-item rt-tab <?= $activeTab === 'npt' ? 'active' : '' ?>" onclick="switchTab('npt', this)">
     <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9"/></svg>
     NPTv6
-    <span class="rt-tab-count"><?= count($nptRules) ?></span>
+    <span class="tab-badge rt-tab-count"><?= count($nptRules) ?></span>
   </button>
-  <button type="button" class="rt-tab <?= $activeTab === 'settings' ? 'active' : '' ?>" onclick="switchTab('settings', this)">
+  <button type="button" class="tab-item rt-tab <?= $activeTab === 'settings' ? 'active' : '' ?>" onclick="switchTab('settings', this)">
     <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
     Settings
   </button>

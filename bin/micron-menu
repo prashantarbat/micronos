@@ -1,0 +1,1145 @@
+#!/bin/bash
+# ==============================================================================
+# Micron OS — pfSense-Style Interactive Console Management Menu
+# ==============================================================================
+# Provides console and SSH operators with an interactive management interface
+# mirroring enterprise appliances (pfSense, OPNsense, FortiOS).
+# Open Source under Apache License 2.0
+# ==============================================================================
+set -e
+
+# Prevent re-entrant menu loops in child shells
+export IN_MICRON_MENU=1
+
+# Terminal colors
+BOLD='\033[1m'
+CYAN='\033[0;36m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+NC='\033[0m'
+
+app_root="/usr/local/micron"
+[ -d "$app_root" ] || app_root="$(cd "$(dirname "$0")/.." && pwd)"
+
+# Privilege helper
+run_root() {
+    if [ "$EUID" -eq 0 ]; then
+        "$@"
+    elif command -v sudo >/dev/null 2>&1; then
+        sudo "$@"
+    else
+        "$@"
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# NUM LOCK Enforcement Helper (Always ON at CLI layer)
+# ------------------------------------------------------------------------------
+ensure_numlock() {
+    if command -v setleds >/dev/null 2>&1; then
+        setleds -D +num 2>/dev/null || true
+        if [ "${EUID:-$(id -u)}" -eq 0 ]; then
+            for tty in /dev/tty[1-6] /dev/tty0 /dev/console; do
+                if [ -e "$tty" ] && [ -r "$tty" ] && [ -w "$tty" ]; then
+                    { setleds -D +num < "$tty"; } 2>/dev/null || true
+                fi
+            done
+        fi
+    fi
+}
+
+# Function to refresh network and slot info
+get_network_info() {
+    HOSTNAME=$(hostname 2>/dev/null || echo "micron-os")
+    if [ "$HOSTNAME" = "debian" ] || [ -z "$HOSTNAME" ]; then
+        HOSTNAME="micron-os"
+        run_root hostname "$HOSTNAME" 2>/dev/null || true
+        run_root bash -c 'echo "micron-os" > /etc/hostname' 2>/dev/null || true
+    fi
+
+    # 1. Detect WAN Interface
+    WAN_IF=""
+    if [ -f /etc/micron/network_init.json ]; then
+        WAN_IF=$(grep -o '"wan_interface"[[:space:]]*:[[:space:]]*"[^"]*"' /etc/micron/network_init.json 2>/dev/null | cut -d'"' -f4 || true)
+    fi
+    if [ -z "$WAN_IF" ] || [ ! -d "/sys/class/net/$WAN_IF" ]; then
+        WAN_IF=$(ip route show default 2>/dev/null | awk '/default/ {print $5}' | head -n1 || true)
+    fi
+    if [ -z "$WAN_IF" ] && [ -d /sys/class/net ]; then
+        WAN_IF=$(ls -1 /sys/class/net 2>/dev/null | grep -E -v '^(lo|virbr|docker|veth|wg|tun)' | head -n1 || echo "eth0")
+    fi
+    [ -n "$WAN_IF" ] || WAN_IF="eth0"
+
+    # 2. Detect LAN Interface
+    LAN_IF=""
+    if [ -f /etc/micron/network_init.json ]; then
+        LAN_IF=$(grep -o '"lan_interface"[[:space:]]*:[[:space:]]*"[^"]*"' /etc/micron/network_init.json 2>/dev/null | cut -d'"' -f4 || true)
+    fi
+    if [ -z "$LAN_IF" ] || [ ! -d "/sys/class/net/$LAN_IF" ]; then
+        if [ -d /sys/class/net ]; then
+            LAN_IF=$(ls -1 /sys/class/net 2>/dev/null | grep -E -v '^(lo|virbr|docker|veth|wg|tun)' | grep -v "^${WAN_IF}$" | head -n1 || true)
+        fi
+    fi
+    [ -n "$LAN_IF" ] || LAN_IF="$WAN_IF"
+
+    # 3. Resolve WAN IP (filter 169.254, settle for up to 3s if DHCP in flight)
+    WAN_IP=$(ip -4 addr show dev "$WAN_IF" 2>/dev/null | awk '/inet / && !/169\.254/ {print $2}' | head -n1 || true)
+    if [ -z "$WAN_IP" ]; then
+        for _ in 1 2 3; do
+            sleep 1
+            WAN_IP=$(ip -4 addr show dev "$WAN_IF" 2>/dev/null | awk '/inet / && !/169\.254/ {print $2}' | head -n1 || true)
+            [ -n "$WAN_IP" ] && break
+        done
+    fi
+    [ -n "$WAN_IP" ] || WAN_IP="DHCP (Requesting...)"
+
+    # 4. Resolve LAN IP (ensure clean static assignment, remove 169.254 link-local)
+    LAN_IP=$(ip -4 addr show dev "$LAN_IF" 2>/dev/null | awk '/inet / && !/169\.254/ {print $2}' | head -n1 || true)
+    if [ -z "$LAN_IP" ]; then
+        DB_LAN_IP=""
+        if [ -f "/usr/local/micron/writable/micron_config.db" ] && command -v sqlite3 >/dev/null 2>&1; then
+            DB_LAN_IP=$(sqlite3 /usr/local/micron/writable/micron_config.db "SELECT ipv4_address || '/' || ipv4_netmask FROM interfaces WHERE id='lan' AND enabled=1;" 2>/dev/null || true)
+        fi
+        if [ -n "$DB_LAN_IP" ] && [ "$DB_LAN_IP" != "/" ]; then
+            TARGET_LAN_IP="$DB_LAN_IP"
+        else
+            TARGET_LAN_IP="10.10.10.10/24"
+        fi
+
+        if [ "$LAN_IF" != "$WAN_IF" ]; then
+            LL_ADDR=$(ip -4 addr show dev "$LAN_IF" 2>/dev/null | awk '/inet 169\.254/ {print $2}' | head -n1 || true)
+            if [ -n "$LL_ADDR" ]; then
+                run_root ip addr del "$LL_ADDR" dev "$LAN_IF" 2>/dev/null || true
+            fi
+            run_root ip addr add "$TARGET_LAN_IP" dev "$LAN_IF" 2>/dev/null || true
+            run_root ip link set dev "$LAN_IF" up 2>/dev/null || true
+            LAN_IP=$(ip -4 addr show dev "$LAN_IF" 2>/dev/null | awk '/inet / && !/169\.254/ {print $2}' | head -n1 || echo "$TARGET_LAN_IP")
+        else
+            LAN_IP="$TARGET_LAN_IP"
+        fi
+    fi
+
+    # 5. Management IP
+    MGMT_IP=""
+    LAN_CLEAN=$(echo "$LAN_IP" | cut -d/ -f1)
+    WAN_CLEAN=$(echo "$WAN_IP" | cut -d/ -f1)
+
+    if [ -n "$LAN_CLEAN" ] && [[ ! "$LAN_CLEAN" =~ ^(169\.254|DHCP) ]]; then
+        MGMT_IP="$LAN_CLEAN"
+    elif [ -n "$WAN_CLEAN" ] && [[ ! "$WAN_CLEAN" =~ ^(169\.254|DHCP) ]]; then
+        MGMT_IP="$WAN_CLEAN"
+    fi
+    [ -n "$MGMT_IP" ] || MGMT_IP="10.10.10.10"
+
+    # 6. Slot Info (examine current mounted root partition)
+    ROOT_DEV=$(findmnt -n -o SOURCE / 2>/dev/null || true)
+    ACTIVE_SLOT="A"
+    if [[ "$ROOT_DEV" =~ sda4|nvme0n1p4|vda4 ]] || [ "$ROOT_DEV" = "/dev/disk/by-label/MICRON_ROOT_B" ]; then
+        ACTIVE_SLOT="B"
+    elif [[ "$ROOT_DEV" =~ sda3|nvme0n1p3|vda3 ]] || [ "$ROOT_DEV" = "/dev/disk/by-label/MICRON_ROOT_A" ]; then
+        ACTIVE_SLOT="A"
+    elif [ -x /usr/local/micron/installer/micron-slot ]; then
+        s=$(/usr/local/micron/installer/micron-slot active 2>/dev/null || echo "a")
+        ACTIVE_SLOT="${s^^}"
+    fi
+
+    SLOT_STATUS="Healthy"
+    if [ -x /usr/local/micron/installer/micron-slot ]; then
+        fail_cnt=$(/usr/local/micron/installer/micron-slot fail-count "${ACTIVE_SLOT,,}" 2>/dev/null || echo "0")
+        if [ "$fail_cnt" -gt 0 ]; then
+            SLOT_STATUS="Unverified (${fail_cnt} failures)"
+        fi
+    fi
+
+    # 7. Version & Architecture Resolution (following project VERSION mechanism)
+    OS_VERSION=""
+    if [ -f "$app_root/VERSION" ]; then
+        OS_VERSION=$(head -n1 "$app_root/VERSION" | tr -d '[:space:]')
+    elif [ -f "/usr/local/micron/VERSION" ]; then
+        OS_VERSION=$(head -n1 "/usr/local/micron/VERSION" | tr -d '[:space:]')
+    elif [ -f "/etc/micron/VERSION" ]; then
+        OS_VERSION=$(head -n1 "/etc/micron/VERSION" | tr -d '[:space:]')
+    elif [ -f "/etc/os-release" ]; then
+        OS_VERSION=$(grep -E '^VERSION_ID=' /etc/os-release 2>/dev/null | cut -d= -f2 | tr -d '"' || true)
+    fi
+    [ -n "$OS_VERSION" ] || OS_VERSION="0.1.25"
+
+    OS_ARCH=$(uname -m 2>/dev/null || echo "amd64")
+    [ "$OS_ARCH" = "x86_64" ] && OS_ARCH="amd64"
+}
+
+print_header() {
+    ensure_numlock
+    clear 2>/dev/null || true
+    echo -e "${CYAN}"
+    cat << 'BANNER'
+
+┌╦═╦═╦┐ ┌═╤╦╤═┐ ┌╦═══╦┐ ┌╦═══╦┐ ┌╦═══╦┐ ┌╦═╗ ╦┐      ┌╦═══╦┐ ┌╦═══╦┐
+│║ ║ ║│   │║│   │║      │╠══╦╩┘ │║   ║│ │║ ║ ║│      │║   ║│ └╩═══╦┐
+└╩   ╩┘ └═╧╩╧═┘ └╩═══╩┘ └╩  ╚═┘ └╩═══╩┘ └╩ ╚═╩┘      └╩═══╩┘ └╩═══╩┘
+ Enterprise Linux Firewall & Network Appliance
+BANNER
+    echo -e "${NC}"
+
+    get_network_info
+
+    echo -e "${BOLD}*** Welcome to Micron OS ${OS_VERSION} (${OS_ARCH}) on ${HOSTNAME} ***${NC}\n"
+    printf "  %-16s -> %-12s -> %s\n" "WAN (wan)" "$WAN_IF" "v4: $WAN_IP"
+    printf "  %-16s -> %-12s -> %s\n" "LAN (lan)" "$LAN_IF" "v4: $LAN_IP"
+    printf "  %-16s -> %s\n" "Web Management" "http://${MGMT_IP}/ (Port 80)"
+    printf "  %-16s -> Slot %s (%s)\n\n" "Active Root Slot" "$ACTIVE_SLOT" "$SLOT_STATUS"
+
+    echo " 0) Logout (SSH only)                  9) System Monitor (htop)"
+    echo " 1) Assign Interfaces                 10) Filter & System Logs"
+    echo " 2) Set interface(s) IP address       11) Restart Web GUI (Apache2)"
+    echo " 3) Reset Web GUI password            12) PHP Shell / App Console"
+    echo " 4) Reset to factory defaults         13) Update & Firmware Manager"
+    echo " 5) Reboot system                     14) Toggle SSH Service"
+    echo " 6) Halt system (Power off)           15) Restore Configuration Backup"
+    echo " 7) Ping host                         16) Restart micrond & PHP-FPM"
+    echo " 8) Shell (Root Bash Prompt)          17) A/B Boot Slot Rescue & Switch"
+    echo "                                      18) Bridge Interfaces (br0 Switch)"
+    echo ""
+}
+
+pause() {
+    echo ""
+    read -r -p "Press [Enter] to return to main menu..."
+}
+
+# ------------------------------------------------------------------------------
+# Option 1: pfSense-Style Interface Assignment Handler
+# ------------------------------------------------------------------------------
+assign_interfaces_pfsense() {
+    echo -e "\n${BOLD}=== 1) Assign Interfaces (pfSense-Style) ===${NC}\n"
+
+    # Enumerate physical & VLAN network interfaces
+    get_interfaces_table() {
+        echo -e "${BOLD}Valid network interfaces:${NC}"
+        printf "%-10s %-19s %-8s %-14s %s\n" "Interface" "MAC Address" "Link" "Speed" "Driver / Type"
+        echo "--------------------------------------------------------------------------------"
+        
+        for ifpath in /sys/class/net/*; do
+            [ -d "$ifpath" ] || continue
+            local dev
+            dev=$(basename "$ifpath")
+            [[ "$dev" =~ ^(lo|virbr|docker|veth|wg|tun) ]] && continue
+            
+            local mac="00:00:00:00:00:00"
+            [ -f "$ifpath/address" ] && mac=$(cat "$ifpath/address" 2>/dev/null || echo "00:00:00:00:00:00")
+            
+            local oper="DOWN"
+            oper=$(ip -br link show dev "$dev" 2>/dev/null | awk '{print $2}' || echo "UNKNOWN")
+            
+            local spd="Auto / Virtual"
+            if [ -f "$ifpath/speed" ]; then
+                local s
+                s=$(cat "$ifpath/speed" 2>/dev/null || echo "-1")
+                if [ -n "$s" ] && [ "$s" -gt 0 ] 2>/dev/null; then
+                    spd="${s} Mbps"
+                fi
+            fi
+            
+            local drv="Virtual / Generic"
+            if [ -d "$ifpath/device/driver" ]; then
+                drv=$(basename "$(readlink -f "$ifpath/device/driver" 2>/dev/null)" 2>/dev/null || echo "Generic")
+            elif [[ "$dev" =~ \.[0-9]+$ ]]; then
+                drv="802.1Q VLAN"
+            elif [ -d "$ifpath/bridge" ]; then
+                drv="Layer 2 Bridge"
+            fi
+
+            printf "%-10s %-19s %-8s %-14s %s\n" "$dev" "$mac" "$oper" "$spd" "$drv"
+        done
+        echo ""
+    }
+
+    get_interfaces_table
+
+    # Step 1: Optional VLAN Setup
+    read -r -p "Should VLANs be configured now [y/N]? " DO_VLAN
+    if [ "$DO_VLAN" = "y" ] || [ "$DO_VLAN" = "Y" ]; then
+        read -r -p "Enter parent interface for VLAN (e.g. eth0): " VLAN_PARENT
+        if [ -n "$VLAN_PARENT" ] && [ -d "/sys/class/net/$VLAN_PARENT" ]; then
+            read -r -p "Enter 802.1Q VLAN Tag (1-4094): " VLAN_ID
+            if [[ "$VLAN_ID" =~ ^[0-9]+$ ]] && [ "$VLAN_ID" -ge 1 ] && [ "$VLAN_ID" -le 4094 ]; then
+                VLAN_DEV="${VLAN_PARENT}.${VLAN_ID}"
+                run_root ip link add link "$VLAN_PARENT" name "$VLAN_DEV" type vlan id "$VLAN_ID" 2>/dev/null || true
+                run_root ip link set dev "$VLAN_DEV" up 2>/dev/null || true
+                echo -e "${GREEN}[OK] Created VLAN interface: ${VLAN_DEV}${NC}\n"
+                get_interfaces_table
+            else
+                echo -e "${RED}Invalid VLAN tag. Skipping VLAN creation.${NC}"
+            fi
+        else
+            echo -e "${RED}Parent interface not found. Skipping VLAN creation.${NC}"
+        fi
+    fi
+
+    # Auto-detection list of physical ports
+    available_nics=($(ls -1 /sys/class/net 2>/dev/null | grep -E -v '^(lo|virbr|docker|veth|wg|tun|br)'))
+
+    NEW_WAN=""
+    NEW_LAN=""
+    NEW_OPT1=""
+    NEW_OPT2=""
+    BRIDGE_SLAVES=()
+    IS_BRIDGE_LAN=0
+
+    # Step 2: Check for Standard Multi-Port Router Topology
+    # First physical NIC is WAN; remaining physical ports bundled into switch bridge br0
+    if [ "${#available_nics[@]}" -ge 2 ]; then
+        echo -e "${CYAN}--- Standard Multi-Port Router Configuration Detected ---${NC}"
+        echo -e "Physical Interfaces Found: ${BOLD}${available_nics[*]}${NC}"
+        echo -e "  • First Physical NIC (WAN):  ${BOLD}${available_nics[0]}${NC}"
+        remaining=("${available_nics[@]:1}")
+        echo -e "  • Switch Ports (LAN Bridge): ${BOLD}br0${NC} containing [${remaining[*]}]"
+        echo ""
+        read -r -p "Apply standard router setup (WAN=${available_nics[0]}, LAN=br0 Switch) [Y/n]? " STD_ROUTER_CHOICE
+        if [ "$STD_ROUTER_CHOICE" != "n" ] && [ "$STD_ROUTER_CHOICE" != "N" ]; then
+            IS_BRIDGE_LAN=1
+            NEW_WAN="${available_nics[0]}"
+            NEW_LAN="br0"
+            BRIDGE_SLAVES=("${remaining[@]}")
+        fi
+    fi
+
+    if [ "$IS_BRIDGE_LAN" -eq 0 ]; then
+        # Step 2b: Manual WAN Assignment
+        echo ""
+        echo "Enter the WAN interface name or 'a' for auto-detection:"
+        read -r -p "(or press Enter to keep '${WAN_IF}'): " NEW_WAN
+        if [ "$NEW_WAN" = "a" ] || [ "$NEW_WAN" = "A" ]; then
+            NEW_WAN="${available_nics[0]:-eth0}"
+            echo "Auto-detected WAN: $NEW_WAN"
+        else
+            NEW_WAN=${NEW_WAN:-$WAN_IF}
+        fi
+
+        # Step 3: Manual LAN Assignment
+        echo ""
+        remaining_after_wan=()
+        for cand in "${available_nics[@]}"; do
+            [ "$cand" != "$NEW_WAN" ] && remaining_after_wan+=("$cand")
+        done
+
+        if [ "${#remaining_after_wan[@]}" -ge 2 ]; then
+            echo "Multiple physical interfaces remain: [${remaining_after_wan[*]}]"
+            read -r -p "Bundle all remaining interfaces into a switch bridge (br0) for LAN [Y/n]? " BUNDLE_REMAINING
+            if [ "$BUNDLE_REMAINING" != "n" ] && [ "$BUNDLE_REMAINING" != "N" ]; then
+                IS_BRIDGE_LAN=1
+                NEW_LAN="br0"
+                BRIDGE_SLAVES=("${remaining_after_wan[@]}")
+            fi
+        fi
+
+        if [ "$IS_BRIDGE_LAN" -eq 0 ]; then
+            echo "Enter the LAN interface name or 'a' for auto-detection:"
+            read -r -p "(or press Enter to keep '${LAN_IF}', or type 'none'): " NEW_LAN
+            if [ "$NEW_LAN" = "a" ] || [ "$NEW_LAN" = "A" ]; then
+                for cand in "${available_nics[@]}"; do
+                    if [ "$cand" != "$NEW_WAN" ]; then
+                        NEW_LAN="$cand"
+                        break
+                    fi
+                done
+                [ -n "$NEW_LAN" ] || NEW_LAN="$NEW_WAN"
+                echo "Auto-detected LAN: $NEW_LAN"
+            else
+                NEW_LAN=${NEW_LAN:-$LAN_IF}
+            fi
+
+            # Check if user explicitly typed br0
+            if [ "$NEW_LAN" = "br0" ]; then
+                IS_BRIDGE_LAN=1
+                read -r -p "Enter member switch ports for br0 (e.g. eth1 eth2): " SLAVES_IN
+                BRIDGE_SLAVES=($SLAVES_IN)
+            fi
+        fi
+
+        # Step 4: Optional OPT Interfaces
+        if [ "$IS_BRIDGE_LAN" -eq 0 ]; then
+            echo ""
+            read -r -p "Enter the Optional 1 (OPT1) interface name (or press Enter if none): " NEW_OPT1
+            NEW_OPT2=""
+            if [ -n "$NEW_OPT1" ] && [ "$NEW_OPT1" != "none" ]; then
+                read -r -p "Enter the Optional 2 (OPT2) interface name (or press Enter if none): " NEW_OPT2
+            fi
+        fi
+    fi
+
+    # Step 5: Summary & Confirmation
+    echo -e "\n${BOLD}The interfaces will be assigned as follows:${NC}"
+    echo "  WAN  -> ${NEW_WAN} (DHCP)"
+    if [ "$IS_BRIDGE_LAN" -eq 1 ]; then
+        echo "  LAN  -> ${NEW_LAN} (10.10.10.10/24) [Layer 2 Switch Bridge]"
+        echo "          Member Switch Ports: [${BRIDGE_SLAVES[*]}]"
+        echo "          Spanning Tree (STP): Enabled (IEEE 802.1D)"
+    else
+        echo "  LAN  -> ${NEW_LAN:-none} (10.10.10.10/24)"
+    fi
+    [ -n "$NEW_OPT1" ] && [ "$NEW_OPT1" != "none" ] && echo "  OPT1 -> ${NEW_OPT1}"
+    [ -n "$NEW_OPT2" ] && [ "$NEW_OPT2" != "none" ] && echo "  OPT2 -> ${NEW_OPT2}"
+    echo ""
+    read -r -p "Do you want to proceed [Y/n]? " CONFIRM_ASSIGN
+    if [ "$CONFIRM_ASSIGN" = "n" ] || [ "$CONFIRM_ASSIGN" = "N" ]; then
+        echo "Interface assignment aborted."
+        pause
+        return
+    fi
+
+    echo -e "\n${YELLOW}Applying interface assignment...${NC}"
+
+    # Build bridge slaves JSON array
+    local slaves_json="[]"
+    if [ "$IS_BRIDGE_LAN" -eq 1 ] && [ "${#BRIDGE_SLAVES[@]}" -gt 0 ]; then
+        slaves_json=$(printf '["%s"]' "$(IFS='","'; echo "${BRIDGE_SLAVES[*]}")")
+    fi
+
+    # Write /etc/micron/network_init.json
+    run_root mkdir -p /etc/micron
+    run_root bash -c "cat << EOF > /etc/micron/network_init.json
+{
+  \"wan_interface\": \"$NEW_WAN\",
+  \"lan_interface\": \"$NEW_LAN\",
+  \"lan_is_bridge\": $([ "$IS_BRIDGE_LAN" -eq 1 ] && echo "true" || echo "false"),
+  \"bridge_slaves\": $slaves_json,
+  \"opt1_interface\": \"$NEW_OPT1\",
+  \"opt2_interface\": \"$NEW_OPT2\",
+  \"configured\": true
+}
+EOF"
+
+    # Write /etc/network/interfaces
+    run_root bash -c "cat << EOF > /etc/network/interfaces
+# Micron OS Network Interface Configuration
+auto lo
+iface lo inet loopback
+
+allow-hotplug $NEW_WAN
+iface $NEW_WAN inet dhcp
+EOF"
+
+    if [ -n "$NEW_LAN" ] && [ "$NEW_LAN" != "none" ]; then
+        if [ "$IS_BRIDGE_LAN" -eq 1 ]; then
+            run_root bash -c "cat << EOF >> /etc/network/interfaces
+
+auto $NEW_LAN
+allow-hotplug $NEW_LAN
+iface $NEW_LAN inet static
+    address 10.10.10.10
+    netmask 255.255.255.0
+    bridge_ports ${BRIDGE_SLAVES[*]}
+    bridge_stp on
+    bridge_fd 2
+EOF"
+            for slave in "${BRIDGE_SLAVES[@]}"; do
+                run_root bash -c "cat << EOF >> /etc/network/interfaces
+
+allow-hotplug $slave
+iface $slave inet manual
+EOF"
+            done
+        else
+            run_root bash -c "cat << EOF >> /etc/network/interfaces
+
+auto $NEW_LAN
+allow-hotplug $NEW_LAN
+iface $NEW_LAN inet static
+    address 10.10.10.10
+    netmask 255.255.255.0
+EOF"
+        fi
+    fi
+
+    if [ -n "$NEW_OPT1" ] && [ "$NEW_OPT1" != "none" ]; then
+        run_root bash -c "cat << EOF >> /etc/network/interfaces
+
+allow-hotplug $NEW_OPT1
+iface $NEW_OPT1 inet manual
+EOF"
+    fi
+
+    if [ -n "$NEW_OPT2" ] && [ "$NEW_OPT2" != "none" ]; then
+        run_root bash -c "cat << EOF >> /etc/network/interfaces
+
+allow-hotplug $NEW_OPT2
+iface $NEW_OPT2 inet manual
+EOF"
+    fi
+
+    # Update SQLite database if present
+    for dbpath in /usr/local/micron/writable/micron_config.db "$app_root/writable/micron_config.db"; do
+        if [ -f "$dbpath" ] && command -v sqlite3 >/dev/null 2>&1; then
+            run_root sqlite3 "$dbpath" "UPDATE interfaces SET physical_device='$NEW_WAN' WHERE id='wan';" 2>/dev/null || true
+            if [ -n "$NEW_LAN" ] && [ "$NEW_LAN" != "none" ]; then
+                run_root sqlite3 "$dbpath" "UPDATE interfaces SET physical_device='$NEW_LAN' WHERE id='lan';" 2>/dev/null || true
+            fi
+            if [ "$IS_BRIDGE_LAN" -eq 1 ]; then
+                run_root sqlite3 "$dbpath" "INSERT OR REPLACE INTO interface_bridges (id, name, slaves, stp, forward_delay, mtu, description, created_at, updated_at) VALUES ('$NEW_LAN', 'LAN Switch Bridge', '$slaves_json', 1, 2, 1500, 'Standard Router Multi-Port LAN Bridge', datetime('now'), datetime('now'));" 2>/dev/null || true
+            fi
+        fi
+    done
+
+    # Bring interfaces up and configure runtime kernel networking
+    run_root ip link set dev "$NEW_WAN" up 2>/dev/null || true
+
+    if [ "$IS_BRIDGE_LAN" -eq 1 ]; then
+        # Create kernel bridge
+        run_root ip link add name "$NEW_LAN" type bridge 2>/dev/null || true
+        run_root ip link set dev "$NEW_LAN" type bridge stp_state 1 forward_delay 200 2>/dev/null || true
+        run_root ip link set dev "$NEW_LAN" mtu 1500 2>/dev/null || true
+        
+        # Enslave physical member ports and flush any IP from slaves
+        for slave in "${BRIDGE_SLAVES[@]}"; do
+            run_root ip addr flush dev "$slave" 2>/dev/null || true
+            run_root ip link set dev "$slave" master "$NEW_LAN" 2>/dev/null || true
+            run_root ip link set dev "$slave" up 2>/dev/null || true
+        done
+        run_root ip link set dev "$NEW_LAN" up 2>/dev/null || true
+        run_root ip addr replace 10.10.10.10/24 dev "$NEW_LAN" 2>/dev/null || true
+    elif [ -n "$NEW_LAN" ] && [ "$NEW_LAN" != "none" ]; then
+        run_root ip link set dev "$NEW_LAN" up 2>/dev/null || true
+        if [ "$NEW_LAN" != "$NEW_WAN" ]; then
+            LL_ADDR=$(ip -4 addr show dev "$NEW_LAN" 2>/dev/null | awk '/inet 169\.254/ {print $2}' | head -n1 || true)
+            [ -n "$LL_ADDR" ] && run_root ip addr del "$LL_ADDR" dev "$NEW_LAN" 2>/dev/null || true
+            run_root ip addr replace 10.10.10.10/24 dev "$NEW_LAN" 2>/dev/null || true
+        fi
+    fi
+
+    # Trigger DHCP on WAN asynchronously so menu does not stall
+    run_root dhclient -r "$NEW_WAN" 2>/dev/null || true
+    run_root dhclient -nw "$NEW_WAN" 2>/dev/null || true
+
+    # Refresh banner
+    if [ -x /usr/local/bin/micron-banner ]; then
+        run_root /usr/local/bin/micron-banner || true
+    fi
+
+    ensure_numlock
+    echo -e "${GREEN}[OK] Interface assignment applied successfully!${NC}"
+    echo -e "WAN -> ${NEW_WAN} (DHCP requested)"
+    if [ "$IS_BRIDGE_LAN" -eq 1 ]; then
+        echo -e "LAN -> ${NEW_LAN} (10.10.10.10/24) [Switch Bridge over ${BRIDGE_SLAVES[*]}]"
+    elif [ -n "$NEW_LAN" ] && [ "$NEW_LAN" != "none" ]; then
+        echo -e "LAN -> ${NEW_LAN} (10.10.10.10/24)"
+    fi
+    pause
+}
+
+# ------------------------------------------------------------------------------
+# Option 18: Layer 2 Bridge Interface (br0 Switch) CRUD Manager
+# ------------------------------------------------------------------------------
+manage_bridges_menu() {
+    while true; do
+        clear 2>/dev/null || true
+        echo -e "${CYAN}"
+        echo "================================================================================"
+        echo "              Micron OS - Layer 2 Bridge & Switch Port Manager"
+        echo "================================================================================"
+        echo -e "${NC}"
+
+        # Discover current bridges from kernel
+        local bridges=()
+        for br in /sys/class/net/*; do
+            [ -d "$br/bridge" ] || continue
+            bridges+=("$(basename "$br")")
+        done
+
+        echo -e "${BOLD}Current Active Bridge Interfaces:${NC}"
+        if [ "${#bridges[@]}" -eq 0 ]; then
+            echo -e "  ${YELLOW}(No active bridges configured in system)${NC}\n"
+        else
+            printf "  %-10s %-12s %-8s %s\n" "Bridge" "STP Status" "MTU" "Member Switch Ports"
+            echo "  ----------------------------------------------------------------------------"
+            for br in "${bridges[@]}"; do
+                local stp="OFF"
+                [ -f "/sys/class/net/$br/bridge/stp_state" ] && [ "$(cat "/sys/class/net/$br/bridge/stp_state" 2>/dev/null)" = "1" ] && stp="ON (802.1D)"
+                local mtu="1500"
+                [ -f "/sys/class/net/$br/mtu" ] && mtu=$(cat "/sys/class/net/$br/mtu" 2>/dev/null)
+                local slaves=()
+                for sl in /sys/class/net/$br/brif/*; do
+                    [ -d "$sl" ] || continue
+                    slaves+=("$(basename "$sl")")
+                done
+                local slave_str="${slaves[*]}"
+                [ -n "$slave_str" ] || slave_str="none"
+                printf "  %-10s %-12s %-8s [%s]\n" "$br" "$stp" "$mtu" "$slave_str"
+            done
+            echo ""
+        fi
+
+        echo "Actions:"
+        echo "  1) List Bridge Interfaces & Connected Ports"
+        echo "  2) Create New Bridge (or Setup Standard Router Switch br0)"
+        echo "  3) Add Port(s) to Existing Bridge"
+        echo "  4) Remove Port from Bridge"
+        echo "  5) Delete Bridge Interface"
+        echo "  r) Return to Main Menu"
+        echo ""
+        read -r -p "Enter action [1-5, r]: " BR_ACT
+
+        case "$BR_ACT" in
+            1)
+                echo -e "\n${BOLD}--- Kernel Bridge & Port Details ---${NC}"
+                if command -v bridge >/dev/null 2>&1; then
+                    run_root bridge link show
+                else
+                    run_root ip -br link show type bridge
+                fi
+                echo ""
+                read -r -p "Press Enter to continue..."
+                ;;
+
+            2)
+                echo -e "\n${BOLD}--- Create / Configure Bridge Interface ---${NC}"
+                read -r -p "Bridge name [br0]: " NEW_BR
+                NEW_BR=${NEW_BR:-br0}
+
+                # Show available physical interfaces
+                echo "Available physical interfaces:"
+                local avail=($(ls -1 /sys/class/net 2>/dev/null | grep -E -v '^(lo|virbr|docker|veth|wg|tun|br)'))
+                echo "  ${avail[*]}"
+                echo ""
+                read -r -p "Enter member ports separated by spaces (e.g. eth1 eth2 eth3): " PORTS_IN
+                if [ -z "$PORTS_IN" ]; then
+                    echo -e "${RED}Error: At least one port required to create bridge.${NC}"
+                    sleep 1
+                    continue
+                fi
+
+                read -r -p "Enable Spanning Tree Protocol (STP) [Y/n]? " BR_STP
+                local stp_val=1
+                [ "$BR_STP" = "n" ] || [ "$BR_STP" = "N" ] && stp_val=0
+
+                echo -e "${YELLOW}Creating bridge ${NEW_BR}...${NC}"
+                run_root ip link add name "$NEW_BR" type bridge 2>/dev/null || true
+                run_root ip link set dev "$NEW_BR" type bridge stp_state "$stp_val" forward_delay 200 2>/dev/null || true
+                run_root ip link set dev "$NEW_BR" mtu 1500 2>/dev/null || true
+                run_root ip link set dev "$NEW_BR" up 2>/dev/null || true
+
+                local added_slaves=()
+                for p in $PORTS_IN; do
+                    if [ -d "/sys/class/net/$p" ]; then
+                        run_root ip addr flush dev "$p" 2>/dev/null || true
+                        run_root ip link set dev "$p" master "$NEW_BR" 2>/dev/null || true
+                        run_root ip link set dev "$p" up 2>/dev/null || true
+                        added_slaves+=("$p")
+                        echo "  [+] Port $p enslaved to $NEW_BR"
+                    else
+                        echo "  [!] Interface $p not found, skipping"
+                    fi
+                done
+
+                # Persist to database if exists
+                for dbpath in /usr/local/micron/writable/micron_config.db "$app_root/writable/micron_config.db"; do
+                    if [ -f "$dbpath" ] && command -v sqlite3 >/dev/null 2>&1; then
+                        local sl_json
+                        sl_json=$(printf '["%s"]' "$(IFS='","'; echo "${added_slaves[*]}")")
+                        run_root sqlite3 "$dbpath" "INSERT OR REPLACE INTO interface_bridges (id, name, slaves, stp, forward_delay, mtu, description, created_at, updated_at) VALUES ('$NEW_BR', '${NEW_BR^^} Bridge', '$sl_json', $stp_val, 2, 1500, 'Configured via CLI menu', datetime('now'), datetime('now'));" 2>/dev/null || true
+                        run_root sqlite3 "$dbpath" "INSERT OR REPLACE INTO interfaces (id, name, physical_device, type, ip_assignment_type, enabled, created_at, updated_at) VALUES ('$NEW_BR', '${NEW_BR^^} Switch', '$NEW_BR', 'physical', 'none', 1, datetime('now'), datetime('now'));" 2>/dev/null || true
+                    fi
+                done
+
+                echo -e "${GREEN}[OK] Bridge ${NEW_BR} created successfully!${NC}"
+                read -r -p "Press Enter to continue..."
+                ;;
+
+            3)
+                echo -e "\n${BOLD}--- Add Port to Bridge ---${NC}"
+                read -r -p "Bridge name [br0]: " TARGET_BR
+                TARGET_BR=${TARGET_BR:-br0}
+                if [ ! -d "/sys/class/net/$TARGET_BR/bridge" ]; then
+                    echo -e "${RED}Error: Bridge $TARGET_BR does not exist.${NC}"
+                    sleep 1
+                    continue
+                fi
+
+                read -r -p "Interface to attach (e.g. eth3): " ADD_PORT
+                if [ -n "$ADD_PORT" ] && [ -d "/sys/class/net/$ADD_PORT" ]; then
+                    run_root ip addr flush dev "$ADD_PORT" 2>/dev/null || true
+                    run_root ip link set dev "$ADD_PORT" master "$TARGET_BR" 2>/dev/null || true
+                    run_root ip link set dev "$ADD_PORT" up 2>/dev/null || true
+                    echo -e "${GREEN}[OK] Interface $ADD_PORT attached to $TARGET_BR.${NC}"
+
+                    # Update database slaves list
+                    local current_slaves=()
+                    for sl in /sys/class/net/$TARGET_BR/brif/*; do
+                        [ -d "$sl" ] || continue
+                        current_slaves+=("$(basename "$sl")")
+                    done
+                    local sl_json
+                    sl_json=$(printf '["%s"]' "$(IFS='","'; echo "${current_slaves[*]}")")
+                    for dbpath in /usr/local/micron/writable/micron_config.db "$app_root/writable/micron_config.db"; do
+                        if [ -f "$dbpath" ] && command -v sqlite3 >/dev/null 2>&1; then
+                            run_root sqlite3 "$dbpath" "UPDATE interface_bridges SET slaves='$sl_json', updated_at=datetime('now') WHERE id='$TARGET_BR';" 2>/dev/null || true
+                        fi
+                    done
+                else
+                    echo -e "${RED}Error: Interface $ADD_PORT not found.${NC}"
+                fi
+                read -r -p "Press Enter to continue..."
+                ;;
+
+            4)
+                echo -e "\n${BOLD}--- Remove Port from Bridge ---${NC}"
+                read -r -p "Interface to detach from bridge (e.g. eth3): " REM_PORT
+                if [ -n "$REM_PORT" ] && [ -d "/sys/class/net/$REM_PORT" ]; then
+                    local parent_br
+                    parent_br=$(cat "/sys/class/net/$REM_PORT/master/uevent" 2>/dev/null | grep 'INTERFACE=' | cut -d= -f2 || echo "")
+                    run_root ip link set dev "$REM_PORT" nomaster 2>/dev/null || true
+                    echo -e "${GREEN}[OK] Interface $REM_PORT released from bridge.${NC}"
+
+                    if [ -n "$parent_br" ] && [ -d "/sys/class/net/$parent_br/bridge" ]; then
+                        local current_slaves=()
+                        for sl in /sys/class/net/$parent_br/brif/*; do
+                            [ -d "$sl" ] || continue
+                            current_slaves+=("$(basename "$sl")")
+                        done
+                        local sl_json
+                        sl_json=$(printf '["%s"]' "$(IFS='","'; echo "${current_slaves[*]}")")
+                        for dbpath in /usr/local/micron/writable/micron_config.db "$app_root/writable/micron_config.db"; do
+                            if [ -f "$dbpath" ] && command -v sqlite3 >/dev/null 2>&1; then
+                                run_root sqlite3 "$dbpath" "UPDATE interface_bridges SET slaves='$sl_json', updated_at=datetime('now') WHERE id='$parent_br';" 2>/dev/null || true
+                            fi
+                        done
+                    fi
+                else
+                    echo -e "${RED}Error: Interface $REM_PORT not found.${NC}"
+                fi
+                read -r -p "Press Enter to continue..."
+                ;;
+
+            5)
+                echo -e "\n${BOLD}--- Delete Bridge Interface ---${NC}"
+                read -r -p "Bridge name to delete: " DEL_BR
+                if [ -n "$DEL_BR" ] && [ -d "/sys/class/net/$DEL_BR/bridge" ]; then
+                    read -r -p "Are you sure you want to delete bridge $DEL_BR [y/N]? " CONF_DEL
+                    if [ "$CONF_DEL" = "y" ] || [ "$CONF_DEL" = "Y" ]; then
+                        # Detach slaves first
+                        for sl in /sys/class/net/$DEL_BR/brif/*; do
+                            [ -d "$sl" ] || continue
+                            local s_name
+                            s_name=$(basename "$sl")
+                            run_root ip link set dev "$s_name" nomaster 2>/dev/null || true
+                        done
+                        run_root ip link set dev "$DEL_BR" down 2>/dev/null || true
+                        run_root ip link del dev "$DEL_BR" 2>/dev/null || true
+
+                        # Remove from DB
+                        for dbpath in /usr/local/micron/writable/micron_config.db "$app_root/writable/micron_config.db"; do
+                            if [ -f "$dbpath" ] && command -v sqlite3 >/dev/null 2>&1; then
+                                run_root sqlite3 "$dbpath" "DELETE FROM interface_bridges WHERE id='$DEL_BR';" 2>/dev/null || true
+                                run_root sqlite3 "$dbpath" "DELETE FROM interfaces WHERE id='$DEL_BR';" 2>/dev/null || true
+                            fi
+                        done
+
+                        echo -e "${GREEN}[OK] Bridge $DEL_BR deleted and ports released.${NC}"
+                    else
+                        echo "Deletion cancelled."
+                    fi
+                else
+                    echo -e "${RED}Error: Bridge $DEL_BR not found.${NC}"
+                fi
+                read -r -p "Press Enter to continue..."
+                ;;
+
+            r|R|q|Q)
+                return 0
+                ;;
+
+            *)
+                echo -e "${RED}Invalid choice.${NC}"
+                sleep 1
+                ;;
+        esac
+    done
+}
+
+# ------------------------------------------------------------------------------
+# Main Interactive Loop
+# ------------------------------------------------------------------------------
+while true; do
+    print_header
+    read -r -p "Enter an option: " OPTION
+
+    case "$OPTION" in
+        0)
+            echo "Logging out..."
+            ensure_numlock
+            exit 0
+            ;;
+
+        1)
+            assign_interfaces_pfsense
+            ;;
+
+        2)
+            echo -e "\n${BOLD}=== 2) Set Interface IP Address ===${NC}"
+            read -r -p "Configure (1) LAN or (2) WAN? [1]: " IF_CHOICE
+            IF_CHOICE=${IF_CHOICE:-1}
+
+            if [ "$IF_CHOICE" = "1" ]; then
+                read -r -p "Enter new LAN IPv4 address with CIDR mask [10.10.10.10/24]: " NEW_LAN_CIDR
+                NEW_LAN_CIDR=${NEW_LAN_CIDR:-10.10.10.10/24}
+
+                if [ -x /usr/local/bin/microctl ]; then
+                    run_root /usr/local/bin/microctl interface set-lan "$NEW_LAN_CIDR" || true
+                fi
+
+                LAN_ONLY_IP=$(echo "$NEW_LAN_CIDR" | cut -d/ -f1)
+
+                run_root bash -c "cat << EOF > /etc/network/interfaces
+auto lo
+iface lo inet loopback
+
+allow-hotplug $WAN_IF
+iface $WAN_IF inet dhcp
+
+auto $LAN_IF
+allow-hotplug $LAN_IF
+iface $LAN_IF inet static
+    address $LAN_ONLY_IP
+    netmask 255.255.255.0
+EOF"
+
+                run_root ip addr flush dev "$LAN_IF" 2>/dev/null || true
+                run_root ip addr add "$NEW_LAN_CIDR" dev "$LAN_IF" 2>/dev/null || true
+                run_root ip link set dev "$LAN_IF" up 2>/dev/null || true
+
+                echo -e "${GREEN}[OK] LAN interface configured to $NEW_LAN_CIDR${NC}"
+            else
+                read -r -p "Configure WAN as (D)HCP or (S)tatic? [D]: " WAN_TYPE
+                WAN_TYPE=${WAN_TYPE:-D}
+                if [ "$WAN_TYPE" = "S" ] || [ "$WAN_TYPE" = "s" ]; then
+                    read -r -p "Enter static WAN IPv4/mask (e.g. 192.168.5.100/24): " STATIC_WAN
+                    read -r -p "Enter Default Gateway IPv4: " GW_WAN
+                    WAN_ONLY_IP=$(echo "$STATIC_WAN" | cut -d/ -f1)
+                    run_root bash -c "cat << EOF > /etc/network/interfaces
+auto lo
+iface lo inet loopback
+
+auto $WAN_IF
+allow-hotplug $WAN_IF
+iface $WAN_IF inet static
+    address $WAN_ONLY_IP
+    netmask 255.255.255.0
+    gateway $GW_WAN
+
+auto $LAN_IF
+allow-hotplug $LAN_IF
+iface $LAN_IF inet static
+    address 10.10.10.10
+    netmask 255.255.255.0
+EOF"
+                    run_root ip addr flush dev "$WAN_IF" 2>/dev/null || true
+                    run_root ip addr add "$STATIC_WAN" dev "$WAN_IF" 2>/dev/null || true
+                    [ -z "$GW_WAN" ] || run_root ip route add default via "$GW_WAN" dev "$WAN_IF" 2>/dev/null || true
+                    echo -e "${GREEN}[OK] WAN configured statically.${NC}"
+                else
+                    run_root bash -c "cat << EOF > /etc/network/interfaces
+auto lo
+iface lo inet loopback
+
+allow-hotplug $WAN_IF
+iface $WAN_IF inet dhcp
+
+auto $LAN_IF
+allow-hotplug $LAN_IF
+iface $LAN_IF inet static
+    address 10.10.10.10
+    netmask 255.255.255.0
+EOF"
+                    run_root dhclient -r "$WAN_IF" 2>/dev/null || true
+                    run_root dhclient "$WAN_IF" 2>/dev/null || true
+                    echo -e "${GREEN}[OK] DHCP requested on $WAN_IF.${NC}"
+                fi
+            fi
+
+            if [ -x /usr/local/bin/micron-banner ]; then
+                run_root /usr/local/bin/micron-banner || true
+            fi
+            ensure_numlock
+            pause
+            ;;
+
+        3)
+            echo -e "\n${BOLD}=== 3) Reset Web GUI Password ===${NC}"
+            read -r -p "Enter new password for Ministrator [M1Cr0N]: " NEW_PW
+            NEW_PW=${NEW_PW:-M1Cr0N}
+            if [ -x /usr/local/bin/microctl ]; then
+                run_root /usr/local/bin/microctl admin reset-password "$NEW_PW"
+            else
+                echo -e "${YELLOW}microctl not found; executing direct password reset...${NC}"
+                echo "ministrator:${NEW_PW}" | run_root chpasswd
+            fi
+            echo "ministrator:${NEW_PW}" | run_root chpasswd 2>/dev/null || true
+            echo -e "${GREEN}[OK] Ministrator password updated to: ${NEW_PW}${NC}"
+            echo -e "${GREEN}[OK] Two-factor authentication (TOTP) reset for administrative access.${NC}"
+            pause
+            ;;
+
+        4)
+            echo -e "\n${BOLD}=== 4) Reset to Factory Defaults ===${NC}"
+            read -r -p "Are you sure you want to restore factory default configuration? (type YES): " CONFIRM_RESET
+            if [ "$CONFIRM_RESET" = "YES" ]; then
+                echo -e "${YELLOW}Restoring initial database seed...${NC}"
+                if [ -d "$app_root" ] && command -v php >/dev/null 2>&1; then
+                    cd "$app_root"
+                    run_root php spark db:seed InitialApplianceSeeder || true
+                    run_root php spark db:seed RolesPermissionsSeeder || true
+                fi
+                if [ -x /usr/local/bin/microctl ]; then
+                    run_root /usr/local/bin/microctl firewall reset || true
+                fi
+                echo -e "${GREEN}[OK] Appliance successfully reset to factory defaults.${NC}"
+            else
+                echo "Factory reset cancelled."
+            fi
+            pause
+            ;;
+
+        5)
+            echo -e "\n${BOLD}=== 5) Reboot System ===${NC}"
+            read -r -p "Reboot Micron OS appliance now? (y/N): " CONFIRM_RB
+            if [ "$CONFIRM_RB" = "y" ] || [ "$CONFIRM_RB" = "Y" ]; then
+                echo -e "${YELLOW}Rebooting system...${NC}"
+                run_root systemctl reboot 2>/dev/null || run_root reboot
+                exit 0
+            fi
+            ;;
+
+        6)
+            echo -e "\n${BOLD}=== 6) Halt System (Power Off) ===${NC}"
+            read -r -p "Power off Micron OS appliance now? (y/N): " CONFIRM_HL
+            if [ "$CONFIRM_HL" = "y" ] || [ "$CONFIRM_HL" = "Y" ]; then
+                echo -e "${YELLOW}Shutting down system...${NC}"
+                run_root systemctl poweroff 2>/dev/null || run_root poweroff
+                exit 0
+            fi
+            ;;
+
+        7)
+            echo -e "\n${BOLD}=== 7) Ping Host ===${NC}"
+            read -r -p "Enter host or IP address to ping [1.1.1.1]: " PING_TARGET
+            PING_TARGET=${PING_TARGET:-1.1.1.1}
+            echo ""
+            ping -c 4 "$PING_TARGET" || true
+            pause
+            ;;
+
+        8)
+            echo -e "\n${BOLD}=== 8) Shell (Root Bash Prompt) ===${NC}"
+            echo -e "${GREEN}Dropping to root bash prompt.${NC}"
+            echo "Type 'exit' to return to Micron OS console menu."
+            echo ""
+            run_root touch /tmp/.micron_in_shell 2>/dev/null || true
+            run_root chmod 666 /tmp/.micron_in_shell 2>/dev/null || true
+            export MICRON_SHELL=1
+            export IN_MICRON_MENU=1
+            ROOT_PS1='\[\033[01;31m\][MicronOS] \w # \[\033[00m\]'
+
+            ensure_numlock
+
+            RC_SCRIPT="${app_root}/system/micron-shell-rc"
+            if [ ! -f "$RC_SCRIPT" ]; then
+                RC_SCRIPT="/tmp/micron-shell-rc"
+                cat << 'EOF' > "$RC_SCRIPT"
+[ -f /etc/bash.bashrc ] && . /etc/bash.bashrc 2>/dev/null
+[ -f /root/.bashrc ] && . /root/.bashrc 2>/dev/null
+[ -f ~/.bashrc ] && . ~/.bashrc 2>/dev/null
+export MICRON_SHELL=1
+export IN_MICRON_MENU=1
+export PS1='\[\033[01;31m\][MicronOS] \w # \[\033[00m\]'
+if command -v setleds >/dev/null 2>&1; then
+    setleds -D +num 2>/dev/null || true
+fi
+EOF
+            fi
+
+            if [ "$EUID" -eq 0 ]; then
+                /bin/bash --rcfile "$RC_SCRIPT" -i || /bin/bash -i
+            else
+                sudo -E env MICRON_SHELL=1 IN_MICRON_MENU=1 /bin/bash --rcfile "$RC_SCRIPT" -i || sudo /bin/bash -i
+            fi
+
+            run_root rm -f /tmp/.micron_in_shell 2>/dev/null || true
+            unset MICRON_SHELL
+            ensure_numlock
+            echo ""
+            pause
+            ;;
+
+        9)
+            echo -e "\n${BOLD}=== 9) System Monitor ===${NC}"
+            if command -v htop >/dev/null 2>&1; then
+                htop || true
+            else
+                top || true
+            fi
+            ensure_numlock
+            ;;
+
+        10)
+            echo -e "\n${BOLD}=== 10) Filter & System Logs ===${NC}"
+            echo "1) Active Packet Filter (nftables ruleset summary)"
+            echo "2) Daemon Logs (micrond)"
+            echo "3) Web Management Plane Log"
+            echo "4) System Journal (last 40 events)"
+            read -r -p "Select log source [1]: " LOG_OPT
+            LOG_OPT=${LOG_OPT:-1}
+            case "$LOG_OPT" in
+                1)
+                    run_root nft list ruleset 2>/dev/null | head -n 40 || echo "nftables not loaded."
+                    ;;
+                2)
+                    run_root journalctl -u micrond -n 30 --no-pager 2>/dev/null || echo "No micrond logs."
+                    ;;
+                3)
+                    tail -n 30 "$app_root"/writable/logs/log-*.log 2>/dev/null || echo "No web logs."
+                    ;;
+                4)
+                    run_root journalctl -n 40 --no-pager 2>/dev/null || true
+                    ;;
+            esac
+            pause
+            ;;
+
+        11)
+            echo -e "\n${BOLD}=== 11) Restart Web GUI ===${NC}"
+            echo "Restarting Apache2 web server..."
+            run_root systemctl restart apache2 || true
+            run_root systemctl status apache2 --no-pager -l 2>/dev/null | head -n 10 || true
+            echo -e "${GREEN}[OK] Web GUI service restarted.${NC}"
+            pause
+            ;;
+
+        12)
+            echo -e "\n${BOLD}=== 12) PHP Shell / App Console ===${NC}"
+            if [ -d "$app_root" ] && [ -f "$app_root/spark" ]; then
+                run_root php "$app_root/spark" list || true
+            else
+                echo -e "${RED}App console not located.${NC}"
+            fi
+            pause
+            ;;
+
+        13)
+            echo -e "\n${BOLD}=== 13) Update & Firmware Manager ===${NC}"
+            echo "Current A/B Boot Slot Configuration:"
+            if [ -x /usr/local/bin/micron-slot-rescue ]; then
+                run_root /usr/local/bin/micron-slot-rescue status || true
+            elif [ -x /usr/local/micron/installer/micron-slot-rescue ]; then
+                run_root /usr/local/micron/installer/micron-slot-rescue status || true
+            elif [ -x /usr/local/micron/installer/micron-slot ]; then
+                run_root /usr/local/micron/installer/micron-slot show || true
+            fi
+            echo ""
+            echo "  1) Make Slot A the Permanent Boot Target"
+            echo "  2) Make Slot B the Permanent Boot Target"
+            echo "  3) Launch Emergency Slot Rescue & Healing Wizard (Option 17)"
+            echo "  4) Return to Main Menu"
+            read -r -p "Enter selection [1-4]: " SLOT_ACT
+            case "$SLOT_ACT" in
+                1)
+                    if [ -x /usr/local/bin/micron-slot-rescue ]; then
+                        run_root /usr/local/bin/micron-slot-rescue a
+                    elif [ -x /usr/local/micron/installer/micron-slot-rescue ]; then
+                        run_root /usr/local/micron/installer/micron-slot-rescue a
+                    elif [ -x /usr/local/micron/installer/micron-slot ]; then
+                        run_root /usr/local/micron/installer/micron-slot activate a
+                    fi
+                    echo -e "${GREEN}[OK] Slot A is configured as the permanent primary boot target.${NC}"
+                    ;;
+                2)
+                    if [ -x /usr/local/bin/micron-slot-rescue ]; then
+                        run_root /usr/local/bin/micron-slot-rescue b
+                    elif [ -x /usr/local/micron/installer/micron-slot-rescue ]; then
+                        run_root /usr/local/micron/installer/micron-slot-rescue b
+                    elif [ -x /usr/local/micron/installer/micron-slot ]; then
+                        run_root /usr/local/micron/installer/micron-slot activate b
+                    fi
+                    echo -e "${GREEN}[OK] Slot B is configured as the permanent primary boot target.${NC}"
+                    ;;
+                3)
+                    if [ -x /usr/local/bin/micron-slot-rescue ]; then
+                        run_root /usr/local/bin/micron-slot-rescue
+                    elif [ -x /usr/local/micron/installer/micron-slot-rescue ]; then
+                        run_root /usr/local/micron/installer/micron-slot-rescue
+                    fi
+                    ;;
+                *)
+                    ;;
+            esac
+            ensure_numlock
+            pause
+            ;;
+
+        14)
+            echo -e "\n${BOLD}=== 14) Toggle SSH Service ===${NC}"
+            if run_root systemctl is-active --quiet ssh; then
+                echo "SSH is currently running. Stopping and disabling SSH..."
+                run_root systemctl stop ssh || true
+                run_root systemctl disable ssh || true
+                echo -e "${YELLOW}[OK] SSH service disabled.${NC}"
+            else
+                echo "SSH is stopped. Enabling and starting SSH..."
+                run_root systemctl enable ssh || true
+                run_root systemctl start ssh || true
+                echo -e "${GREEN}[OK] SSH service enabled on port 22.${NC}"
+            fi
+            pause
+            ;;
+
+        15)
+            echo -e "\n${BOLD}=== 15) Restore Configuration Backup ===${NC}"
+            read -r -p "Enter path to configuration backup file (.mbk): " BK_PATH
+            if [ -f "$BK_PATH" ] && [ -x /usr/local/bin/microctl ]; then
+                run_root /usr/local/bin/microctl backup restore "$BK_PATH"
+                echo -e "${GREEN}[OK] Configuration restore completed.${NC}"
+            else
+                echo -e "${RED}Backup file not found at $BK_PATH${NC}"
+            fi
+            pause
+            ;;
+
+        16)
+            echo -e "\n${BOLD}=== 16) Restart micrond & PHP-FPM ===${NC}"
+            echo "Restarting micrond IPC daemon and PHP-FPM..."
+            run_root systemctl restart micrond || true
+            run_root systemctl restart php8.4-fpm 2>/dev/null || run_root systemctl restart php-fpm 2>/dev/null || true
+            echo -e "${GREEN}[OK] Data-plane IPC daemon and PHP runtime restarted.${NC}"
+            pause
+            ;;
+
+        17)
+            echo -e "\n${BOLD}=== 17) A/B Boot Slot Rescue & Switch ===${NC}"
+            if [ -x /usr/local/bin/micron-slot-rescue ]; then
+                run_root /usr/local/bin/micron-slot-rescue
+            elif [ -x /usr/local/micron/installer/micron-slot-rescue ]; then
+                run_root /usr/local/micron/installer/micron-slot-rescue
+            elif [ -x "$app_root/installer/micron-slot-rescue" ]; then
+                run_root "$app_root/installer/micron-slot-rescue"
+            else
+                echo -e "${RED}micron-slot-rescue utility not found.${NC}"
+            fi
+            ensure_numlock
+            pause
+            ;;
+
+        18)
+            manage_bridges_menu
+            ;;
+
+        "")
+            # Enter pressed with no input -> refresh status immediately
+            continue
+            ;;
+
+        *)
+            echo -e "${RED}Invalid option '${OPTION}'. Please enter a number 0 to 18.${NC}"
+            sleep 1
+            ;;
+    esac
+done

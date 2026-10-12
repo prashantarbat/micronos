@@ -150,6 +150,19 @@ class Services extends BaseController
             foreach ($rows as $row) {
                 $map[$row['id']] = $row['status'];
             }
+            $missing = array_filter($ids, static fn ($i) => ! isset($map[$i]) || $map[$i] === 'unknown');
+            if (! empty($missing)) {
+                $manager = \Config\Services::packageManager();
+                foreach ($missing as $mId) {
+                    $resolved = $this->resolvePluginDaemon($mId);
+                    if ($resolved !== null) {
+                        $res = $manager->status($resolved['pluginId']);
+                        if (($res['success'] ?? false) === true && isset($res['state'])) {
+                            $map[$mId] = (string) $res['state'];
+                        }
+                    }
+                }
+            }
         }
 
         return $this->response->setJSON(['ok' => true, 'services' => $map]);
@@ -178,6 +191,32 @@ class Services extends BaseController
         $db  = \Config\Database::connect();
         $srv = $db->table('system_services')->where('id', $id)->get()->getRowArray();
         if (! $srv) {
+            $resolved = $this->resolvePluginDaemon($id);
+            if ($resolved !== null) {
+                $manager  = \Config\Services::packageManager();
+                $pluginId = $resolved['pluginId'];
+                $manifest = $resolved['manifest'];
+                $result   = $manager->service($pluginId, $action);
+                $ok       = ($result['success'] ?? false) === true;
+                $status   = strtolower((string) ($result['state'] ?? ''));
+                if (! in_array($status, ['running', 'stopped'], true)) {
+                    $status = $action === 'stop' ? 'stopped' : 'running';
+                }
+                $past = ['start' => 'Started', 'stop' => 'Stopped', 'restart' => 'Restarted'][$action];
+                $this->auditLog("service.{$action}", "{$past} daemon {$manifest->name()} ({$id})");
+
+                return $this->response->setJSON([
+                    'ok'      => $ok,
+                    'service' => $id,
+                    'name'    => $manifest->name(),
+                    'status'  => $ok ? $status : null,
+                    'message' => $ok
+                        ? "{$past} {$manifest->name()}"
+                        : sprintf('Plugin %s failed: %s', $action, (string) ($result['message'] ?? 'unknown error')),
+                    'csrf'    => csrf_hash(),
+                ]);
+            }
+
             return $this->response->setStatusCode(404)->setJSON([
                 'ok'      => false,
                 'message' => "Service '{$id}' not found.",
@@ -258,6 +297,21 @@ class Services extends BaseController
         $db = \Config\Database::connect();
         $srv = $db->table('system_services')->where('id', $id)->get()->getRowArray();
         if (!$srv) {
+            $resolved = $this->resolvePluginDaemon($id);
+            if ($resolved !== null) {
+                $manager = \Config\Services::packageManager();
+                $res     = $manager->logs($resolved['pluginId'], 30);
+                $logs    = $res['logs'] ?? [];
+                if (is_array($logs)) {
+                    $logs = implode("\n", $logs);
+                }
+                return $this->response->setJSON([
+                    'service' => $resolved['manifest']->name(),
+                    'status'  => $res['state'] ?? 'running',
+                    'logs'    => (string) $logs,
+                ]);
+            }
+
             return $this->response->setStatusCode(404)->setJSON(['error' => 'Service not found']);
         }
 
@@ -326,5 +380,31 @@ class Services extends BaseController
                 'created_at'      => date('Y-m-d H:i:s'),
             ]);
         } catch (\Throwable $e) {}
+    }
+
+    /**
+     * Resolve an id to a plugin entry if it is not in system_services.
+     * Matches either the plugin id directly (e.g. 'darkstat', 'lldpd', 'netbird')
+     * or a declared unit/service name (e.g. 'zerotier-one' -> 'zerotier', 'tayga' -> 'nat64').
+     *
+     * @return array{pluginId: string, manifest: \App\Plugins\PluginManifest}|null
+     */
+    private function resolvePluginDaemon(string $id): ?array
+    {
+        try {
+            $manager = \Config\Services::packageManager();
+            $manifest = $manager->registry()->get($id);
+            if ($manifest !== null) {
+                return ['pluginId' => $id, 'manifest' => $manifest];
+            }
+            foreach ($manager->catalogue() as $cat) {
+                $m = $manager->registry()->get($cat['id']);
+                if ($m && (in_array($id, $m->units(), true) || in_array($id, $cat['services'] ?? [], true))) {
+                    return ['pluginId' => (string) $cat['id'], 'manifest' => $m];
+                }
+            }
+        } catch (\Throwable $e) {}
+
+        return null;
     }
 }

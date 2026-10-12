@@ -20,10 +20,13 @@ dmidecode
 lm-sensors
 smartmontools
 nvme-cli
+kbd
 parted
 gdisk
 dosfstools
 e2fsprogs
+grub-efi-amd64
+efibootmgr
 rsync
 curl
 plocate

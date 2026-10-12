@@ -79,27 +79,39 @@
 
 <!-- Header & Flash Messages -->
 <div class="page-header animate-in">
-  <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:16px;">
-    <div>
-      <h1 class="page-title">System Services &amp; Daemon Status</h1>
-      <p class="page-subtitle">
-        Manage appliance background daemons (WireGuard, OpenVPN, FRR, nftables, Kea, Unbound), configure boot startup and Service Watchdog
-      </p>
+  <div class="page-header-content">
+    <div class="page-breadcrumb">
+      <a href="<?= base_url('dashboard') ?>">Dashboard</a>
+      <span class="sep">/</span>
+      <span>System</span>
+      <span class="sep">/</span>
+      <span class="current">Services &amp; Daemons</span>
     </div>
-    <div style="display:flex; gap:10px;">
-      <a href="<?= base_url('dashboard') ?>" class="btn btn-ghost btn-sm">
-        &larr; Back to Dashboard
-      </a>
-      <form action="<?= base_url('services/restart-all') ?>" method="POST" onsubmit="return confirm('Restart all running core services? Transient packet drops may occur.');">
-        <?= csrf_field() ?>
-        <button type="submit" class="btn btn-primary btn-sm">
-          <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-          </svg>
-          Restart All Services
-        </button>
-      </form>
-    </div>
+    <h1 class="page-title">
+      <div class="page-title-icon tone-cyan">
+        <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/>
+        </svg>
+      </div>
+      System Services &amp; Daemon Status
+    </h1>
+    <p class="page-subtitle">
+      Manage appliance background daemons (WireGuard, OpenVPN, FRR, nftables, Kea, Unbound), configure boot startup and Service Watchdog.
+    </p>
+  </div>
+  <div class="page-header-actions">
+    <a href="<?= base_url('dashboard') ?>" class="btn btn-ghost btn-sm">
+      &larr; Back to Dashboard
+    </a>
+    <form action="<?= base_url('services/restart-all') ?>" method="POST" onsubmit="return confirm('Restart all running core services? Transient packet drops may occur.');" style="margin:0;">
+      <?= csrf_field() ?>
+      <button type="submit" class="btn btn-primary btn-sm">
+        <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+        </svg>
+        Restart All Services
+      </button>
+    </form>
   </div>
 </div>
 

@@ -3,48 +3,48 @@
 
 <!-- ── Page Header ── -->
 <div class="page-header animate-in">
-  <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:16px;">
-    <div>
-      <div style="display:flex; align-items:center; gap:8px; font-size:0.75rem; color:var(--text-muted); margin-bottom:4px;">
-        <a href="<?= base_url('dashboard') ?>" style="color:var(--text-muted); text-decoration:none;">Dashboard</a>
-        <span>/</span>
-        <span style="color:var(--text-primary); font-weight:600;">Security</span>
-        <span>/</span>
-        <span style="color:var(--text-primary); font-weight:600;">Application Identification (AppID)</span>
-      </div>
-      <h1 class="page-title" style="display:flex; align-items:center; gap:10px;">
-        <svg width="26" height="26" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="color:var(--color-indigo, #6366f1);">
+  <div class="page-header-content">
+    <div class="page-breadcrumb">
+      <a href="<?= base_url('dashboard') ?>">Dashboard</a>
+      <span class="sep">/</span>
+      <span>Security</span>
+      <span class="sep">/</span>
+      <span class="current">Application Identification (AppID)</span>
+    </div>
+    <h1 class="page-title">
+      <div class="page-title-icon tone-indigo">
+        <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
           <path stroke-linecap="round" stroke-linejoin="round" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"/>
         </svg>
-        Application Identification &amp; Layer 7 DPI
-      </h1>
-      <p class="page-subtitle">Granular Layer 7 application detection via nDPI with flow-level policy enforcement, bandwidth shaping, and cryptographic protocol classification.</p>
-    </div>
-    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
-      <button type="button" class="btn btn-ghost" onclick="openPreviewModal()" style="display:inline-flex; align-items:center; gap:6px;">
-        <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/>
-        </svg>
-        Preview Ruleset
-      </button>
+      </div>
+      Application Identification &amp; Layer 7 DPI
+    </h1>
+    <p class="page-subtitle">Granular Layer 7 application detection via nDPI with flow-level policy enforcement, bandwidth shaping, and cryptographic protocol classification.</p>
+  </div>
+  <div class="page-header-actions">
+    <button type="button" class="btn btn-ghost" onclick="openPreviewModal()" style="display:inline-flex; align-items:center; gap:6px;">
+      <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/>
+      </svg>
+      Preview Ruleset
+    </button>
 
-      <button type="button" class="btn btn-primary" onclick="openPolicyModal()" style="display:inline-flex; align-items:center; gap:6px;">
-        <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
-        </svg>
-        Create Policy
-      </button>
+    <button type="button" class="btn btn-primary" onclick="openPolicyModal()" style="display:inline-flex; align-items:center; gap:6px;">
+      <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+      </svg>
+      Create Policy
+    </button>
 
-      <form method="POST" action="<?= base_url('appid/apply') ?>" id="applyDpiForm" style="margin:0;">
-        <?= csrf_field() ?>
-        <button type="button" onclick="applyDpiRules()" class="btn btn-success" style="display:inline-flex; align-items:center; gap:6px;">
-          <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-          </svg>
-          Apply Changes
-        </button>
-      </form>
-    </div>
+    <form method="POST" action="<?= base_url('appid/apply') ?>" id="applyDpiForm" style="margin:0;">
+      <?= csrf_field() ?>
+      <button type="button" onclick="applyDpiRules()" class="btn btn-success" style="display:inline-flex; align-items:center; gap:6px;">
+        <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+        </svg>
+        Apply Changes
+      </button>
+    </form>
   </div>
 </div>
 

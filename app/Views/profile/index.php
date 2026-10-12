@@ -1,9 +1,25 @@
-﻿<?= $this->extend('layouts/main') ?>
+<?= $this->extend('layouts/main') ?>
 <?= $this->section('content') ?>
 
 <div class="page-header animate-in">
-  <h1 class="page-title">My Account Settings</h1>
-  <p class="page-subtitle">Manage personal profile details, authentication credentials, and security settings</p>
+  <div class="page-header-content">
+    <div class="page-breadcrumb">
+      <a href="<?= base_url('dashboard') ?>">Dashboard</a>
+      <span class="sep">/</span>
+      <span>System</span>
+      <span class="sep">/</span>
+      <span class="current">My Profile</span>
+    </div>
+    <h1 class="page-title">
+      <div class="page-title-icon tone-blue">
+        <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
+        </svg>
+      </div>
+      My Account Settings
+    </h1>
+    <p class="page-subtitle">Manage personal profile details, authentication credentials, and security settings.</p>
+  </div>
 </div>
 
 <div style="display:grid; grid-template-columns: 1fr 1fr; gap:24px;" class="animate-in animate-in-delay-1">

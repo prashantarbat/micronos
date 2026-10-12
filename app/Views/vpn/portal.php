@@ -4,83 +4,37 @@
 
 <style>
 /* ── MicronOS Next-Gen VPN Portal Design System ── */
-.mno-obj-chip {
+/* ── Custom Button Themes (Theme-adaptive) ── */
+.btn-warning {
+  background: var(--tone-amber-bg);
+  color: var(--tone-amber-fg);
+  border: 1px solid var(--tone-amber-border);
+  font-weight: 700;
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 3px 8px;
-  border-radius: 4px;
-  font-size: 0.75rem;
-  font-weight: 500;
-  font-family: var(--font-mono);
-  background: rgba(255,255,255,0.06);
-  border: 1px solid rgba(255,255,255,0.12);
-  color: var(--text-primary);
-  margin: 1px 0;
-  white-space: nowrap;
-  line-height: 1.2;
-}
-.mno-chip-icon {
-  width: 13px;
-  height: 13px;
-  flex-shrink: 0;
-  display: inline-block;
-  vertical-align: middle;
-}
-.mno-obj-chip-lan {
-  background: rgba(6, 182, 212, 0.15);
-  border-color: rgba(6, 182, 212, 0.35);
-  color: #67e8f9;
-}
-.mno-obj-chip-wan {
-  background: rgba(245, 158, 11, 0.15);
-  border-color: rgba(245, 158, 11, 0.35);
-  color: #fcd34d;
-}
-.mno-obj-chip-dmz {
-  background: rgba(139, 92, 246, 0.15);
-  border-color: rgba(139, 92, 246, 0.35);
-  color: #c4b5fd;
-}
-.mno-obj-chip-success {
-  background: rgba(16, 185, 129, 0.15);
-  border-color: rgba(16, 185, 129, 0.35);
-  color: #6ee7b7;
-}
-
-/* ── Custom Button Themes ── */
-.btn-warning {
-  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%) !important;
-  color: #030712 !important;
-  border: 1px solid #f59e0b !important;
-  font-weight: 700 !important;
-  display: inline-flex !important;
-  align-items: center !important;
-  gap: 6px !important;
-  box-shadow: 0 2px 10px rgba(245, 158, 11, 0.3) !important;
-  text-decoration: none !important;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
+  text-decoration: none;
 }
 .btn-warning:hover {
-  background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%) !important;
-  box-shadow: 0 4px 16px rgba(245, 158, 11, 0.45) !important;
-  color: #030712 !important;
+  background: var(--tone-amber-border);
+  color: var(--text-primary);
   transform: translateY(-1px);
 }
 .btn-cyan {
-  background: linear-gradient(135deg, var(--color-cyan) 0%, #0096c7 100%) !important;
-  color: #030712 !important;
-  border: 1px solid var(--color-cyan) !important;
-  font-weight: 700 !important;
-  display: inline-flex !important;
-  align-items: center !important;
-  gap: 6px !important;
-  box-shadow: 0 2px 10px rgba(0, 212, 255, 0.3) !important;
-  text-decoration: none !important;
+  background: var(--tone-cyan-bg);
+  color: var(--tone-cyan-fg);
+  border: 1px solid var(--tone-cyan-border);
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
+  text-decoration: none;
 }
 .btn-cyan:hover {
-  background: linear-gradient(135deg, #38bdf8 0%, var(--color-cyan) 100%) !important;
-  box-shadow: 0 4px 16px rgba(0, 212, 255, 0.45) !important;
-  color: #030712 !important;
+  background: var(--tone-cyan-border);
+  color: var(--text-primary);
   transform: translateY(-1px);
 }
 
@@ -237,74 +191,15 @@
   line-height: 1.45;
 }
 
-/* ── Modal Architecture ── */
-.mno-modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(0,0,0,0.75);
-  backdrop-filter: blur(4px);
-  z-index: 1000;
-  display: none;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-}
-.mno-modal-backdrop.active {
-  display: flex;
-}
-.mno-modal-dialog {
-  background: var(--color-surface-2);
-  border: 1px solid var(--color-border-bright);
-  border-radius: var(--radius-md);
-  width: 100%;
-  max-width: 650px;
-  box-shadow: 0 20px 40px rgba(0,0,0,0.6);
-  animation: mnoModalIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-  overflow: hidden;
-}
-@keyframes mnoModalIn {
-  from { opacity: 0; transform: scale(0.96) translateY(-10px); }
-  to { opacity: 1; transform: scale(1) translateY(0); }
-}
-.mno-modal-header {
-  padding: 14px 20px;
-  background: var(--color-surface-3);
-  border-bottom: 1px solid var(--color-border);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.mno-modal-title {
-  font-size: 0.95rem;
-  font-weight: 700;
-  color: var(--text-primary);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.mno-modal-body {
-  padding: 20px;
-  max-height: calc(85vh - 120px);
-  overflow-y: auto;
-}
-.mno-modal-footer {
-  padding: 12px 20px;
-  background: var(--color-surface-1);
-  border-top: 1px solid var(--color-border);
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-}
-
 /* ── Code / Config Display ── */
 .vpn-code-block {
-  background: #080c14;
-  border: 1px solid rgba(255,255,255,0.08);
+  background: var(--color-surface-1);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   padding: 14px;
   font-family: var(--font-mono);
   font-size: 0.75rem;
-  color: #7dd3fc;
+  color: var(--tone-cyan-fg);
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-all;
@@ -339,37 +234,35 @@
 }
 </style>
 
-<!-- ── Page Header (Matching firewall/addresses, qos, ha, dhcp) ── -->
+<!-- ── Page Header ── -->
 <div class="page-header animate-in">
-  <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:16px;">
-    <div>
-      <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-        <h1 class="page-title">Road Warrior VPN Self-Service Portal</h1>
-        <span class="badge badge-info" style="font-size:0.75rem;">
-          <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="margin-right:3px; vertical-align:middle;">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
-          </svg>
-          User: <?= esc($user['username'] ?? 'admin') ?>
-        </span>
-        <span class="badge badge-success" style="font-size:0.75rem;">2FA ENFORCED (TOTP)</span>
-        <span class="badge badge-cyan" style="font-size:0.75rem;">ZERO-TRUST ACCESS</span>
-      </div>
-      <p class="page-subtitle">Download preconfigured client profiles, inline cryptographic certificates, and ephemeral WireGuard line-speed configurations</p>
-    </div>
-    <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-      <a href="<?= base_url('firewall/rules') ?>" class="btn btn-ghost btn-sm">
-        <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+  <div class="page-header-content">
+    <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+      <h1 class="page-title">Road Warrior VPN Self-Service Portal</h1>
+      <span class="badge badge-info" style="font-size:0.75rem;">
+        <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="margin-right:3px; vertical-align:middle;">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
         </svg>
-        Firewall Rules
-      </a>
-      <a href="<?= base_url('pki/certificates') ?>" class="btn btn-ghost btn-sm">
-        <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/>
-        </svg>
-        PKI Certificates
-      </a>
+        User: <?= esc($user['username'] ?? 'admin') ?>
+      </span>
+      <span class="badge badge-success" style="font-size:0.75rem;">2FA ENFORCED (TOTP)</span>
+      <span class="badge badge-cyan" style="font-size:0.75rem;">ZERO-TRUST ACCESS</span>
     </div>
+    <p class="page-subtitle">Download preconfigured client profiles, inline cryptographic certificates, and ephemeral WireGuard line-speed configurations</p>
+  </div>
+  <div class="page-header-actions">
+    <a href="<?= base_url('firewall/rules') ?>" class="btn btn-ghost btn-sm">
+      <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+      </svg>
+      Firewall Rules
+    </a>
+    <a href="<?= base_url('pki/certificates') ?>" class="btn btn-ghost btn-sm">
+      <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/>
+      </svg>
+      PKI Certificates
+    </a>
   </div>
 </div>
 

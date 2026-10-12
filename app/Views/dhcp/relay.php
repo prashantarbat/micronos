@@ -26,18 +26,30 @@
 </style>
 
 <div class="page-header animate-in">
-  <div>
+  <div class="page-header-content">
+    <div class="page-breadcrumb">
+      <a href="<?= base_url('dashboard') ?>">Dashboard</a>
+      <span class="sep">/</span>
+      <a href="<?= base_url('dhcp') ?>">DHCP</a>
+      <span class="sep">/</span>
+      <span class="current">Relay</span>
+    </div>
     <div style="display:flex; align-items:center; gap:10px;">
-      <h1 class="page-title">DHCP Relay</h1>
+      <div class="page-title-icon tone-cyan">
+        <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/>
+        </svg>
+      </div>
+      <h1 class="page-title" style="margin:0;">DHCP Relay</h1>
       <span class="badge badge-info" style="font-size:0.75rem;"><?= count($relays) ?> Relay(s)</span>
       <?php if ($isMock): ?><span class="badge badge-muted" style="font-size:0.75rem;">MOCK MODE</span><?php endif; ?>
     </div>
-    <p class="page-subtitle">Forward DHCP/BOOTP broadcasts from an interface to a DHCP server on another segment, using the maintained <code>dhcp-helper</code> agent</p>
+    <p class="page-subtitle">Forward DHCP/BOOTP broadcasts from an interface to a DHCP server on another segment, using the maintained <code>dhcp-helper</code> agent.</p>
   </div>
-  <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+  <div class="page-header-actions">
     <?= \App\Libraries\ServiceStatus::relayWidget($plan['instances'], $relayStates ?? []) ?>
     <a href="<?= base_url('dhcp') ?>" class="btn btn-ghost btn-sm">DHCP Server</a>
-    <form method="POST" action="<?= base_url('dhcp/relay/apply') ?>" style="display:inline;"
+    <form method="POST" action="<?= base_url('dhcp/relay/apply') ?>" style="display:inline; margin:0;"
           onsubmit="return confirm('Apply the DHCP relay configuration now?');">
       <?= csrf_field() ?>
       <button type="submit" class="btn btn-primary btn-sm">Apply Relay</button>

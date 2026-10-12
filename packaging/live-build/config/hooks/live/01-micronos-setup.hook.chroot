@@ -45,6 +45,9 @@ chown -R www-data:www-data /usr/local/micron/writable /run/micron
 chmod -R 775 /usr/local/micron/writable /run/micron
 
 # Enable services
+if [ -f /usr/local/micron/system/micrond.service ]; then
+    install -m 0644 /usr/local/micron/system/micrond.service /etc/systemd/system/micrond.service
+fi
 systemctl enable php8.4-fpm || systemctl enable php-fpm || true
 systemctl enable apache2
 systemctl enable nftables
@@ -151,11 +154,13 @@ ministrator ALL=(ALL:ALL) NOPASSWD:ALL
 EOF
 chmod 0440 /etc/sudoers.d/99-ministrator
 
-# Enable password authentication for SSH
+# Enable password authentication and login banner for SSH
 mkdir -p /etc/ssh/sshd_config.d
 cat << 'EOF' > /etc/ssh/sshd_config.d/99-micronos.conf
 PasswordAuthentication yes
 PermitRootLogin yes
+Banner /etc/issue.net
+PrintMotd yes
 EOF
 
 # Configure systemd tty1 autologin for ministrator
@@ -166,14 +171,104 @@ ExecStart=
 ExecStart=-/sbin/agetty --autologin ministrator --noclear %I $TERM
 EOF
 
-# Initialize and seed SQLite database for out-of-the-box operation
-if [ -d /usr/local/micron ] && command -v php >/dev/null 2>&1; then
-    echo "===> [MicronOS Hook] Migrating and seeding SQLite database..."
-    cd /usr/local/micron
-    php spark migrate --all || true
-    php spark db:seed RolesPermissionsSeeder || true
-    chown -R www-data:www-data /usr/local/micron/writable
-    chmod -R 775 /usr/local/micron/writable
+# ---------------------------------------------------------------------------
+# Operating System Branding (Micron OS)
+# ---------------------------------------------------------------------------
+echo "===> [Micron OS Hook] Branding operating system as Micron OS..."
+cat << 'EOF' > /etc/os-release
+PRETTY_NAME="Micron OS 0.1.25 (amd64)"
+NAME="Micron OS"
+VERSION_ID="0.1.25"
+VERSION="0.1.25 (amd64)"
+VERSION_CODENAME=trixie
+ID=micronos
+ID_LIKE=debian
+HOME_URL="https://micronos.local/"
+SUPPORT_URL="https://micronos.local/support"
+BUG_REPORT_URL="https://micronos.local/bugs"
+PRIVACY_POLICY_URL="https://micronos.local/privacy"
+BUILD_ID="20261011"
+VARIANT="Enterprise Linux Firewall & Network Appliance"
+VARIANT_ID="appliance"
+EOF
+cp /etc/os-release /usr/lib/os-release 2>/dev/null || true
+
+# Install dynamic console & login banner generator and service
+if [ -f /usr/local/micron/system/micron-banner ]; then
+    install -m 0755 /usr/local/micron/system/micron-banner /usr/local/bin/micron-banner
+fi
+if [ -f /usr/local/micron/system/micron-banner.service ]; then
+    install -m 0644 /usr/local/micron/system/micron-banner.service /etc/systemd/system/micron-banner.service
+    systemctl enable micron-banner || true
+fi
+if [ -x /usr/local/bin/micron-banner ]; then
+    /usr/local/bin/micron-banner || true
 fi
 
-echo "===> [MicronOS Hook] Setup complete!"
+# Install pfSense-style interactive console menu and profile launcher
+if [ -f /usr/local/micron/installer/micron-slot-rescue ]; then
+    install -m 0755 /usr/local/micron/installer/micron-slot-rescue /usr/local/bin/micron-slot-rescue
+fi
+if [ -f /usr/local/micron/bin/micron-menu ]; then
+    install -m 0755 /usr/local/micron/bin/micron-menu /usr/local/bin/micron-menu
+fi
+if [ -f /usr/local/micron/system/micron-menu.sh ]; then
+    install -d /etc/profile.d
+    install -m 0644 /usr/local/micron/system/micron-menu.sh /etc/profile.d/micron-menu.sh
+fi
+if [ -f /usr/local/micron/system/micron-prompt.sh ]; then
+    install -d /etc/profile.d
+    install -m 0644 /usr/local/micron/system/micron-prompt.sh /etc/profile.d/micron-prompt.sh
+fi
+if [ -f /usr/local/micron/system/numlock.sh ]; then
+    install -d /etc/profile.d
+    install -m 0755 /usr/local/micron/system/numlock.sh /etc/profile.d/numlock.sh
+fi
+if [ -f /usr/local/micron/system/numlock.service ]; then
+    install -m 0644 /usr/local/micron/system/numlock.service /etc/systemd/system/numlock.service
+    systemctl enable numlock.service || true
+fi
+
+# Configure early NumLock in initramfs
+mkdir -p /etc/initramfs-tools/hooks /etc/initramfs-tools/scripts/init-top
+cat << 'EOF' > /etc/initramfs-tools/hooks/numlock
+#!/bin/sh
+PREREQ=""
+prereqs() { echo "$PREREQ"; }
+case $1 in prereqs) prereqs; exit 0;; esac
+. /usr/share/initramfs-tools/hook-functions
+SETLEDS=$(command -v setleds 2>/dev/null || true)
+if [ -n "$SETLEDS" ] && [ -x "$SETLEDS" ]; then
+    copy_exec "$SETLEDS" /bin
+elif [ -x /usr/bin/setleds ]; then
+    copy_exec /usr/bin/setleds /bin
+elif [ -x /bin/setleds ]; then
+    copy_exec /bin/setleds /bin
+fi
+exit 0
+EOF
+chmod 0755 /etc/initramfs-tools/hooks/numlock
+
+cat << 'EOF' > /etc/initramfs-tools/scripts/init-top/numlock
+#!/bin/sh
+PREREQ=""
+prereqs() { echo "$PREREQ"; }
+case $1 in prereqs) prereqs; exit 0;; esac
+if [ -x /bin/setleds ] || [ -x /usr/bin/setleds ]; then
+    setleds -D +num < /dev/tty0 2>/dev/null || true
+fi
+EOF
+chmod 0755 /etc/initramfs-tools/scripts/init-top/numlock
+
+# Initialize and seed SQLite database for out-of-the-box operation
+if [ -d /usr/local/micron ] && command -v php >/dev/null 2>&1; then
+    echo "===> [Micron OS Hook] Migrating and seeding SQLite database..."
+    cd /usr/local/micron
+    php spark migrate --all || true
+    php spark db:seed InitialApplianceSeeder || true
+    php spark db:seed RolesPermissionsSeeder || true
+    chown -R www-data:www-data /usr/local/micron/writable
+    chmod -R 777 /usr/local/micron/writable
+fi
+
+echo "===> [Micron OS Hook] Setup complete!"

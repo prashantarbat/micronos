@@ -15,8 +15,20 @@
 </style>
 
 <div class="page-header animate-in">
-  <div>
-    <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+  <div class="page-header-content">
+    <div class="page-breadcrumb">
+      <a href="<?= base_url('dashboard') ?>">Dashboard</a>
+      <span>/</span>
+      <a href="<?= base_url('system') ?>">System</a>
+      <span>/</span>
+      <span class="current">Updates</span>
+    </div>
+    <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+      <div class="page-title-icon">
+        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+        </svg>
+      </div>
       <h1 class="page-title">System Updates</h1>
       <span class="badge badge-info" style="font-size:0.75rem;">Appliance</span>
       <?php if (($report['mock'] ?? false) === true): ?>
@@ -25,7 +37,7 @@
     </div>
     <p class="page-subtitle">Check for and apply operating-system and package updates across the whole appliance</p>
   </div>
-  <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+  <div class="page-header-actions">
     <a href="<?= base_url('system') ?>" class="btn btn-ghost btn-sm">System Settings</a>
     <form method="POST" action="<?= base_url('system/updates/check') ?>" style="display:inline;">
       <?= csrf_field() ?>

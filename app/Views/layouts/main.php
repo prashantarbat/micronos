@@ -226,6 +226,10 @@ if (! function_exists('mnNavGroupOpen')) {
               <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
               High Availability <span class="nav-badge-sm nav-tag-amber">VRRP</span>
             </a>
+            <a href="<?= base_url('routing/sdwan') ?>" class="topnav-dropdown-item <?= mnIsActive($_path,'/routing/sdwan') ?>">
+              <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6M3 17l4-4 4 4 6-6"/></svg>
+              SD-WAN SLA Steering <span class="nav-badge-sm nav-tag-indigo">SLA</span>
+            </a>
             <a href="<?= base_url('multicast') ?>" class="topnav-dropdown-item <?= mnIsActive($_path,'/multicast') ?>">
               <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h7"/></svg>
               Multicast &amp; IGMP <span class="nav-badge-sm nav-tag-cyan">IPTV</span>
@@ -310,6 +314,10 @@ if (! function_exists('mnNavGroupOpen')) {
               <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5.121 17.804A13.937 13.937 0 0112 16c2.5 0 4.847.655 6.879 1.804M15 10a3 3 0 11-6 0 3 3 0 016 0zm6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
               Road Warrior Portal <span class="nav-badge-sm nav-tag-emerald">Portal</span>
             </a>
+            <a href="<?= base_url('vpn/clientless-gateway') ?>" class="topnav-dropdown-item <?= mnIsActive($_path,'/vpn/clientless-gateway') ?>">
+              <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9"/></svg>
+              Clientless Gateway <span class="nav-badge-sm nav-tag-indigo">ZTNA</span>
+            </a>
           </div>
         </div>
 
@@ -341,6 +349,14 @@ if (! function_exists('mnNavGroupOpen')) {
               <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
               SIEM Forwarding <span class="nav-badge-sm nav-tag-cyan">SOC</span>
             </a>
+            <a href="<?= base_url('ssl-inspection') ?>" class="topnav-dropdown-item <?= mnIsActive($_path,'/ssl-inspection') ?>">
+              <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+              SSL/TLS Inspection <span class="nav-badge-sm nav-tag-amber">MITM CA</span>
+            </a>
+            <a href="<?= base_url('security/threat-intel') ?>" class="topnav-dropdown-item <?= mnIsActive($_path,'/security/threat-intel') ?>">
+              <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+              Threat Intel Feeds <span class="nav-badge-sm nav-tag-rose">IoC</span>
+            </a>
           </div>
         </div>
 
@@ -355,6 +371,7 @@ if (! function_exists('mnNavGroupOpen')) {
             <div class="topnav-dropdown-label">Identity</div>
             <a href="<?= base_url('users') ?>" class="topnav-dropdown-item <?= mnIsActive($_path,'/users') ?>"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197"/></svg>Users</a>
             <a href="<?= base_url('roles') ?>" class="topnav-dropdown-item <?= mnIsActive($_path,'/roles') ?>"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/></svg>Roles & Permissions</a>
+            <a href="<?= base_url('system/sso') ?>" class="topnav-dropdown-item <?= mnIsActive($_path,'/system/sso') ?>"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>Single Sign-On (SSO) <span class="nav-badge-sm nav-tag-cyan">OIDC/SAML</span></a>
             <div class="topnav-divider"></div>
             <div class="topnav-dropdown-label">Operations</div>
             <a href="<?= base_url('system/revisions') ?>" class="topnav-dropdown-item <?= mnIsActive($_path,'/system/revisions') ?>"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>Config Revisions <span class="nav-badge-sm nav-tag-purple">Git</span></a>
@@ -582,7 +599,7 @@ if (! function_exists('mnNavGroupOpen')) {
           </li>
           <!-- Static Routes & FIB -->
           <li class="nav-item">
-            <a href="<?= base_url('routing') ?>" class="nav-link <?= (current_url(true)->getPath() === '/routing' || (str_starts_with(current_url(true)->getPath(), '/routing') && in_array(new URLSearchParams($_SERVER['QUERY_STRING'] ?? ''), ['static','fib',''], true))) ? 'active' : '' ?>">
+            <a href="<?= base_url('routing') ?>" class="nav-link <?= (current_url(true)->getPath() === '/routing' && in_array($_GET['tab'] ?? '', ['static','fib',''], true)) ? 'active' : '' ?>">
               <svg class="nav-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/>
               </svg>
@@ -615,6 +632,16 @@ if (! function_exists('mnNavGroupOpen')) {
                 <path stroke-linecap="round" stroke-linejoin="round" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064"/>
               </svg>
               Multi-WAN
+            </a>
+          </li>
+          <!-- Dynamic SD-WAN SLA Steering -->
+          <li class="nav-item">
+            <a href="<?= base_url('routing/sdwan') ?>" class="nav-link <?= str_starts_with(current_url(true)->getPath(), '/routing/sdwan') ? 'active' : '' ?>">
+              <svg class="nav-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6M3 17l4-4 4 4 6-6"/>
+              </svg>
+              SD-WAN SLA Steering
+              <span class="nav-tag nav-tag-indigo">SD-WAN</span>
             </a>
           </li>
           <li class="nav-item">
@@ -688,6 +715,16 @@ if (! function_exists('mnNavGroupOpen')) {
               <span class="nav-tag nav-tag-emerald">Portal</span>
             </a>
           </li>
+          <!-- Clientless Gateway (ZTNA) -->
+          <li class="nav-item">
+            <a href="<?= base_url('vpn/clientless-gateway') ?>" class="nav-link <?= str_starts_with(current_url(true)->getPath(), '/vpn/clientless-gateway') ? 'active' : '' ?>">
+              <svg class="nav-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9"/>
+              </svg>
+              Clientless Gateway
+              <span class="nav-tag nav-tag-indigo">ZTNA</span>
+            </a>
+          </li>
         </ul>
       </div>
 
@@ -740,6 +777,26 @@ if (! function_exists('mnNavGroupOpen')) {
               <span class="nav-tag nav-tag-cyan">SOC</span>
             </a>
           </li>
+          <!-- SSL/TLS Inspection -->
+          <li class="nav-item">
+            <a href="<?= base_url('ssl-inspection') ?>" class="nav-link <?= str_starts_with(current_url(true)->getPath(), '/ssl-inspection') ? 'active' : '' ?>">
+              <svg class="nav-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+              </svg>
+              SSL/TLS Inspection
+              <span class="nav-tag nav-tag-amber">MITM</span>
+            </a>
+          </li>
+          <!-- Threat Intelligence Feeds -->
+          <li class="nav-item">
+            <a href="<?= base_url('security/threat-intel') ?>" class="nav-link <?= str_starts_with(current_url(true)->getPath(), '/security/threat-intel') ? 'active' : '' ?>">
+              <svg class="nav-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+              </svg>
+              Threat Intel Feeds
+              <span class="nav-tag nav-tag-rose">IoC</span>
+            </a>
+          </li>
         </ul>
       </div>
 
@@ -759,6 +816,15 @@ if (! function_exists('mnNavGroupOpen')) {
                 <path stroke-linecap="round" stroke-linejoin="round" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/>
               </svg>
               Roles & Permissions
+            </a>
+          </li>
+          <li class="nav-item">
+            <a href="<?= base_url('system/sso') ?>" class="nav-link <?= str_starts_with(current_url(true)->getPath(), '/system/sso') ? 'active' : '' ?>">
+              <svg class="nav-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+              </svg>
+              Single Sign-On (SSO)
+              <span class="nav-tag nav-tag-cyan">OIDC/SAML</span>
             </a>
           </li>
         </ul>

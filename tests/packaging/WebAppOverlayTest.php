@@ -47,7 +47,7 @@ final class WebAppOverlayTest extends CIUnitTestCase
     private const SHIPPED = [
         'app', 'bin', 'installer', 'public', 'system', 'vendor',
         'spark', 'preload.php', 'composer.json', 'composer.lock', 'env',
-        'LICENSE', 'README.md',
+        'LICENSE', 'README.md', 'VERSION',
     ];
 
     /**

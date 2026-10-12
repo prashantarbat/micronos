@@ -42,9 +42,10 @@ $controlUrl = base_url('plugins/netbird/control');
       service outside the appliance and the overlay changes the routing of live traffic.
     </p>
   </div>
-  <div style="display:flex; gap:8px; flex-wrap:wrap;">
+  <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
     <a href="<?= base_url('plugins') ?>" class="btn btn-ghost btn-sm">All Plugins</a>
     <button type="button" class="btn btn-ghost btn-sm" onclick="nbRefresh()">Refresh status</button>
+    <?= \App\Libraries\ServiceStatus::widget('netbird') ?>
   </div>
 </div>
 
@@ -115,14 +116,6 @@ $controlUrl = base_url('plugins/netbird/control');
     </div>
     <button type="submit" class="btn btn-primary btn-sm" style="margin-top:12px;">Enrol peer</button>
   </form>
-</div>
-
-<div class="card card-glass animate-in animate-in-delay-2" style="padding:16px 18px;">
-  <div style="font-weight:700; font-size:0.9rem; margin-bottom:8px;">Diagnostics</div>
-  <div style="font-size:.74rem; color:var(--text-muted); margin-bottom:10px;">
-    The agent's own service units are controllable here, and its journal is available beside them.
-  </div>
-  <?= \App\Libraries\ServiceStatus::widget(['netbird'], ['netbird' => 'NetBird agent']) ?>
 </div>
 
 <script>

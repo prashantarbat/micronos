@@ -15,24 +15,36 @@
 ?>
 
 <div class="page-header animate-in">
-  <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:16px;">
-    <div>
-      <h1 class="page-title">Multicast &amp; IGMP</h1>
-      <p class="page-subtitle">IGMP proxy for upstream multicast (IPTV), multicast routing with FRR PIM/IGMP, and bridge snooping with mDNS reflection across VLANs.</p>
+  <div class="page-header-content">
+    <div class="page-breadcrumb">
+      <a href="<?= base_url('dashboard') ?>">Dashboard</a>
+      <span class="sep">/</span>
+      <span>Routing</span>
+      <span class="sep">/</span>
+      <span class="current">Multicast &amp; IGMP</span>
     </div>
-    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-      <?= \App\Libraries\ServiceStatus::widget(
-            ['igmpproxy', 'frr', 'mdns-repeater'],
-            ['igmpproxy' => 'IGMP', 'frr' => 'PIM', 'mdns-repeater' => 'mDNS'],
-          ) ?>
-      <?php if ($isMock): ?>
-        <span class="badge badge-warning">⚠ Mock Mode</span>
-      <?php endif; ?>
-      <form method="POST" action="<?= base_url('multicast/apply') ?>" style="margin:0;">
-        <?= csrf_field() ?>
-        <button type="submit" class="btn btn-secondary btn-sm">Apply Configuration</button>
-      </form>
-    </div>
+    <h1 class="page-title">
+      <div class="page-title-icon tone-purple">
+        <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071a10 10 0 0114.142 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0"/>
+        </svg>
+      </div>
+      Multicast &amp; IGMP
+    </h1>
+    <p class="page-subtitle">IGMP proxy for upstream multicast (IPTV), multicast routing with FRR PIM/IGMP, and bridge snooping with mDNS reflection across VLANs.</p>
+  </div>
+  <div class="page-header-actions">
+    <?= \App\Libraries\ServiceStatus::widget(
+          ['igmpproxy', 'frr', 'mdns-repeater'],
+          ['igmpproxy' => 'IGMP', 'frr' => 'PIM', 'mdns-repeater' => 'mDNS'],
+        ) ?>
+    <?php if ($isMock): ?>
+      <span class="badge badge-warning">⚠ Mock Mode</span>
+    <?php endif; ?>
+    <form method="POST" action="<?= base_url('multicast/apply') ?>" style="margin:0;">
+      <?= csrf_field() ?>
+      <button type="submit" class="btn btn-secondary btn-sm">Apply Configuration</button>
+    </form>
   </div>
 </div>
 

@@ -395,7 +395,7 @@ class IpcClient
 
 ## 6. Phase 4: Web UI Management Interface & Responsive Design System
 
-Build the modern, sleek, high-contrast dark dashboard inspired by enterprise networking consoles.
+Build the modern, sleek, high-contrast dark dashboard inspired by enterprise networking consoles. Detailed engineering blueprints are codified in the [UI/UX Comprehensive Modernization Plan](UI_UX_COMPREHENSIVE_MODERNIZATION_PLAN.html) (`docs/UI_UX_COMPREHENSIVE_MODERNIZATION_PLAN.md`).
 
 ### 6.1 View Layout Blueprint (`app/Views/layouts/main.php`)
 - **Left Sidebar:** Sticky navigation covering Dashboard, Interfaces, Firewall Rules, NAT, Routing, Web Proxy, VPN (WireGuard / OpenVPN), Identity / 2FA, System Backup, and Diagnostics.
@@ -405,11 +405,26 @@ Build the modern, sleek, high-contrast dark dashboard inspired by enterprise net
 ### 6.2 Implement Dashboard Controller (`app/Controllers/Dashboard.php`)
 Queries interface statuses, active WireGuard handshakes, and system loads, rendering the live telemetry screen.
 
+### 6.3 Modular Card & Widget Engine (pfSense / FortiGate Style)
+- **Customizable Dashboard Cards**: Modular card grid where administrators can dynamically add, remove, and rearrange cards across a 1-, 2-, or 3-column responsive layout.
+- **Widget Catalogue & Drawer**: Categorized card store (`+ Add Widget`) providing 14 specialized cards (System Telemetry, Live Traffic SVG Graphs, Live Firewall Filter Log, Gateway SLA Probes, Core Services Watchdog, VPN Tunnels, Kea DHCP Leases, Unbound DNS Resolver, Suricata Threat Intel, and Audit Trail).
+- **Close & Reorder**: Each card includes drag handles for HTML5 drag-and-drop rearrangement, a close/remove (`✕`) button, and contextual settings (custom polling intervals: 1s, 2s, 5s, 10s, manual; graph styles).
+- **Per-User Persistence**: Layout geometry and active card selections are saved asynchronously in the `dashboard_user_layouts` database table and synced with `localStorage`.
+
+### 6.4 Interactive Live Physical Interface Faceplate (FortiGate Style)
+- **Photorealistic Chassis Visualization**: Front/rear panel hardware faceplate rendering physical RJ45 modular jacks and SFP+ optical fiber cages.
+- **Live Carrier & Activity LEDs**:
+  - Link/Speed LED: Cyan (10G/2.5G), Green (1 Gbps), Amber (100 Mbps), Dark (unplugged/down).
+  - Activity LED: Real-time pulse and blink animation scaled dynamically to packet throughput rates (pps).
+- **Interactive Hover HUD**: Glassmorphic heads-up display on port hover revealing IP address, subnet, gateway, MAC, duplex, real-time Rx/Tx bandwidth, and error counters within 50ms.
+- **Click-to-Inspect Drawer**: Clicking any physical port opens an inline diagnostic inspector offering administrative Up/Down toggles, a 60-second rolling throughput sparkline, and inline packet capture (tcpdump).
+- **Adaptive Topology**: Dynamically detects host virtual machine (Hyper-V / KVM) or physical hardware NIC configuration to render the matching port matrix.
+
 ---
 
 ## 7. Phase 5: Network Engine & nftables Compiler Implementation
 
-The core duty of MicronOS is translating database records into deterministic `/etc/nftables.conf` files.
+The core duty of Micron OS is translating database records into deterministic `/etc/nftables.conf` files.
 
 ### 7.1 Implement Compiler Library (`app/Libraries/ConfigCompiler.php`)
 ```php

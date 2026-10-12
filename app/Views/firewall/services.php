@@ -3,169 +3,43 @@
 
 <?= $this->include('firewall/_obj_tooltip') ?>
 
-<style>
-/* ── Chip / Badge styles ── */
-.mno-obj-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 0.74rem;
-  font-weight: 500;
-  font-family: var(--font-mono);
-  background: rgba(255,255,255,0.06);
-  border: 1px solid rgba(255,255,255,0.12);
-  color: var(--text-primary);
-  white-space: nowrap;
-  line-height: 1.4;
-}
-.mno-chip-svc  { background: rgba(34,197,94,0.12); border-color: rgba(34,197,94,0.30); color: #86efac; }
-.mno-chip-tcp  { background: rgba(59,130,246,0.13); border-color: rgba(59,130,246,0.32); color: #93c5fd; }
-.mno-chip-udp  { background: rgba(245,158,11,0.13); border-color: rgba(245,158,11,0.32); color: #fcd34d; }
-.mno-chip-icmp { background: rgba(168,85,247,0.13); border-color: rgba(168,85,247,0.32); color: #d8b4fe; }
-.mno-chip-ip   { background: rgba(239,68,68,0.12);  border-color: rgba(239,68,68,0.30);  color: #fca5a5; }
-
-/* ── Modal ── */
-.mno-modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(0,0,0,0.75);
-  backdrop-filter: blur(4px);
-  z-index: 1000;
-  display: none;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-}
-.mno-modal-backdrop.active { display: flex; }
-.mno-modal-dialog {
-  background: var(--color-surface-1);
-  border: 1px solid var(--color-border-bright);
-  border-radius: var(--radius-lg);
-  width: 100%;
-  max-width: 620px;
-  max-height: 90vh;
-  display: flex;
-  flex-direction: column;
-  box-shadow: 0 25px 50px -12px rgba(0,0,0,0.7);
-  overflow: hidden;
-  animation: modalSlideIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-}
-@keyframes modalSlideIn {
-  from { opacity: 0; transform: translateY(-18px) scale(0.97); }
-  to   { opacity: 1; transform: translateY(0)     scale(1);    }
-}
-.mno-modal-header {
-  padding: 16px 24px;
-  border-bottom: 1px solid var(--color-border);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  background: var(--color-surface-2);
-}
-.mno-modal-body   { padding: 24px; overflow-y: auto; flex: 1; }
-.mno-modal-footer {
-  padding: 14px 24px;
-  border-top: 1px solid var(--color-border);
-  background: var(--color-surface-2);
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-}
-
-/* ── Table ── */
-.mno-table {
-  width: 100%;
-  border-collapse: separate;
-  border-spacing: 0;
-  font-size: 0.8125rem;
-}
-.mno-table th {
-  background: var(--color-surface-3);
-  color: var(--text-secondary);
-  font-weight: 600;
-  font-size: 0.72rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--color-border);
-  text-align: left;
-}
-.mno-table td {
-  padding: 9px 14px;
-  border-bottom: 1px solid var(--color-border);
-  vertical-align: middle;
-}
-.mno-table tbody tr:hover { background: rgba(255,255,255,0.02); }
-
-/* ── Form fields ── */
-.mno-field-group {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 14px;
-  margin-bottom: 14px;
-}
-.mno-field label {
-  display: block;
-  font-size: 0.73rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  color: var(--text-secondary);
-  margin-bottom: 6px;
-}
-.mno-field input,
-.mno-field select {
-  width: 100%;
-  background: var(--color-surface-3);
-  border: 1px solid var(--color-border);
-  color: var(--text-primary);
-  padding: 8px 10px;
-  border-radius: var(--radius-sm);
-  font-size: 0.875rem;
-}
-.mno-field select option { background: #1a1a2e; }
-</style>
-
 <!-- ── Page Header ── -->
 <div class="page-header animate-in">
-  <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:16px;">
-    <div>
-      <div style="display:flex; align-items:center; gap:10px;">
-        <h1 class="page-title">Firewall Services &amp; Ports</h1>
-        <span class="badge badge-info" style="font-size:0.75rem;"><?= count($services) ?> Services</span>
-      </div>
-      <p class="page-subtitle">Define TCP, UDP, ICMP, and IP service objects for use in firewall policy rules</p>
+  <div class="page-header-content">
+    <div style="display:flex; align-items:center; gap:10px;">
+      <h1 class="page-title">Firewall Services &amp; Ports</h1>
+      <span class="badge badge-info" style="font-size:0.75rem;"><?= count($services) ?> Services</span>
     </div>
-    <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-      <button type="button" class="btn btn-primary btn-sm" onclick="openCreateModal()">
-        <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
-        </svg>
-        Create Service
-      </button>
+    <p class="page-subtitle">Define TCP, UDP, ICMP, and IP service objects for use in firewall policy rules</p>
+  </div>
+  <div class="page-header-actions">
+    <button type="button" class="btn btn-primary btn-sm" onclick="openCreateModal()">
+      <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+      </svg>
+      Create Service
+    </button>
 
-      <a href="<?= base_url('firewall/services/export-csv') ?>" class="btn btn-ghost btn-sm" title="Export to CSV">
-        <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
-        </svg>
-        Export CSV
-      </a>
+    <a href="<?= base_url('firewall/services/export-csv') ?>" class="btn btn-ghost btn-sm" title="Export to CSV">
+      <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+      </svg>
+      Export CSV
+    </a>
 
-      <button type="button" class="btn btn-ghost btn-sm" onclick="openImportModal()" title="Import from CSV">
-        <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
-        </svg>
-        Import CSV
-      </button>
+    <button type="button" class="btn btn-ghost btn-sm" onclick="openImportModal()" title="Import from CSV">
+      <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
+      </svg>
+      Import CSV
+    </button>
 
-      <a href="<?= base_url('firewall/service-groups') ?>" class="btn btn-ghost btn-sm">
-        <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
-        </svg>
-        Service Groups
-      </a>
-    </div>
+    <a href="<?= base_url('firewall/service-groups') ?>" class="btn btn-ghost btn-sm">
+      <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
+      </svg>
+      Service Groups
+    </a>
   </div>
 </div>
 

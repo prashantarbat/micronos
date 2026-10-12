@@ -733,6 +733,74 @@ class Plugins extends BaseController
     }
 
     /**
+     * LightSquid generated report viewer / console (`GET lightsquid` or `GET lightsquid/(:any)`).
+     *
+     * Serves generated static HTML/assets from the configured report directory,
+     * or renders the interactive LightSquid Reports Console when no static report exists yet.
+     */
+    public function lightsquidReport(string $subpath = ''): ResponseInterface|string
+    {
+        $manager = \Config\Services::packageManager();
+        $isInstalled = isset($this->installedRows()['lightsquid']);
+
+        // Determine the configured report directory
+        $reportDir = '/var/lightsquid/report';
+        if ($isInstalled) {
+            $status = $manager->lightsquidStatus();
+            if (!empty($status['data']['report_dir'])) {
+                $reportDir = (string) $status['data']['report_dir'];
+            }
+        }
+
+        // Also check writable/lightsquid/report for local/dev environments
+        $devDir = WRITEPATH . 'lightsquid/report';
+        $activeDir = is_dir($reportDir) ? $reportDir : (is_dir($devDir) ? $devDir : $reportDir);
+
+        $cleanSubpath = ltrim(str_replace(['..', "\0"], '', $subpath), '/\\');
+        $targetFile = $cleanSubpath !== '' ? rtrim($activeDir, '/\\') . DIRECTORY_SEPARATOR . $cleanSubpath : '';
+
+        // If a specific file was requested and exists, serve it
+        if ($targetFile !== '' && is_file($targetFile)) {
+            $ext = strtolower(pathinfo($targetFile, PATHINFO_EXTENSION));
+            $mime = match ($ext) {
+                'html', 'htm' => 'text/html; charset=UTF-8',
+                'css'         => 'text/css; charset=UTF-8',
+                'js'          => 'application/javascript; charset=UTF-8',
+                'png'         => 'image/png',
+                'gif'         => 'image/gif',
+                'jpg', 'jpeg' => 'image/jpeg',
+                'svg'         => 'image/svg+xml',
+                default       => 'application/octet-stream',
+            };
+
+            return $this->response
+                ->setHeader('Content-Type', $mime)
+                ->setBody((string) file_get_contents($targetFile));
+        }
+
+        // If top-level was requested and index.html exists, serve it
+        if ($cleanSubpath === '' && is_file(rtrim($activeDir, '/\\') . DIRECTORY_SEPARATOR . 'index.html')) {
+            return $this->response
+                ->setHeader('Content-Type', 'text/html; charset=UTF-8')
+                ->setBody((string) file_get_contents(rtrim($activeDir, '/\\') . DIRECTORY_SEPARATOR . 'index.html'));
+        }
+
+        // Otherwise render the interactive LightSquid Console view
+        $manifest = $manager->registry()->get('lightsquid');
+        $pluginData = $manifest ? $manifest->toArray() : ['id' => 'lightsquid', 'name' => 'Lightsquid Report', 'version' => '1.0.0', 'class' => 'B'];
+
+        return view('plugins/apps/lightsquid_console', [
+            'plugin'      => $pluginData,
+            'installed'   => $isInstalled,
+            'reportDir'   => $reportDir,
+            'hasReports'  => is_dir($activeDir) && count(glob(rtrim($activeDir, '/\\') . '/*') ?: []) > 0,
+            'refreshUrl'  => base_url('plugins/lightsquid/refresh'),
+            'statusUrl'   => base_url('plugins/lightsquid/status'),
+            'settingsUrl' => base_url('plugins/lightsquid'),
+        ]);
+    }
+
+    /**
      * lldpd status for the plugin's own page (`GET plugins/lldpd/status`).
      *
      * Read-only, so the page can poll it without an operator action. A plugin

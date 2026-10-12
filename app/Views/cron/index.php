@@ -1,68 +1,26 @@
-﻿<?= $this->extend('layouts/main') ?>
+<?= $this->extend('layouts/main') ?>
 <?= $this->section('content') ?>
 
 <style>
-.cron-tabs {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 24px;
-  border-bottom: 1px solid var(--color-border);
-  padding-bottom: 12px;
-  flex-wrap: wrap;
-}
-.cron-tab {
-  padding: 8px 16px;
-  border-radius: var(--radius-md);
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: var(--text-secondary);
-  background: rgba(255,255,255,0.02);
-  border: 1px solid var(--color-border);
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  transition: all var(--transition-fast);
-}
-.cron-tab:hover {
-  color: var(--text-primary);
-  background: rgba(255,255,255,0.06);
-  border-color: var(--color-border-bright);
-}
-.cron-tab.active {
-  background: var(--color-cyan-dim);
-  color: var(--color-cyan);
-  border-color: var(--color-cyan);
-  font-weight: 700;
-}
-.cron-panel { display: none; }
-.cron-panel.active { display: block; }
-
-.cron-stats-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 16px;
-  margin-bottom: 24px;
-}
 .cron-badge {
   font-family: var(--font-mono);
   font-size: 0.75rem;
   padding: 3px 8px;
   border-radius: var(--radius-sm);
-  background: rgba(255,255,255,0.05);
-  color: var(--color-cyan);
-  border: 1px solid var(--color-border);
+  background: var(--tone-cyan-bg);
+  color: var(--tone-cyan-fg);
+  border: 1px solid var(--tone-cyan-border);
 }
 .log-terminal {
-  background: #090d16;
-  border: 1px solid rgba(255,255,255,0.08);
+  background: var(--color-surface-1);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   font-family: var(--font-mono, monospace);
   font-size: 0.78rem;
   padding: 14px;
   max-height: 480px;
   overflow-y: auto;
-  color: #d1d5db;
+  color: var(--text-primary);
   line-height: 1.55;
 }
 </style>
@@ -121,15 +79,15 @@
 <?php endif; ?>
 
 <!-- Tabs Navigation -->
-<div class="cron-tabs animate-in animate-in-delay-1">
-  <button type="button" class="cron-tab active" id="tab-cron-tasks-btn" onclick="switchCronTab('tasks', this)">
+<div class="tab-bar cron-tabs animate-in animate-in-delay-1">
+  <button type="button" class="tab-item cron-tab active" id="tab-cron-tasks-btn" onclick="switchCronTab('tasks', this)">
     <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
       <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
     </svg>
     Scheduled Crontab Tasks
     <span class="badge badge-cyan" style="font-size:0.65rem; padding:1px 6px;"><?= count($jobs) ?></span>
   </button>
-  <button type="button" class="cron-tab" id="tab-cron-logs-btn" onclick="switchCronTab('logs', this)">
+  <button type="button" class="tab-item cron-tab" id="tab-cron-logs-btn" onclick="switchCronTab('logs', this)">
     <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
       <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
     </svg>

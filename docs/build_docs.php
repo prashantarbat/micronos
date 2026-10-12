@@ -129,6 +129,14 @@ $docs = [
         'subtitle' => 'MAJOR.MINOR.PATCH Release Channels, Odd/Even Stability Convention, and Incremental Patch Edits Architecture',
         'label' => 'Versioning &amp; Release Spec',
         'icon' => '<path stroke-linecap="round" stroke-linejoin="round" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"/>'
+    ],
+    'UI_UX_COMPREHENSIVE_MODERNIZATION_PLAN' => [
+        'md' => __DIR__ . '/UI_UX_COMPREHENSIVE_MODERNIZATION_PLAN.md',
+        'html' => __DIR__ . '/UI_UX_COMPREHENSIVE_MODERNIZATION_PLAN.html',
+        'title' => 'Micron OS — UI/UX Comprehensive Modernization Plan',
+        'subtitle' => 'Modular pfSense/FortiGate Dashboard Cards, Interactive Live Physical Interface Faceplate, and Modern NOC/SOC Design System',
+        'label' => 'UI/UX Modernization Plan',
+        'icon' => '<rect x="3" y="3" width="18" height="18" rx="2" stroke-linecap="round" stroke-linejoin="round"/><path stroke-linecap="round" stroke-linejoin="round" d="M3 9h18M9 21V9"/>'
     ]
 ];
 

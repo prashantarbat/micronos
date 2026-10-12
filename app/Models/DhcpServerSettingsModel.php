@@ -48,14 +48,15 @@ class DhcpServerSettingsModel extends Model
     {
         $settings = $this->where('interface_id', $interfaceId)->first();
         if (!$settings) {
-            $ip = $iface['ipv4_address'] ?? '192.168.1.1';
+            $ip = $iface['ipv4_address'] ?? '10.10.10.10';
             $netmask = (int) ($iface['ipv4_netmask'] ?? 24);
 
-            $ipLong = ip2long($ip) ?: ip2long('192.168.1.1');
+            $ipLong = ip2long($ip) ?: ip2long('10.10.10.10');
             $maskLong = ~((1 << (32 - $netmask)) - 1);
             $subnetBaseLong = $ipLong & $maskLong;
 
-            $rangeFrom = long2ip($subnetBaseLong + 10);
+            $startOffset = ($ipLong === $subnetBaseLong + 10) ? 20 : 10;
+            $rangeFrom = long2ip($subnetBaseLong + $startOffset);
             $rangeTo   = long2ip($subnetBaseLong + min(245, (1 << (32 - $netmask)) - 3));
 
             $isLan = (strtolower($interfaceId) === 'lan');

@@ -768,12 +768,23 @@ class RpcHandler:
         except Exception:
             pass
 
+        os_name = "Micron OS 2.0 (amd64)"
+        if os.path.exists("/etc/os-release"):
+            try:
+                with open("/etc/os-release") as f:
+                    for line in f:
+                        if line.startswith("PRETTY_NAME="):
+                            os_name = line.split("=", 1)[1].strip().strip('"')
+                            break
+            except Exception:
+                pass
+
         return {
-            "hostname": os.uname().nodename if hasattr(os, "uname") else "micronos-appliance",
+            "hostname": os.uname().nodename if hasattr(os, "uname") else "micron-os",
             "kernel": os.uname().release if hasattr(os, "uname") else "Linux 6.6",
             "uptime": uptime_str,
             "load_avg": load_avg,
-            "os": "MicronOS 1.0 (Debian 13 Trixie Kernel)"
+            "os": os_name
         }
 
     async def rpc_system_reboot(self, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -823,8 +834,19 @@ class RpcHandler:
     # OS/package update surface for the Web UI. Both handlers shell out to apt
     # with a *fixed* argv — no caller-supplied package name or repository ever
     # reaches the command line, and an upgrade never removes packages or
-    # rewrites sources (that would be a dist-upgrade, which needs an operator).
-    MICRONOS_VERSION = "1.0.0"
+    @classmethod
+    def _read_project_version(cls) -> str:
+        for p in ("/usr/local/micron/VERSION", "VERSION", "/etc/micron/VERSION"):
+            try:
+                with open(p, "r", encoding="utf-8") as f:
+                    v = f.read().strip()
+                    if v:
+                        return v
+            except OSError:
+                pass
+        return "0.1.25"
+
+    MICRONOS_VERSION = "0.1.25"
 
     async def rpc_system_updates_check(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -856,10 +878,21 @@ class RpcHandler:
                 candidate = line.split("(", 1)[1].split(")", 1)[0].strip().split()[0]
             packages.append({"name": parts[1], "current": current, "candidate": candidate})
 
+        os_name = "Micron OS 2.0 (amd64)"
+        if os.path.exists("/etc/os-release"):
+            try:
+                with open("/etc/os-release") as f:
+                    for line in f:
+                        if line.startswith("PRETTY_NAME="):
+                            os_name = line.split("=", 1)[1].strip().strip('"')
+                            break
+            except Exception:
+                pass
+
         return {
             "success": sim.returncode == 0,
             "status": "ok" if sim.returncode == 0 else "error",
-            "os": "MicronOS 1.0 (Debian 13 Trixie Kernel)",
+            "os": os_name,
             "version": self.MICRONOS_VERSION,
             "kernel": os.uname().release if hasattr(os, "uname") else "Linux 6.6",
             "count": len(packages),
@@ -984,6 +1017,114 @@ class RpcHandler:
     async def rpc_interface_confirm(self, params: Dict[str, Any]) -> Dict[str, Any]:
         self.tx_mgr.confirm_commit()
         return {"status": "confirmed"}
+
+    # ------------------ Bridge Interface Methods ------------------
+    async def rpc_bridge_list(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Enumerate active Linux kernel network bridges and their member ports."""
+        bridges = []
+        try:
+            net_path = "/sys/class/net"
+            if os.path.isdir(net_path):
+                for dev in os.listdir(net_path):
+                    br_dir = os.path.join(net_path, dev, "bridge")
+                    if os.path.isdir(br_dir):
+                        slaves = []
+                        brif_dir = os.path.join(net_path, dev, "brif")
+                        if os.path.isdir(brif_dir):
+                            slaves = sorted(os.listdir(brif_dir))
+
+                        stp_val = 0
+                        stp_file = os.path.join(br_dir, "stp_state")
+                        if os.path.isfile(stp_file):
+                            try:
+                                with open(stp_file, "r") as f:
+                                    stp_val = int(f.read().strip())
+                            except Exception:
+                                pass
+
+                        operstate = "unknown"
+                        oper_file = os.path.join(net_path, dev, "operstate")
+                        if os.path.isfile(oper_file):
+                            try:
+                                with open(oper_file, "r") as f:
+                                    operstate = f.read().strip()
+                            except Exception:
+                                pass
+
+                        bridges.append({
+                            "id": dev,
+                            "name": dev,
+                            "slaves": slaves,
+                            "stp": stp_val,
+                            "status": operstate,
+                        })
+        except Exception as e:
+            logger.warning(f"Failed scanning bridges from sysfs: {e}")
+
+        return {"success": True, "status": "ok", "bridges": bridges}
+
+    async def rpc_bridge_apply(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Create or update a Linux kernel network bridge and attach slave interfaces."""
+        br_id = str(params.get("id", "br0")).strip().lower()
+        if not br_id or not IF_NAME_RE.match(br_id):
+            raise ValueError(f"Invalid bridge identifier: {br_id}")
+
+        slaves = [str(s).strip() for s in params.get("slaves", []) if str(s).strip()]
+        for s in slaves:
+            if not IF_NAME_RE.match(s):
+                raise ValueError(f"Invalid member interface: {s}")
+
+        stp = 1 if params.get("stp") in (1, "1", True, "on") else 0
+        mtu = int(params.get("mtu", 1500) or 1500)
+        forward_delay = int(params.get("forward_delay", 2) or 2)
+
+        # 1. Create bridge if not exists
+        net_path = f"/sys/class/net/{br_id}"
+        if not os.path.isdir(net_path):
+            logger.info(f"Creating bridge interface: {br_id}")
+            proc = await asyncio.create_subprocess_exec(
+                "ip", "link", "add", "name", br_id, "type", "bridge",
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            )
+            await proc.communicate()
+
+        # 2. Configure STP & forward delay
+        stp_proc = await asyncio.create_subprocess_exec(
+            "ip", "link", "set", br_id, "type", "bridge", "stp_state", str(stp), "forward_delay", str(forward_delay),
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        )
+        await stp_proc.communicate()
+
+        # 3. Set MTU & bring bridge up
+        await (await asyncio.create_subprocess_exec("ip", "link", "set", "dev", br_id, "mtu", str(mtu), "up")).communicate()
+
+        # 4. Attach member interfaces
+        for slave in slaves:
+            if os.path.isdir(f"/sys/class/net/{slave}"):
+                # Flush IP from member interface (slaves should not have L3 IP addresses)
+                await (await asyncio.create_subprocess_exec("ip", "addr", "flush", "dev", slave)).communicate()
+                # Attach to bridge
+                await (await asyncio.create_subprocess_exec("ip", "link", "set", "dev", slave, "master", br_id, "up")).communicate()
+
+        return {"success": True, "status": "applied", "id": br_id, "slaves": slaves, "stp": stp}
+
+    async def rpc_bridge_delete(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Release member interfaces and delete bridge link."""
+        br_id = str(params.get("id", "")).strip().lower()
+        if not br_id:
+            raise ValueError("Bridge ID required")
+
+        # Detach any existing slaves
+        brif_dir = f"/sys/class/net/{br_id}/brif"
+        if os.path.isdir(brif_dir):
+            for slave in os.listdir(brif_dir):
+                await (await asyncio.create_subprocess_exec("ip", "link", "set", "dev", slave, "nomaster")).communicate()
+
+        # Bring down and delete
+        await (await asyncio.create_subprocess_exec("ip", "link", "set", "dev", br_id, "down")).communicate()
+        await (await asyncio.create_subprocess_exec("ip", "link", "delete", br_id, "type", "bridge")).communicate()
+
+        return {"success": True, "status": "deleted", "id": br_id}
 
     # ------------------ Firewall & NAT Methods ------------------
     async def rpc_firewall_apply(self, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -7427,7 +7568,7 @@ class RpcHandler:
             logger.warning(f"Could not configure authorized_keys for {username}: {exc}")
 
     async def rpc_user_list_os(self, params: Dict[str, Any]) -> Dict[str, Any]:
-        """Enumerate Debian system accounts (UID >= 1000 + protected accounts)."""
+        """Enumerate Micron OS system accounts (UID >= 1000 + protected accounts)."""
         users = []
         if not os.path.exists(PASSWD_FILE):
             return {
@@ -7508,13 +7649,13 @@ class RpcHandler:
         return {"success": True, "users": users}
 
     async def rpc_user_create(self, params: Dict[str, Any]) -> Dict[str, Any]:
-        """Create a Debian Linux user and assign attributes/groups/keys."""
+        """Create a Micron OS user and assign attributes/groups/keys."""
         username = str(params.get("username") or "").strip()
         if not OS_USER_RE.match(username):
             return {"success": False, "status": "error", "message": f"Invalid username: {username!r}"}
 
         if self._os_user_exists(username):
-            return {"success": False, "status": "exists", "message": f"Debian OS user '{username}' already exists"}
+            return {"success": False, "status": "exists", "message": f"Micron OS user '{username}' already exists"}
 
         shell = str(params.get("shell") or DEFAULT_SHELL).strip()
         if shell not in ALLOWED_SHELLS:
@@ -7548,7 +7689,7 @@ class RpcHandler:
         }
 
     async def rpc_user_update(self, params: Dict[str, Any]) -> Dict[str, Any]:
-        """Update an existing Debian Linux user's credentials, shell, full name or sudo status."""
+        """Update an existing Micron OS user's credentials, shell, full name or sudo status."""
         username = str(params.get("username") or "").strip()
         if not OS_USER_RE.match(username):
             return {"success": False, "status": "error", "message": f"Invalid username: {username!r}"}
@@ -7583,7 +7724,7 @@ class RpcHandler:
         }
 
     async def rpc_user_delete(self, params: Dict[str, Any]) -> Dict[str, Any]:
-        """Delete a Debian Linux user and remove home directory and sudo privileges."""
+        """Delete a Micron OS user and remove home directory and sudo privileges."""
         username = str(params.get("username") or "").strip()
         if not username:
             return {"success": False, "status": "error", "message": "Username is required"}
@@ -7611,7 +7752,7 @@ class RpcHandler:
         }
 
     async def rpc_user_sync(self, params: Dict[str, Any]) -> Dict[str, Any]:
-        """Bulk reconcile Web GUI database users with Debian OS user accounts."""
+        """Bulk reconcile Web GUI database users with Micron OS user accounts."""
         users = params.get("users") or []
         if not isinstance(users, list):
             return {"success": False, "status": "error", "message": "Users must be a list"}

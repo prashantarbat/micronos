@@ -5,6 +5,7 @@ namespace App\Controllers;
 use App\Libraries\IpcClient;
 use App\Libraries\PppoeCompiler;
 use App\Models\BondModel;
+use App\Models\BridgeModel;
 use App\Models\InterfaceModel;
 use App\Models\WirelessModel;
 
@@ -130,6 +131,21 @@ class Interfaces extends BaseController
         }
         unset($bond);
 
+        // Bridge Interfaces (br0 Layer 2 Switch)
+        $bridgeModel = new BridgeModel();
+        $bridges = $bridgeModel->getBridgesWithDetails();
+        $liveBridgeRes = $this->ipc->bridgeList();
+        $liveBridges = $liveBridgeRes['bridges'] ?? [];
+        $liveBridgeMap = [];
+        foreach ($liveBridges as $lb) {
+            $liveBridgeMap[$lb['id'] ?? ''] = $lb;
+        }
+        foreach ($bridges as &$bridge) {
+            $bridge['live'] = $liveBridgeMap[$bridge['id']] ?? null;
+            $parentDevices[$bridge['id']] = $bridge['name'] . " ({$bridge['id']} Bridge)";
+        }
+        unset($bridge);
+
         // Wireless LAN interfaces (wlan0 AP / Client)
         $wirelessModel = new WirelessModel();
         $wirelessList = $wirelessModel->orderBy('interface', 'ASC')->findAll();
@@ -153,6 +169,7 @@ class Interfaces extends BaseController
             'physical' => $physicalCount,
             'vlan'     => $vlanCount,
             'bonds'    => count($bonds),
+            'bridges'  => count($bridges),
             'wireless' => count($wirelessWithStatus),
         ];
 
@@ -164,6 +181,7 @@ class Interfaces extends BaseController
             'availableDevices' => $availableDevices,
             'parentDevices'    => $parentDevices,
             'bonds'            => $bonds,
+            'bridges'          => $bridges,
             'wireless'         => $wirelessWithStatus,
             'allPhysicalDevs'  => array_keys($detectedHardware),
             'isMock'           => $this->ipc->isMock(),
@@ -886,5 +904,113 @@ class Interfaces extends BaseController
     {
         $status = $this->ipc->wirelessStatus($interface);
         return $this->response->setJSON($status);
+    }
+
+    /**
+     * Create or update a Layer 2 network bridge (e.g. br0).
+     */
+    public function storeBridge(): \CodeIgniter\HTTP\RedirectResponse
+    {
+        $db = \Config\Database::connect();
+        $bridgeModel = new BridgeModel();
+
+        $id           = strtolower(trim((string) $this->request->getPost('id')));
+        $name         = trim((string) $this->request->getPost('name'));
+        $slaves       = (array) $this->request->getPost('slaves');
+        $stp          = (int) ($this->request->getPost('stp') ? 1 : 0);
+        $forwardDelay = (int) ($this->request->getPost('forward_delay') ?: 2);
+        $mtu          = (int) ($this->request->getPost('mtu') ?: 1500);
+        $description  = trim((string) $this->request->getPost('description'));
+
+        if (! preg_match('/^[a-zA-Z0-9_-]{2,15}$/', $id)) {
+            return redirect()->to(base_url('interfaces?tab=bridges'))->withInput()->with('error', 'Bridge identifier must be alphanumeric (e.g. br0, br-lan).');
+        }
+
+        if ($name === '') {
+            $name = strtoupper($id) . ' Bridge';
+        }
+
+        $slaves = array_values(array_filter(array_map('trim', $slaves), static fn ($s) => $s !== ''));
+        if (empty($slaves)) {
+            return redirect()->to(base_url('interfaces?tab=bridges'))->withInput()->with('error', 'At least one member port must be selected for the bridge.');
+        }
+
+        $bridgeData = [
+            'id'            => $id,
+            'name'          => $name,
+            'slaves'        => json_encode($slaves),
+            'stp'           => $stp,
+            'forward_delay' => $forwardDelay,
+            'mtu'           => $mtu > 0 ? $mtu : 1500,
+            'description'   => $description,
+            'updated_at'    => date('Y-m-d H:i:s'),
+        ];
+
+        $existing = $bridgeModel->find($id);
+        if ($existing) {
+            $bridgeModel->update($id, $bridgeData);
+        } else {
+            $bridgeData['created_at'] = date('Y-m-d H:i:s');
+            $bridgeModel->insert($bridgeData);
+        }
+
+        // Ensure entry in interfaces table for IP assignment and firewall rules
+        $ifaceRow = $db->table('interfaces')->where('physical_device', $id)->get()->getRowArray();
+        if (! $ifaceRow) {
+            $db->table('interfaces')->insert([
+                'id'                 => $id,
+                'name'               => $name,
+                'physical_device'    => $id,
+                'interface_type'     => 'bridge',
+                'ip_assignment_type' => 'static',
+                'ipv4_address'       => '192.168.1.1',
+                'ipv4_netmask'       => 24,
+                'mtu'                => $mtu,
+                'enabled'            => 1,
+                'created_at'         => date('Y-m-d H:i:s'),
+                'updated_at'         => date('Y-m-d H:i:s'),
+            ]);
+        } else {
+            $db->table('interfaces')->where('id', $ifaceRow['id'])->update([
+                'mtu'        => $mtu,
+                'updated_at' => date('Y-m-d H:i:s'),
+            ]);
+        }
+
+        // Apply via micrond
+        $ipcData = [
+            'id'            => $id,
+            'slaves'        => $slaves,
+            'stp'           => $stp,
+            'forward_delay' => $forwardDelay,
+            'mtu'           => $mtu,
+        ];
+        $this->ipc->bridgeApply($ipcData);
+
+        return redirect()->to(base_url('interfaces?tab=bridges'))->with('success', "Bridge interface {$id} successfully created and applied to Micron OS kernel.");
+    }
+
+    /**
+     * Delete a Layer 2 network bridge and release member ports.
+     */
+    public function deleteBridge(string $id): \CodeIgniter\HTTP\RedirectResponse
+    {
+        $db = \Config\Database::connect();
+        $bridgeModel = new BridgeModel();
+
+        $bridge = $bridgeModel->find($id);
+        if (! $bridge) {
+            return redirect()->to(base_url('interfaces?tab=bridges'))->with('error', "Bridge '{$id}' does not exist.");
+        }
+
+        $bridgeModel->delete($id);
+
+        // Remove from interfaces table if it was created as bridge type
+        $db->table('interfaces')->where('physical_device', $id)->where('interface_type', 'bridge')->delete();
+
+        // Release member ports and delete in kernel via micrond
+        $this->ipc->bridgeDelete($id);
+
+        return redirect()->to(base_url('interfaces?tab=bridges'))->with('success', "Bridge interface {$id} deleted and member ports released.");
     }
 }

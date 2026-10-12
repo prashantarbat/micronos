@@ -114,8 +114,12 @@ class SystemSettingsModel extends Model
     /** Return the singleton settings row, merged with defaults. */
     public function getSettings(): array
     {
-        $row = $this->find(1);
-        return array_merge($this->defaults, $row ?? []);
+        try {
+            $row = $this->find(1);
+            return array_merge($this->defaults, $row ?? []);
+        } catch (\Throwable $e) {
+            return $this->defaults;
+        }
     }
 
     /**

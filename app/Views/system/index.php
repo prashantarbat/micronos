@@ -3,15 +3,19 @@
 
 <?php
 // Helper — get saved or old-input value
-function sv(string $key, array $settings, $fallback = ''): string {
-    $v = old($key, $settings[$key] ?? $fallback);
-    return esc((string)$v);
+if (!function_exists('sv')) {
+    function sv(string $key, array $settings, $fallback = ''): string {
+        $v = old($key, $settings[$key] ?? $fallback);
+        return esc((string)$v);
+    }
 }
 
 /** Saved sticky-header colour, but only when it is a usable hex value. */
-function stickyColor(string $key, array $settings = []): string {
-    $v = (string) (old($key) ?? ($settings[$key] ?? ''));
-    return preg_match('/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/', trim($v)) ? strtolower(trim($v)) : '';
+if (!function_exists('stickyColor')) {
+    function stickyColor(string $key, array $settings = []): string {
+        $v = (string) (old($key) ?? ($settings[$key] ?? ''));
+        return preg_match('/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/', trim($v)) ? strtolower(trim($v)) : '';
+    }
 }
 ?>
 
@@ -19,46 +23,49 @@ function stickyColor(string $key, array $settings = []): string {
      Page Header
 =================================================== -->
 <div class="page-header animate-in">
-  <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:16px;">
-    <div>
-      <h1 class="page-title" style="display:flex; align-items:center; gap:12px;">
-        <span style="display:flex; align-items:center; justify-content:center; width:40px; height:40px; background:var(--color-cyan-dim); border:1px solid var(--color-cyan-glow); border-radius:10px;">
-          <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="var(--color-cyan)" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
-            <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+  <div class="page-header-content">
+    <div class="page-breadcrumb">
+      <a href="<?= base_url('dashboard') ?>">Dashboard</a>
+      <span>/</span>
+      <span class="current">System Settings</span>
+    </div>
+    <div style="display:flex; align-items:center; gap:12px;">
+      <div class="page-title-icon">
+        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+          <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+        </svg>
+      </div>
+      <h1 class="page-title">General System Settings</h1>
+    </div>
+    <p class="page-subtitle">Comprehensive appliance configuration — identity, organisation, time, access, and notifications</p>
+  </div>
+
+  <!-- Power Controls -->
+  <div class="page-header-actions">
+    <?php if (session()->get('is_superadmin') || in_array('system.reboot', session()->get('permissions') ?? [])): ?>
+      <form method="POST" action="<?= base_url('system/reboot') ?>" onsubmit="return confirm('Reboot the appliance now? Network routing will be temporarily interrupted.');" style="margin:0; display:inline;">
+        <?= csrf_field() ?>
+        <button type="submit" class="btn btn-ghost btn-sm" style="color:var(--tone-amber-fg);" id="btn-reboot">
+          <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
           </svg>
-        </span>
-        General System Settings
-      </h1>
-      <p class="page-subtitle">Comprehensive appliance configuration — identity, organisation, time, access, and notifications</p>
-    </div>
+          Reboot
+        </button>
+      </form>
+    <?php endif; ?>
 
-    <!-- Power Controls -->
-    <div style="display:flex; gap:10px; align-items:center;">
-      <?php if (session()->get('is_superadmin') || in_array('system.reboot', session()->get('permissions') ?? [])): ?>
-        <form method="POST" action="<?= base_url('system/reboot') ?>" onsubmit="return confirm('Reboot the appliance now? Network routing will be temporarily interrupted.');">
-          <?= csrf_field() ?>
-          <button type="submit" class="btn btn-ghost" style="color:var(--color-amber);" id="btn-reboot">
-            <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-            </svg>
-            Reboot
-          </button>
-        </form>
-      <?php endif; ?>
-
-      <?php if (session()->get('is_superadmin') || in_array('system.halt', session()->get('permissions') ?? [])): ?>
-        <form method="POST" action="<?= base_url('system/halt') ?>" onsubmit="return confirm('Power off the appliance now? Physical access will be required to power it back on.');">
-          <?= csrf_field() ?>
-          <button type="submit" class="btn btn-danger" id="btn-shutdown">
-            <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M5.636 18.364a9 9 0 010-12.728m12.728 0a9 9 0 010 12.728m-9.9-2.829a5 5 0 010-7.07m7.072 0a5 5 0 010 7.07M13 12a1 1 0 11-2 0 1 1 0 012 0z"/>
-            </svg>
-            Shutdown
-          </button>
-        </form>
-      <?php endif; ?>
-    </div>
+    <?php if (session()->get('is_superadmin') || in_array('system.halt', session()->get('permissions') ?? [])): ?>
+      <form method="POST" action="<?= base_url('system/halt') ?>" onsubmit="return confirm('Power off the appliance now? Physical access will be required to power it back on.');" style="margin:0; display:inline;">
+        <?= csrf_field() ?>
+        <button type="submit" class="btn btn-danger btn-sm" id="btn-shutdown">
+          <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M5.636 18.364a9 9 0 010-12.728m12.728 0a9 9 0 010 12.728m-9.9-2.829a5 5 0 010-7.07m7.072 0a5 5 0 010 7.07M13 12a1 1 0 11-2 0 1 1 0 012 0z"/>
+          </svg>
+          Shutdown
+        </button>
+      </form>
+    <?php endif; ?>
   </div>
 </div>
 
@@ -85,7 +92,7 @@ function stickyColor(string $key, array $settings = []): string {
     </svg>
     <div>
       <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.08em; margin-bottom:2px;">Micron Appliance ID</div>
-      <div style="font-family:var(--font-mono); font-size:0.9rem; color:var(--color-cyan); letter-spacing:0.05em;" id="micronIdDisplay"><?= esc($settings['micron_id'] ?: '—') ?></div>
+      <div style="font-family:var(--font-mono); font-size:0.9rem; color:var(--color-cyan); letter-spacing:0.05em;" id="micronIdDisplay"><?= esc(($settings['micron_id'] ?? '') ?: '—') ?></div>
     </div>
     <button type="button" onclick="copyMicronId()" title="Copy ID" style="background:none; border:none; cursor:pointer; color:var(--text-muted); padding:4px; border-radius:4px; transition:color 0.15s;" onmouseenter="this.style.color='var(--color-cyan)'" onmouseleave="this.style.color='var(--text-muted)'" id="btn-copy-id">
       <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -142,12 +149,12 @@ function stickyColor(string $key, array $settings = []): string {
 =================================================== -->
 <form method="POST" action="<?= base_url('system/save') ?>" id="settingsForm" class="animate-in animate-in-delay-2">
   <?= csrf_field() ?>
-  <input type="hidden" name="micron_id" value="<?= esc($settings['micron_id']) ?>">
+  <input type="hidden" name="micron_id" value="<?= esc($settings['micron_id'] ?? '') ?>">
 
   <!-- ══════════════════════════════════════════════
        TAB: IDENTITY
   ══════════════════════════════════════════════ -->
-  <div class="sys-tab-panel" id="panel-identity">
+  <div class="sys-tab-panel active" id="panel-identity" style="display:block;">
     <div class="settings-section-header">
       <h2 class="settings-section-title">Appliance Identity</h2>
       <p class="settings-section-desc">Hostname, domain, and unique device identifier used across all system services.</p>
@@ -191,7 +198,7 @@ function stickyColor(string $key, array $settings = []): string {
             <label class="form-label" for="micron_id_display">Micron Appliance ID</label>
             <div style="display:flex; gap:8px; align-items:center;">
               <input type="text" id="micron_id_display" class="form-control mono"
-                     value="<?= esc($settings['micron_id'] ?: '—')?>" spellcheck="false" readonly
+                     value="<?= esc(($settings['micron_id'] ?? '') ?: '—')?>" spellcheck="false" readonly
                      style="opacity:0.65; cursor:default; flex:1;">
             </div>
             <small class="form-hint">Auto-generated unique identifier — read only</small>
@@ -393,7 +400,7 @@ function stickyColor(string $key, array $settings = []): string {
           NTP Configuration
         </span>
         <label class="toggle-switch" title="Enable NTP">
-          <input type="checkbox" id="ntp_enabled" name="ntp_enabled" value="1" <?= $settings['ntp_enabled'] ? 'checked' : '' ?> onchange="toggleNtp(this.checked)">
+          <input type="checkbox" id="ntp_enabled" name="ntp_enabled" value="1" <?= !empty($settings['ntp_enabled']) ? 'checked' : '' ?> onchange="toggleNtp(this.checked)">
           <span class="toggle-slider"></span>
         </label>
       </div>
@@ -530,7 +537,7 @@ function stickyColor(string $key, array $settings = []): string {
             <label class="form-label">HTTP → HTTPS Redirect</label>
             <label class="toggle-switch" style="margin-top:8px;">
               <input type="checkbox" id="webgui_redirect_http" name="webgui_redirect_http" value="1"
-                     <?= $settings['webgui_redirect_http'] ? 'checked' : '' ?>>
+                     <?= !empty($settings['webgui_redirect_http']) ? 'checked' : '' ?>>
               <span class="toggle-slider"></span>
             </label>
             <small class="form-hint">Redirect port 80 requests to HTTPS</small>
@@ -583,7 +590,7 @@ function stickyColor(string $key, array $settings = []): string {
         </span>
         <label class="toggle-switch" title="Require acceptance before sign-in">
           <input type="checkbox" id="webgui_login_banner_enabled" name="webgui_login_banner_enabled" value="1"
-                 <?= $settings['webgui_login_banner_enabled'] ? 'checked' : '' ?>>
+                 <?= !empty($settings['webgui_login_banner_enabled']) ? 'checked' : '' ?>>
           <span class="toggle-slider"></span>
         </label>
       </div>
@@ -623,7 +630,7 @@ function stickyColor(string $key, array $settings = []): string {
         </span>
         <label class="toggle-switch" title="Pin a device bar to the top of every page">
           <input type="checkbox" id="webgui_sticky_header_enabled" name="webgui_sticky_header_enabled" value="1"
-                 <?= $settings['webgui_sticky_header_enabled'] ? 'checked' : '' ?>>
+                 <?= !empty($settings['webgui_sticky_header_enabled']) ? 'checked' : '' ?>>
           <span class="toggle-slider"></span>
         </label>
       </div>
@@ -699,7 +706,7 @@ function stickyColor(string $key, array $settings = []): string {
           </div>
           <label class="toggle-switch" title="Make the sticky header text flash">
             <input type="checkbox" id="webgui_sticky_blink_enabled" name="webgui_sticky_blink_enabled" value="1"
-                   <?= $settings['webgui_sticky_blink_enabled'] ? 'checked' : '' ?>
+                   <?= !empty($settings['webgui_sticky_blink_enabled']) ? 'checked' : '' ?>
                    onchange="toggleStickyBlink(this.checked)">
             <span class="toggle-slider"></span>
           </label>
@@ -725,7 +732,7 @@ function stickyColor(string $key, array $settings = []): string {
         </span>
         <label class="toggle-switch" title="Enable SSH">
           <input type="checkbox" id="ssh_enabled" name="ssh_enabled" value="1"
-                 <?= $settings['ssh_enabled'] ? 'checked' : '' ?> onchange="toggleSsh(this.checked)">
+                 <?= !empty($settings['ssh_enabled']) ? 'checked' : '' ?> onchange="toggleSsh(this.checked)">
           <span class="toggle-slider"></span>
         </label>
       </div>
@@ -747,7 +754,7 @@ function stickyColor(string $key, array $settings = []): string {
             <label class="form-label">Root Login</label>
             <label class="toggle-switch" style="margin-top:8px;">
               <input type="checkbox" id="ssh_root_login" name="ssh_root_login" value="1"
-                     <?= $settings['ssh_root_login'] ? 'checked' : '' ?>>
+                     <?= !empty($settings['ssh_root_login']) ? 'checked' : '' ?>>
               <span class="toggle-slider toggle-slider-danger"></span>
             </label>
             <small class="form-hint" style="color:var(--color-amber);">⚠ Not recommended — use sudo instead</small>
@@ -814,11 +821,11 @@ function stickyColor(string $key, array $settings = []): string {
         </span>
         <label class="toggle-switch" title="Enable email notifications">
           <input type="checkbox" id="notif_email_enabled" name="notif_email_enabled" value="1"
-                 <?= $settings['notif_email_enabled'] ? 'checked' : '' ?> onchange="toggleNotif(this.checked)">
+                 <?= !empty($settings['notif_email_enabled']) ? 'checked' : '' ?> onchange="toggleNotif(this.checked)">
           <span class="toggle-slider"></span>
         </label>
       </div>
-      <div class="card-body" id="notif-body" <?= !$settings['notif_email_enabled'] ? 'style="opacity:0.4;pointer-events:none;"' : '' ?>>
+      <div class="card-body" id="notif-body" <?= empty($settings['notif_email_enabled']) ? 'style="opacity:0.4;pointer-events:none;"' : '' ?>>
         <div class="settings-grid-2" style="margin-bottom:20px;">
           <div class="form-group">
             <label class="form-label" for="notif_smtp_host">SMTP Server</label>
@@ -969,7 +976,7 @@ function stickyColor(string $key, array $settings = []): string {
             'PHP Version'       => PHP_VERSION,
             'OS'                => PHP_OS_FAMILY,
             'Architecture'      => php_uname('m'),
-            'Micron ID'         => $settings['micron_id'] ?: '—',
+            'Micron ID'         => ($settings['micron_id'] ?? '') ?: '—',
             'DB Driver'         => config('Database')->default['DBDriver'] ?? '—',
           ];
           foreach ($sysInfo as $k => $v):
@@ -1875,7 +1882,10 @@ function stickyColor(string $key, array $settings = []): string {
 // ── Tab switching ────────────────────────────────────
 function switchTab(id) {
   document.querySelectorAll('.sys-tab-btn').forEach(b => b.classList.remove('active'));
-  document.querySelectorAll('.sys-tab-panel').forEach(p => p.style.display = 'none');
+  document.querySelectorAll('.sys-tab-panel').forEach(p => {
+    p.classList.remove('active');
+    p.style.display = 'none';
+  });
   const genSaveBar = document.getElementById('general-save-bar');
   if (genSaveBar) {
     genSaveBar.style.display = (id === 'ldap' || id === 'radius') ? 'none' : 'flex';
@@ -1883,7 +1893,10 @@ function switchTab(id) {
   const btn = document.getElementById('tab-btn-' + id);
   const panel = document.getElementById('panel-' + id);
   if (btn) btn.classList.add('active');
-  if (panel) panel.style.display = '';
+  if (panel) {
+    panel.classList.add('active');
+    panel.style.display = 'block';
+  }
   localStorage.setItem('sys_active_tab', id);
   if (window.history && window.history.replaceState) {
     window.history.replaceState(null, null, '#' + id);
@@ -1898,7 +1911,11 @@ function switchTab(id) {
     return;
   }
   const saved = localStorage.getItem('sys_active_tab');
-  if (saved && document.getElementById('panel-' + saved)) switchTab(saved);
+  if (saved && document.getElementById('panel-' + saved)) {
+    switchTab(saved);
+    return;
+  }
+  switchTab('identity');
 })();
 
 // ── LDAP & RADIUS Helpers ────────────────────────────

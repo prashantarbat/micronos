@@ -1,0 +1,412 @@
+#!/bin/bash
+# ==============================================================================
+# Micron OS — Emergency A/B Boot Slot Rescue & Recovery Tool
+# ==============================================================================
+# Open Source under Apache License 2.0
+# Allows disaster recovery from USB/ISO rescue media or live administrative shell:
+# - Discover installed Micron OS root slots on storage drives
+# - Switch permanent active boot slot between Slot A and Slot B
+# - Clone/heal a damaged root slot from a verified healthy slot
+# - Run filesystem integrity checks (fsck)
+# - Drop into chroot maintenance shells for manual fixes
+# ==============================================================================
+set -e
+
+# Terminal Colors
+BOLD='\033[1m'
+NC='\033[0m'
+GREEN='\033[0;32m'
+CYAN='\033[0;36m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+
+if [ "$EUID" -ne 0 ]; then
+    echo -e "${RED}Error: micron-slot-rescue must be run as root.${NC}"
+    exit 1
+fi
+
+RESCUE_MNT="/mnt/micron_rescue"
+cleanup() {
+    for mp in "${RESCUE_MNT}/slot_a/dev/pts" "${RESCUE_MNT}/slot_a/dev" \
+              "${RESCUE_MNT}/slot_a/proc" "${RESCUE_MNT}/slot_a/sys" \
+              "${RESCUE_MNT}/slot_b/dev/pts" "${RESCUE_MNT}/slot_b/dev" \
+              "${RESCUE_MNT}/slot_b/proc" "${RESCUE_MNT}/slot_b/sys" \
+              "${RESCUE_MNT}/slot_a/boot/efi" "${RESCUE_MNT}/slot_b/boot/efi" \
+              "${RESCUE_MNT}/slot_a" "${RESCUE_MNT}/slot_b" \
+              "${RESCUE_MNT}/esp" "${RESCUE_MNT}/data"; do
+        umount "$mp" 2>/dev/null || true
+    done
+}
+trap cleanup EXIT
+
+discover_appliance() {
+    PART_A=$(blkid -L "MICRON_ROOT_A" 2>/dev/null || true)
+    PART_B=$(blkid -L "MICRON_ROOT_B" 2>/dev/null || true)
+    PART_ESP=$(blkid -L "EFI" 2>/dev/null || true)
+    PART_DATA=$(blkid -L "MICRON_DATA" 2>/dev/null || true)
+
+    if [ -z "$PART_A" ] && [ -z "$PART_B" ]; then
+        # Try probing by UUID or standard partition schemes
+        for dev in $(lsblk -lno PATH,FSTYPE | grep ext4 | awk '{print $1}'); do
+            lbl=$(blkid -s LABEL -o value "$dev" 2>/dev/null || true)
+            if [ "$lbl" = "MICRON_ROOT_A" ]; then PART_A="$dev"; fi
+            if [ "$lbl" = "MICRON_ROOT_B" ]; then PART_B="$dev"; fi
+        done
+    fi
+
+    if [ -z "$PART_A" ] && [ -z "$PART_B" ]; then
+        echo -e "${RED}[!] No installed Micron OS partitions detected on attached disks.${NC}"
+        echo "Available block devices:"
+        lsblk -o NAME,SIZE,FSTYPE,LABEL,MOUNTPOINT
+        echo ""
+        read -r -p "Enter custom block device for Slot A (or press Enter to exit): " PART_A
+        if [ -z "$PART_A" ]; then
+            exit 1
+        fi
+        read -r -p "Enter custom block device for Slot B: " PART_B
+    fi
+
+    # Detect parent disk
+    TARGET_DISK=$(lsblk -no PKNAME "$PART_A" 2>/dev/null | head -n1 || echo "")
+    [ -n "$TARGET_DISK" ] && TARGET_DISK="/dev/$TARGET_DISK" || TARGET_DISK="Auto-detected"
+}
+
+mount_slots() {
+    mkdir -p "${RESCUE_MNT}/slot_a" "${RESCUE_MNT}/slot_b" "${RESCUE_MNT}/esp"
+
+    # Mount Slot A safely
+    if [ -b "$PART_A" ]; then
+        if findmnt -n -o TARGET "$PART_A" 2>/dev/null | grep -q "^/$"; then
+            mount --bind / "${RESCUE_MNT}/slot_a" 2>/dev/null || true
+        else
+            mount "$PART_A" "${RESCUE_MNT}/slot_a" 2>/dev/null || true
+        fi
+    fi
+
+    # Mount Slot B safely
+    if [ -b "$PART_B" ]; then
+        if findmnt -n -o TARGET "$PART_B" 2>/dev/null | grep -q "^/$"; then
+            mount --bind / "${RESCUE_MNT}/slot_b" 2>/dev/null || true
+        else
+            mount "$PART_B" "${RESCUE_MNT}/slot_b" 2>/dev/null || true
+        fi
+    fi
+
+    # Mount ESP safely
+    if [ -b "$PART_ESP" ]; then
+        if findmnt -n -o TARGET "$PART_ESP" 2>/dev/null | grep -q "^/boot/efi$"; then
+            mount --bind /boot/efi "${RESCUE_MNT}/esp" 2>/dev/null || true
+        else
+            mount "$PART_ESP" "${RESCUE_MNT}/esp" 2>/dev/null || true
+        fi
+    fi
+}
+
+read_slot_status() {
+    ENV_FILE=""
+    if [ -f "/boot/grub/grubenv" ]; then
+        ENV_FILE="/boot/grub/grubenv"
+    elif [ -f "${RESCUE_MNT}/slot_a/boot/grub/grubenv" ]; then
+        ENV_FILE="${RESCUE_MNT}/slot_a/boot/grub/grubenv"
+    elif [ -f "${RESCUE_MNT}/slot_b/boot/grub/grubenv" ]; then
+        ENV_FILE="${RESCUE_MNT}/slot_b/boot/grub/grubenv"
+    elif [ -f "${RESCUE_MNT}/esp/EFI/micron-os/grubenv" ]; then
+        ENV_FILE="${RESCUE_MNT}/esp/EFI/micron-os/grubenv"
+    fi
+
+    CURRENT_ACTIVE="a"
+    A_OK="1"
+    B_OK="1"
+    A_FAIL="0"
+    B_FAIL="0"
+
+    if [ -n "$ENV_FILE" ] && [ -f "$ENV_FILE" ]; then
+        s=$(grep -E '^micron_active_slot=' "$ENV_FILE" 2>/dev/null | cut -d= -f2 || echo "a")
+        [ -n "$s" ] && CURRENT_ACTIVE="$s"
+        s=$(grep -E '^micron_a_ok=' "$ENV_FILE" 2>/dev/null | cut -d= -f2 || echo "1")
+        [ -n "$s" ] && A_OK="$s"
+        s=$(grep -E '^micron_b_ok=' "$ENV_FILE" 2>/dev/null | cut -d= -f2 || echo "1")
+        [ -n "$s" ] && B_OK="$s"
+        s=$(grep -E '^micron_a_fail=' "$ENV_FILE" 2>/dev/null | cut -d= -f2 || echo "0")
+        [ -n "$s" ] && A_FAIL="$s"
+        s=$(grep -E '^micron_b_fail=' "$ENV_FILE" 2>/dev/null | cut -d= -f2 || echo "0")
+        [ -n "$s" ] && B_FAIL="$s"
+    fi
+}
+
+update_grubenv() {
+    local target_slot="$1"
+    echo -e "${YELLOW}Setting Slot ${target_slot^^} as permanent primary boot target...${NC}"
+
+    # Use micron-slot helper if available
+    SLOT_HELPER="/usr/local/micron/installer/micron-slot"
+    [ -x "$SLOT_HELPER" ] || SLOT_HELPER="$(which micron-slot 2>/dev/null || true)"
+
+    for env_target in "${RESCUE_MNT}/slot_a/boot/grub/grubenv" \
+                      "${RESCUE_MNT}/slot_b/boot/grub/grubenv" \
+                      "${RESCUE_MNT}/esp/EFI/micron-os/grubenv" \
+                      "/boot/grub/grubenv"; do
+        if [ -f "$env_target" ] || [ -d "$(dirname "$env_target")" ]; then
+            mkdir -p "$(dirname "$env_target")"
+            if [ -x "$SLOT_HELPER" ]; then
+                MICRON_SLOT_ENV="$env_target" "$SLOT_HELPER" set micron_active_slot "$target_slot" 2>/dev/null || true
+                MICRON_SLOT_ENV="$env_target" "$SLOT_HELPER" set "micron_${target_slot}_ok" 1 2>/dev/null || true
+                MICRON_SLOT_ENV="$env_target" "$SLOT_HELPER" set "micron_${target_slot}_fail" 0 2>/dev/null || true
+            else
+                # Fallback manual write of 1024-byte GRUB environment block
+                tmp=$(mktemp /tmp/.grubenv.XXXXXX)
+                {
+                    echo "# GRUB Environment Block"
+                    echo "micron_active_slot=${target_slot}"
+                    echo "micron_a_ok=$([ "$target_slot" = "a" ] && echo 1 || echo "$A_OK")"
+                    echo "micron_b_ok=$([ "$target_slot" = "b" ] && echo 1 || echo "$B_OK")"
+                    echo "micron_a_fail=$([ "$target_slot" = "a" ] && echo 0 || echo "$A_FAIL")"
+                    echo "micron_b_fail=$([ "$target_slot" = "b" ] && echo 0 || echo "$B_FAIL")"
+                    echo "micron_updated_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                } > "$tmp"
+                body_len=$(wc -c < "$tmp")
+                pad=$(( 1024 - body_len ))
+                if [ "$pad" -gt 0 ]; then
+                    head -c "$pad" < /dev/zero | tr '\0' '#' >> "$tmp"
+                fi
+                cp -f "$tmp" "$env_target"
+                chmod 644 "$env_target"
+                rm -f "$tmp"
+            fi
+            sync
+        fi
+    done
+    echo -e "${GREEN}[OK] Slot ${target_slot^^} is now configured as the primary boot target.${NC}"
+}
+
+print_header() {
+    clear 2>/dev/null || true
+    echo -e "${CYAN}"
+    cat << 'BANNER'
+┌╦═╦═╦┐ ┌═╤╦╤═┐ ┌╦═══╦┐ ┌╦═══╦┐ ┌╦═══╦┐ ┌╦═╗ ╦┐      ┌╦═══╦┐ ┌╦═══╦┐
+│║ ║ ║│   │║│   │║      │╠══╦╩┘ │║   ║│ │║ ║ ║│      │║   ║│ └╩═══╦┐
+└╩   ╩┘ └═╧╩╧═┘ └╩═══╩┘ └╩  ╚═┘ └╩═══╩┘ └╩ ╚═╩┘      └╩═══╩┘ └╩═══╩┘
+ Enterprise Linux Firewall & Network Appliance — Emergency Slot Rescue
+BANNER
+    echo -e "${NC}"
+
+    echo -e "${BOLD}Detected Storage Architecture:${NC}"
+    echo "  Storage Drive  : ${TARGET_DISK}"
+    echo "  Root Slot A    : ${PART_A} (Failures: ${A_FAIL}, Healthy: ${A_OK})"
+    echo "  Root Slot B    : ${PART_B} (Failures: ${B_FAIL}, Healthy: ${B_OK})"
+    echo -e "  Active in GRUB : ${BOLD}Slot ${CURRENT_ACTIVE^^}${NC}\n"
+
+    echo "Available Recovery Operations:"
+    echo "  1) Make Slot B the PERMANENT Boot Target (Switch to Slot B)"
+    echo "  2) Make Slot A the PERMANENT Boot Target (Switch to Slot A)"
+    echo "  3) Clone & Repair Slot A from Slot B (Heal broken Slot A from Slot B)"
+    echo "  4) Clone & Repair Slot B from Slot A (Heal broken Slot B from Slot A)"
+    echo "  5) Run Filesystem Integrity Check (e2fsck) on Slot A & Slot B"
+    echo "  6) Drop into Chroot Maintenance Shell on Slot A"
+    echo "  7) Drop into Chroot Maintenance Shell on Slot B"
+    echo "  8) Reboot Appliance"
+    echo "  0) Exit to Shell"
+    echo ""
+}
+
+pause() {
+    echo ""
+    read -r -p "Press [Enter] to continue..."
+}
+
+# ------------------------------------------------------------------------------
+# CLI Mode Execution (Non-interactive)
+# ------------------------------------------------------------------------------
+case "${1:-}" in
+    a|A|--slot-a|--switch-to-a)
+        discover_appliance
+        mount_slots
+        read_slot_status
+        update_grubenv "a"
+        cleanup
+        exit 0
+        ;;
+    b|B|--slot-b|--switch-to-b)
+        discover_appliance
+        mount_slots
+        read_slot_status
+        update_grubenv "b"
+        cleanup
+        exit 0
+        ;;
+    status|--status)
+        discover_appliance
+        mount_slots
+        read_slot_status
+        echo "Active Boot Slot : ${CURRENT_ACTIVE^^}"
+        echo "Slot A Partition : ${PART_A} (Failures: ${A_FAIL}, Status: $([ "$A_OK" = "1" ] && echo Healthy || echo Degraded))"
+        echo "Slot B Partition : ${PART_B} (Failures: ${B_FAIL}, Status: $([ "$B_OK" = "1" ] && echo Healthy || echo Degraded))"
+        cleanup
+        exit 0
+        ;;
+    help|--help|-h)
+        echo "Usage: micron-slot-rescue [COMMAND]"
+        echo ""
+        echo "Commands:"
+        echo "  (none)        Launch interactive recovery wizard"
+        echo "  a             Switch permanent boot target to Slot A"
+        echo "  b             Switch permanent boot target to Slot B"
+        echo "  status        Display current slot health and active GRUB target"
+        echo "  help          Show this help message"
+        exit 0
+        ;;
+esac
+
+# ------------------------------------------------------------------------------
+# Interactive Wizard Execution Loop
+# ------------------------------------------------------------------------------
+discover_appliance
+mount_slots
+
+while true; do
+    read_slot_status
+    print_header
+    read -r -p "Enter recovery action [0-8]: " ACTION
+
+    case "$ACTION" in
+        1)
+            update_grubenv "b"
+            pause
+            ;;
+
+        2)
+            update_grubenv "a"
+            pause
+            ;;
+
+        3)
+            echo -e "\n${BOLD}=== Clone & Repair Slot A from Slot B ===${NC}"
+            echo -e "${YELLOW}This will completely overwrite Slot A with the verified state from Slot B!${NC}"
+            read -r -p "Are you sure you want to restore Slot A from Slot B? (type YES): " CONFIRM
+            if [ "$CONFIRM" = "YES" ]; then
+                echo "Syncing filesystem: Slot B -> Slot A..."
+                rsync -aAX --delete \
+                    --exclude={"/etc/fstab","/dev/*","/proc/*","/sys/*","/tmp/*","/run/*","/mnt/*","/media/*","/lost+found"} \
+                    "${RESCUE_MNT}/slot_b/" "${RESCUE_MNT}/slot_a/"
+                
+                # Ensure correct fstab on Slot A
+                ROOT_A_UUID=$(blkid -s UUID -o value "$PART_A")
+                ROOT_B_UUID=$(blkid -s UUID -o value "$PART_B")
+                EFI_UUID=$(blkid -s UUID -o value "$PART_ESP" 2>/dev/null || echo "")
+                SWAP_UUID=$(blkid -s UUID -o value "$PART_SWAP" 2>/dev/null || echo "")
+                DATA_UUID=$(blkid -s UUID -o value "$PART_DATA" 2>/dev/null || echo "")
+
+                cat << EOF > "${RESCUE_MNT}/slot_a/etc/fstab"
+# Micron OS Filesystem Table (Slot A)
+UUID=${ROOT_A_UUID}          /                    ext4    defaults,noatime,errors=remount-ro   0      1
+${EFI_UUID:+UUID=${EFI_UUID}             /boot/efi            vfat    umask=0077                           0      1}
+${SWAP_UUID:+UUID=${SWAP_UUID}            none                 swap    sw                                   0      0}
+${DATA_UUID:+UUID=${DATA_UUID}            /var/lib/micron      ext4    defaults,noatime,barrier=1,commit=5,errors=remount-ro 0 2}
+UUID=${ROOT_B_UUID}          /mnt/micron-slot-b   ext4    noauto,nofail                        0      0
+EOF
+                sync
+                echo -e "${GREEN}[OK] Slot A restored and healed from Slot B.${NC}"
+                update_grubenv "a"
+            else
+                echo "Operation cancelled."
+            fi
+            pause
+            ;;
+
+        4)
+            echo -e "\n${BOLD}=== Clone & Repair Slot B from Slot A ===${NC}"
+            echo -e "${YELLOW}This will completely overwrite Slot B with the verified state from Slot A!${NC}"
+            read -r -p "Are you sure you want to restore Slot B from Slot A? (type YES): " CONFIRM
+            if [ "$CONFIRM" = "YES" ]; then
+                echo "Syncing filesystem: Slot A -> Slot B..."
+                rsync -aAX --delete \
+                    --exclude={"/etc/fstab","/dev/*","/proc/*","/sys/*","/tmp/*","/run/*","/mnt/*","/media/*","/lost+found"} \
+                    "${RESCUE_MNT}/slot_a/" "${RESCUE_MNT}/slot_b/"
+
+                ROOT_A_UUID=$(blkid -s UUID -o value "$PART_A")
+                ROOT_B_UUID=$(blkid -s UUID -o value "$PART_B")
+                EFI_UUID=$(blkid -s UUID -o value "$PART_ESP" 2>/dev/null || echo "")
+                SWAP_UUID=$(blkid -s UUID -o value "$PART_SWAP" 2>/dev/null || echo "")
+                DATA_UUID=$(blkid -s UUID -o value "$PART_DATA" 2>/dev/null || echo "")
+
+                cat << EOF > "${RESCUE_MNT}/slot_b/etc/fstab"
+# Micron OS Filesystem Table (Slot B)
+UUID=${ROOT_B_UUID}          /                    ext4    defaults,noatime,errors=remount-ro   0      1
+${EFI_UUID:+UUID=${EFI_UUID}             /boot/efi            vfat    umask=0077                           0      1}
+${SWAP_UUID:+UUID=${SWAP_UUID}            none                 swap    sw                                   0      0}
+${DATA_UUID:+UUID=${DATA_UUID}            /var/lib/micron      ext4    defaults,noatime,barrier=1,commit=5,errors=remount-ro 0 2}
+UUID=${ROOT_A_UUID}          /mnt/micron-slot-a   ext4    noauto,nofail                        0      0
+EOF
+                sync
+                echo -e "${GREEN}[OK] Slot B restored and healed from Slot B.${NC}"
+                update_grubenv "b"
+            else
+                echo "Operation cancelled."
+            fi
+            pause
+            ;;
+
+        5)
+            echo -e "\n${BOLD}=== Filesystem Integrity Check (fsck) ===${NC}"
+            cleanup
+            echo "Checking Slot A (${PART_A})..."
+            e2fsck -f -y "$PART_A" || true
+            echo ""
+            echo "Checking Slot B (${PART_B})..."
+            e2fsck -f -y "$PART_B" || true
+            mount_slots
+            echo -e "\n${GREEN}[OK] Filesystem check complete.${NC}"
+            pause
+            ;;
+
+        6)
+            echo -e "\n${BOLD}=== Chroot Maintenance Shell on Slot A ===${NC}"
+            if [ -d "${RESCUE_MNT}/slot_a" ]; then
+                mount --bind /dev "${RESCUE_MNT}/slot_a/dev"
+                mount --bind /dev/pts "${RESCUE_MNT}/slot_a/dev/pts"
+                mount --bind /proc "${RESCUE_MNT}/slot_a/proc"
+                mount --bind /sys "${RESCUE_MNT}/slot_a/sys"
+                echo "Dropping into chroot on Slot A. Type 'exit' to return."
+                chroot "${RESCUE_MNT}/slot_a" /bin/bash || true
+                umount "${RESCUE_MNT}/slot_a/sys" 2>/dev/null || true
+                umount "${RESCUE_MNT}/slot_a/proc" 2>/dev/null || true
+                umount "${RESCUE_MNT}/slot_a/dev/pts" 2>/dev/null || true
+                umount "${RESCUE_MNT}/slot_a/dev" 2>/dev/null || true
+            fi
+            ;;
+
+        7)
+            echo -e "\n${BOLD}=== Chroot Maintenance Shell on Slot B ===${NC}"
+            if [ -d "${RESCUE_MNT}/slot_b" ]; then
+                mount --bind /dev "${RESCUE_MNT}/slot_b/dev"
+                mount --bind /dev/pts "${RESCUE_MNT}/slot_b/dev/pts"
+                mount --bind /proc "${RESCUE_MNT}/slot_b/proc"
+                mount --bind /sys "${RESCUE_MNT}/slot_b/sys"
+                echo "Dropping into chroot on Slot B. Type 'exit' to return."
+                chroot "${RESCUE_MNT}/slot_b" /bin/bash || true
+                umount "${RESCUE_MNT}/slot_b/sys" 2>/dev/null || true
+                umount "${RESCUE_MNT}/slot_b/proc" 2>/dev/null || true
+                umount "${RESCUE_MNT}/slot_b/dev/pts" 2>/dev/null || true
+                umount "${RESCUE_MNT}/slot_b/dev" 2>/dev/null || true
+            fi
+            ;;
+
+        8)
+            echo -e "\n${YELLOW}Rebooting appliance...${NC}"
+            cleanup
+            reboot
+            exit 0
+            ;;
+
+        0)
+            echo "Exiting to shell..."
+            cleanup
+            exit 0
+            ;;
+
+        *)
+            echo -e "${RED}Invalid selection.${NC}"
+            sleep 1
+            ;;
+    esac
+done

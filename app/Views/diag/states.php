@@ -31,47 +31,59 @@
 </style>
 
 <div class="page-header animate-in">
-  <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:16px;">
-    <div>
-      <h1 class="page-title">Firewall Connection States</h1>
-      <p class="page-subtitle">Real-time kernel state tracking table (Netfilter conntrack). Inspect active sessions, NAT mappings, and terminate rogue connections.</p>
+  <div class="page-header-content">
+    <div class="page-breadcrumb">
+      <a href="<?= base_url('dashboard') ?>">Dashboard</a>
+      <span class="sep">/</span>
+      <span>Diagnostics</span>
+      <span class="sep">/</span>
+      <span class="current">Connection States</span>
     </div>
-    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
-      <!-- Export Options -->
-      <a href="<?= base_url('diag/states/export-csv') ?>" class="btn btn-secondary btn-sm" title="Export all kernel states to CSV file">
-        <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+    <h1 class="page-title">
+      <div class="page-title-icon tone-indigo">
+        <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/>
         </svg>
-        Export CSV
-      </a>
-      <a href="<?= base_url('diag/states/export-json') ?>" class="btn btn-secondary btn-sm" title="Export all kernel states to JSON file">
-        <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/>
-        </svg>
-        Export JSON
-      </a>
+      </div>
+      Firewall Connection States
+    </h1>
+    <p class="page-subtitle">Real-time kernel state tracking table (Netfilter conntrack). Inspect active sessions, NAT mappings, and terminate rogue connections.</p>
+  </div>
+  <div class="page-header-actions">
+    <!-- Export Options -->
+    <a href="<?= base_url('diag/states/export-csv') ?>" class="btn btn-secondary btn-sm" title="Export all kernel states to CSV file">
+      <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+      </svg>
+      Export CSV
+    </a>
+    <a href="<?= base_url('diag/states/export-json') ?>" class="btn btn-secondary btn-sm" title="Export all kernel states to JSON file">
+      <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/>
+      </svg>
+      Export JSON
+    </a>
 
-      <button type="button" class="btn btn-ghost btn-sm" onclick="exportFilteredStates()" title="Export currently filtered view to CSV">
-        <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"/>
-        </svg>
-        Export Filtered
-      </button>
+    <button type="button" class="btn btn-ghost btn-sm" onclick="exportFilteredStates()" title="Export currently filtered view to CSV">
+      <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"/>
+      </svg>
+      Export Filtered
+    </button>
 
-      <button type="button" class="btn btn-ghost btn-sm" onclick="fetchStates()">
-        <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-        </svg>
-        Refresh
-      </button>
+    <button type="button" class="btn btn-ghost btn-sm" onclick="fetchStates()">
+      <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+      </svg>
+      Refresh
+    </button>
 
-      <button type="button" class="btn btn-danger btn-sm" onclick="openKillHostModal()">
-        <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/>
-        </svg>
-        Kill States by Host
-      </button>
-    </div>
+    <button type="button" class="btn btn-danger btn-sm" onclick="openKillHostModal()">
+      <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/>
+      </svg>
+      Kill States by Host
+    </button>
   </div>
 </div>
 

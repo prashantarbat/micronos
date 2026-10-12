@@ -1,4 +1,4 @@
-﻿<?= $this->extend('layouts/main') ?>
+<?= $this->extend('layouts/main') ?>
 <?= $this->section('content') ?>
 
 <?= $this->include('firewall/_obj_tooltip') ?>
@@ -23,241 +23,47 @@ $__schedTip = static function (string $n) use ($__schedMap): string {
 };
 ?>
 
-<style>
-/* ── Chips (Matching firewall/addresses & service-groups) ── */
-.mno-obj-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 8px;
-  border-radius: 4px;
-  font-size: 0.75rem;
-  font-weight: 500;
-  font-family: var(--font-mono);
-  background: rgba(255,255,255,0.06);
-  border: 1px solid rgba(255,255,255,0.12);
-  color: var(--text-primary);
-  margin: 1px 0;
-  white-space: nowrap;
-  line-height: 1.2;
-}
-.mno-chip-icon {
-  width: 13px;
-  height: 13px;
-  flex-shrink: 0;
-  display: inline-block;
-  vertical-align: middle;
-}
-.mno-obj-chip-cake {
-  background: rgba(6, 182, 212, 0.15);
-  border-color: rgba(6, 182, 212, 0.35);
-  color: #67e8f9;
-}
-.mno-obj-chip-codel {
-  background: rgba(59, 130, 246, 0.15);
-  border-color: rgba(59, 130, 246, 0.35);
-  color: #93c5fd;
-}
-.mno-obj-chip-tier1 {
-  background: rgba(244, 63, 94, 0.15);
-  border-color: rgba(244, 63, 94, 0.35);
-  color: #fda4af;
-}
-.mno-obj-chip-tier2 {
-  background: rgba(245, 158, 11, 0.15);
-  border-color: rgba(245, 158, 11, 0.35);
-  color: #fcd34d;
-}
-.mno-obj-chip-bulk {
-  background: rgba(148, 163, 184, 0.15);
-  border-color: rgba(148, 163, 184, 0.3);
-  color: #cbd5e1;
-}
-
-/* ── Modal Architecture (Matching firewall/addresses) ── */
-.mno-modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(0,0,0,0.75);
-  backdrop-filter: blur(4px);
-  z-index: 1000;
-  display: none;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-}
-.mno-modal-backdrop.active {
-  display: flex;
-}
-.mno-modal-dialog {
-  background: var(--color-surface-1);
-  border: 1px solid var(--color-border-bright);
-  border-radius: var(--radius-lg);
-  width: 100%;
-  max-width: 640px;
-  max-height: 90vh;
-  display: flex;
-  flex-direction: column;
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
-  overflow: hidden;
-  animation: modalSlideIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-}
-@keyframes modalSlideIn {
-  from { opacity: 0; transform: translateY(-20px) scale(0.98); }
-  to   { opacity: 1; transform: translateY(0) scale(1); }
-}
-.mno-modal-header {
-  padding: 16px 24px;
-  border-bottom: 1px solid var(--color-border);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  background: var(--color-surface-2);
-}
-.mno-modal-body {
-  padding: 24px;
-  overflow-y: auto;
-  flex: 1;
-}
-.mno-modal-footer {
-  padding: 14px 24px;
-  border-top: 1px solid var(--color-border);
-  background: var(--color-surface-2);
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-}
-
-/* ── Table Styling (Matching firewall/addresses & service-groups) ── */
-.mno-table {
-  width: 100%;
-  border-collapse: separate;
-  border-spacing: 0;
-  font-size: 0.8125rem;
-}
-.mno-table th {
-  background: var(--color-surface-3);
-  color: var(--text-secondary);
-  font-weight: 600;
-  font-size: 0.72rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--color-border);
-  text-align: left;
-}
-.mno-table td {
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--color-border);
-  vertical-align: middle;
-}
-.mno-table tbody tr:hover {
-  background: rgba(255,255,255,0.02);
-}
-
-/* ── Tabs Navigation ── */
-.qos-tabs {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 20px;
-  border-bottom: 1px solid var(--color-border);
-  padding-bottom: 12px;
-  flex-wrap: wrap;
-}
-.qos-tab {
-  padding: 8px 16px;
-  border-radius: var(--radius-sm);
-  font-size: 0.8125rem;
-  font-weight: 600;
-  color: var(--text-secondary);
-  background: var(--color-surface-2);
-  border: 1px solid var(--color-border);
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  transition: all var(--transition-fast);
-}
-.qos-tab:hover {
-  color: var(--text-primary);
-  background: var(--color-surface-3);
-  border-color: var(--color-border-bright);
-}
-.qos-tab.active {
-  background: rgba(0, 212, 255, 0.12);
-  color: var(--color-cyan);
-  border-color: rgba(0, 212, 255, 0.35);
-  font-weight: 600;
-}
-.qos-panel { display: none; }
-.qos-panel.active { display: block; }
-
-/* ── Summary Stats Grid ── */
-.qos-stats-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 16px;
-  margin-bottom: 24px;
-}
-
-/* ── Terminal Output Box ── */
-.log-terminal {
-  background: #090d16;
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: var(--radius-md);
-  font-family: var(--font-mono, monospace);
-  font-size: 0.78rem;
-  padding: 16px;
-  max-height: 440px;
-  overflow-y: auto;
-  color: #cbd5e1;
-  line-height: 1.6;
-}
-</style>
-
-<!-- ── Page Header (Identical structure to firewall/addresses) ── -->
+<!-- ── Page Header ── -->
 <div class="page-header animate-in">
-  <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:16px;">
-    <div>
-      <div style="display:flex; align-items:center; gap:10px;">
-        <h1 class="page-title">Traffic Shaping &amp; QoS</h1>
-        <span class="badge badge-info" style="font-size:0.75rem;"><?= count($shapers) ?> Shapers</span>
-        <span class="badge badge-cyan" style="font-size:0.75rem;"><?= count($rules) ?> Rules</span>
-      </div>
-      <p class="page-subtitle">Configure CAKE / FQ-CoDel Smart Queue Management and DSCP traffic classification for bufferbloat elimination</p>
+  <div class="page-header-content">
+    <div style="display:flex; align-items:center; gap:10px;">
+      <h1 class="page-title">Traffic Shaping &amp; QoS</h1>
+      <span class="badge badge-info" style="font-size:0.75rem;"><?= count($shapers) ?> Shapers</span>
+      <span class="badge badge-cyan" style="font-size:0.75rem;"><?= count($rules) ?> Rules</span>
     </div>
-    <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-      <button type="button" class="btn btn-primary btn-sm" onclick="openAddShaperModal()">
+    <p class="page-subtitle">Configure CAKE / FQ-CoDel Smart Queue Management and DSCP traffic classification for bufferbloat elimination</p>
+  </div>
+  <div class="page-header-actions">
+    <button type="button" class="btn btn-primary btn-sm" onclick="openAddShaperModal()">
+      <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+      </svg>
+      Create Shaper
+    </button>
+
+    <button type="button" class="btn btn-ghost btn-sm" onclick="openAddRuleModal()">
+      <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+      </svg>
+      Add Priority Rule
+    </button>
+
+    <form action="<?= base_url('qos/apply') ?>" method="POST" style="display:inline;">
+      <?= csrf_field() ?>
+      <button type="submit" class="btn btn-success btn-sm" title="Recompile tc qdiscs & mangle table">
         <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+          <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
         </svg>
-        Create Shaper
+        Apply Changes
       </button>
+    </form>
 
-      <button type="button" class="btn btn-ghost btn-sm" onclick="openAddRuleModal()">
-        <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
-        </svg>
-        Add Priority Rule
-      </button>
-
-      <form action="<?= base_url('qos/apply') ?>" method="POST" style="display:inline;">
-        <?= csrf_field() ?>
-        <button type="submit" class="btn btn-success btn-sm" title="Recompile tc qdiscs & mangle table">
-          <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-          </svg>
-          Apply Changes
-        </button>
-      </form>
-
-      <a href="<?= base_url('firewall/rules') ?>" class="btn btn-ghost btn-sm">
-        <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
-        </svg>
-        Firewall Rules
-      </a>
-    </div>
+    <a href="<?= base_url('firewall/rules') ?>" class="btn btn-ghost btn-sm">
+      <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+      </svg>
+      Firewall Rules
+    </a>
   </div>
 </div>
 
@@ -352,8 +158,8 @@ $__schedTip = static function (string $n) use ($__schedMap): string {
 </div>
 
 <!-- ── Tabs Navigation ── -->
-<div class="qos-tabs animate-in animate-in-delay-1">
-  <button type="button" class="qos-tab active" id="tab-shapers-btn" onclick="switchQosTab('shapers', this)">
+<div class="tab-bar qos-tabs animate-in animate-in-delay-1">
+  <button type="button" class="tab-item qos-tab active" id="tab-shapers-btn" onclick="switchQosTab('shapers', this)">
     <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
       <rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/>
     </svg>
@@ -361,7 +167,7 @@ $__schedTip = static function (string $n) use ($__schedMap): string {
     <span class="badge badge-info" style="font-size:0.65rem; padding:1px 6px;"><?= count($shapers) ?></span>
   </button>
 
-  <button type="button" class="qos-tab" id="tab-rules-btn" onclick="switchQosTab('rules', this)">
+  <button type="button" class="tab-item qos-tab" id="tab-rules-btn" onclick="switchQosTab('rules', this)">
     <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
       <path stroke-linecap="round" stroke-linejoin="round" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"/>
     </svg>
@@ -369,7 +175,7 @@ $__schedTip = static function (string $n) use ($__schedMap): string {
     <span class="badge badge-cyan" style="font-size:0.65rem; padding:1px 6px;"><?= count($rules) ?></span>
   </button>
 
-  <button type="button" class="qos-tab" id="tab-stats-btn" onclick="switchQosTab('stats', this)">
+  <button type="button" class="tab-item qos-tab" id="tab-stats-btn" onclick="switchQosTab('stats', this)">
     <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
       <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
     </svg>
@@ -377,7 +183,7 @@ $__schedTip = static function (string $n) use ($__schedMap): string {
     <span class="badge badge-success" style="font-size:0.65rem; padding:1px 6px;">Live</span>
   </button>
 
-  <button type="button" class="qos-tab" id="tab-guide-btn" onclick="switchQosTab('guide', this)">
+  <button type="button" class="tab-item qos-tab" id="tab-guide-btn" onclick="switchQosTab('guide', this)">
     <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
       <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
     </svg>

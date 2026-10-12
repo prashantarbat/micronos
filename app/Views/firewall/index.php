@@ -658,83 +658,95 @@ input:checked + .mno-slider:before {
 
 <!-- Page Header -->
 <div class="page-header animate-in">
-  <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:16px;">
-    <div>
-      <div style="display:flex; align-items:center; gap:10px;">
-        <h1 class="page-title">Firewall Policy &amp; Objects</h1>
-        <span class="badge badge-info" style="font-size:0.75rem;">Policy Engine</span>
-        <?php if (!empty($isMock)): ?>
-          <span class="badge badge-warning" style="font-size:0.75rem;">IPC Mock Active</span>
-        <?php endif; ?>
-      </div>
-      <p class="page-subtitle">Stateful IPv4 policies, address objects, FQDNs, port groups &amp; atomic nftables compilation</p>
+  <div class="page-header-content">
+    <div class="page-breadcrumb">
+      <span>Security</span>
+      <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+      <span>Firewall Policies</span>
     </div>
-    <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-      <?= \App\Libraries\ServiceStatus::widget('nftables') ?>
-      <button type="button" class="btn btn-primary btn-sm" onclick="openCreatePolicyModal()">
-        <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+    <div style="display:flex; align-items:center; gap:12px; margin-top:4px;">
+      <div class="page-title-icon" style="background:var(--tone-cyan-bg); color:var(--tone-cyan-fg); border:1px solid var(--tone-cyan-border);">
+        <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
         </svg>
-        Create Policy
-      </button>
+      </div>
+      <div>
+        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+          <h1 class="page-title">Firewall Policy &amp; Objects</h1>
+          <span class="badge badge-info" style="font-size:0.75rem;">Policy Engine</span>
+          <?php if (!empty($isMock)): ?>
+            <span class="badge badge-warning" style="font-size:0.75rem;">IPC Mock Active</span>
+          <?php endif; ?>
+        </div>
+        <p class="page-subtitle">Stateful IPv4 policies, address objects, FQDNs, port groups &amp; atomic nftables compilation</p>
+      </div>
+    </div>
+  </div>
+  <div class="page-header-actions">
+    <?= \App\Libraries\ServiceStatus::widget('nftables') ?>
+    <button type="button" class="btn btn-primary btn-sm" onclick="openCreatePolicyModal()">
+      <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+      </svg>
+      Create Policy
+    </button>
 
-      <!-- CSV Export / Import Buttons -->
-      <a href="<?= base_url('firewall/rules/export-csv') ?>" class="btn btn-ghost btn-sm" title="Export Policies to CSV">
+    <!-- CSV Export / Import Buttons -->
+    <a href="<?= base_url('firewall/rules/export-csv') ?>" class="btn btn-ghost btn-sm" title="Export Policies to CSV">
+      <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+      </svg>
+      Export CSV
+    </a>
+
+    <button type="button" class="btn btn-ghost btn-sm" onclick="openImportModal('rules')" title="Import Policies from CSV">
+      <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
+      </svg>
+      Import CSV
+    </button>
+
+    <button type="button" class="btn btn-ghost btn-sm" onclick="openObjectsModal()">
+      <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/>
+      </svg>
+      Objects Catalog
+    </button>
+
+    <?php
+      $canApply = true;
+      try {
+          if (function_exists('session') && session()->get('user_id')) {
+              $canApply = session()->get('is_superadmin') || in_array('firewall.rules.apply', session()->get('permissions') ?? []);
+          }
+      } catch (\Throwable $e) {
+          $canApply = true;
+      }
+    ?>
+    <?php if ($canApply): ?>
+      <form method="POST" action="<?= base_url('firewall/rules/apply') ?>" style="display:inline;">
+        <?= csrf_field() ?>
+        <button type="submit" class="btn btn-success btn-sm">
+          <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+          </svg>
+          Apply nftables
+        </button>
+      </form>
+      <a href="<?= base_url('firewall/rules/nftables-preview') ?>" class="btn btn-ghost btn-sm" title="Download compiled nftables.conf">
         <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
           <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
         </svg>
-        Export CSV
+        nftables.conf
       </a>
-
-      <button type="button" class="btn btn-ghost btn-sm" onclick="openImportModal('rules')" title="Import Policies from CSV">
-        <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
-        </svg>
-        Import CSV
-      </button>
-
-      <button type="button" class="btn btn-ghost btn-sm" onclick="openObjectsModal()">
-        <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/>
-        </svg>
-        Objects Catalog
-      </button>
-
-      <?php
-        $canApply = true;
-        try {
-            if (function_exists('session') && session()->get('user_id')) {
-                $canApply = session()->get('is_superadmin') || in_array('firewall.rules.apply', session()->get('permissions') ?? []);
-            }
-        } catch (\Throwable $e) {
-            $canApply = true;
-        }
-      ?>
-      <?php if ($canApply): ?>
-        <form method="POST" action="<?= base_url('firewall/rules/apply') ?>" style="display:inline;">
-          <?= csrf_field() ?>
-          <button type="submit" class="btn btn-success btn-sm">
-            <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-            </svg>
-            Apply nftables
-          </button>
-        </form>
-        <a href="<?= base_url('firewall/rules/nftables-preview') ?>" class="btn btn-ghost btn-sm" title="Download compiled nftables.conf">
-          <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
-          </svg>
-          nftables.conf
-        </a>
-      <?php endif; ?>
-    </div>
+    <?php endif; ?>
   </div>
 </div>
 
 <!-- KPI Cards -->
 <div class="mno-kpi-grid animate-in animate-in-delay-1">
   <div class="mno-kpi-card">
-    <div class="mno-kpi-icon" style="background: rgba(0, 212, 255, 0.15); color: var(--color-cyan);">
+    <div class="mno-kpi-icon" style="background: var(--tone-cyan-bg); color: var(--tone-cyan-fg); border: 1px solid var(--tone-cyan-border);">
       <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
         <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
       </svg>
@@ -746,7 +758,7 @@ input:checked + .mno-slider:before {
   </div>
 
   <div class="mno-kpi-card">
-    <div class="mno-kpi-icon" style="background: rgba(16, 185, 129, 0.15); color: var(--color-emerald);">
+    <div class="mno-kpi-icon" style="background: var(--tone-emerald-bg); color: var(--tone-emerald-fg); border: 1px solid var(--tone-emerald-border);">
       <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
         <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
       </svg>
@@ -760,7 +772,7 @@ input:checked + .mno-slider:before {
   </div>
 
   <div class="mno-kpi-card">
-    <div class="mno-kpi-icon" style="background: rgba(59, 130, 246, 0.15); color: #60a5fa;">
+    <div class="mno-kpi-icon" style="background: var(--tone-blue-bg); color: var(--tone-blue-fg); border: 1px solid var(--tone-blue-border);">
       <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
         <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z"/>
       </svg>
@@ -774,7 +786,7 @@ input:checked + .mno-slider:before {
   </div>
 
   <div class="mno-kpi-card">
-    <div class="mno-kpi-icon" style="background: rgba(245, 158, 11, 0.15); color: var(--color-amber);">
+    <div class="mno-kpi-icon" style="background: var(--tone-amber-bg); color: var(--tone-amber-fg); border: 1px solid var(--tone-amber-border);">
       <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
         <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16m-7 6h7"/>
       </svg>

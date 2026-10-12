@@ -9,28 +9,6 @@
 ?>
 
 <style>
-/* ── Tabs ── */
-.ov-tabs {
-  display: flex;
-  gap: 2px;
-  border-bottom: 1px solid var(--color-border);
-  margin-bottom: 20px;
-  flex-wrap: wrap;
-}
-.ov-tab-btn {
-  background: none;
-  border: none;
-  border-bottom: 2px solid transparent;
-  padding: 10px 18px;
-  font-size: 0.83rem;
-  font-weight: 600;
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: color .2s, border-color .2s;
-}
-.ov-tab-btn:hover  { color: var(--text-primary); border-bottom-color: var(--color-border-bright); }
-.ov-tab-btn.active { color: var(--color-cyan); border-bottom-color: var(--color-cyan); }
-
 /* ── Section + form rows ── */
 .ov-section {
   background: var(--color-surface-1);
@@ -92,72 +70,6 @@
 .ov-toggle input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--color-emerald); cursor: pointer; }
 .ov-toggle span { font-size: 0.85rem; color: var(--text-secondary); }
 
-/* ── Tables ── */
-.ov-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 0.8125rem; }
-.ov-table th {
-  background: var(--color-surface-3);
-  color: var(--text-secondary);
-  font-weight: 600;
-  font-size: 0.72rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  padding: 9px 14px;
-  border-bottom: 1px solid var(--color-border);
-  text-align: left;
-  white-space: nowrap;
-}
-.ov-table td { padding: 10px 14px; border-bottom: 1px solid var(--color-border); vertical-align: middle; }
-.ov-table tbody tr:hover { background: rgba(255,255,255,0.02); }
-.ov-table tbody tr:last-child td { border-bottom: none; }
-.ov-empty { text-align: center; padding: 34px 20px; color: var(--text-muted); }
-
-/* ── Modal ── */
-.ov-modal-backdrop {
-  position: fixed; inset: 0;
-  background: rgba(0,0,0,0.78);
-  backdrop-filter: blur(5px);
-  z-index: 1000;
-  display: none;
-  align-items: center; justify-content: center;
-  padding: 20px;
-}
-.ov-modal-backdrop.active { display: flex; }
-.ov-modal-dialog {
-  background: var(--color-surface-1);
-  border: 1px solid var(--color-border-bright);
-  border-radius: var(--radius-lg);
-  width: 100%; max-width: 720px; max-height: 92vh;
-  display: flex; flex-direction: column;
-  box-shadow: 0 30px 60px -15px rgba(0,0,0,0.75);
-  overflow: hidden;
-  animation: ovModalIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
-}
-@keyframes ovModalIn {
-  from { opacity: 0; transform: translateY(-16px) scale(0.98); }
-  to   { opacity: 1; transform: translateY(0) scale(1); }
-}
-.ov-modal-header {
-  background: var(--color-surface-2);
-  padding: 15px 22px;
-  border-bottom: 1px solid var(--color-border);
-  display: flex; justify-content: space-between; align-items: center;
-}
-.ov-modal-body { overflow-y: auto; flex: 1 1 auto; min-height: 0; }
-/* The form wraps header-body-footer, so it must shrink too — otherwise the
-   body never becomes the scroll container and the footer ends up off-screen. */
-.ov-modal-dialog > form {
-  display: flex;
-  flex-direction: column;
-  flex: 1 1 auto;
-  min-height: 0;
-}
-.ov-modal-footer {
-  background: var(--color-surface-2);
-  padding: 13px 22px;
-  border-top: 1px solid var(--color-border);
-  display: flex; justify-content: flex-end; gap: 10px;
-}
-
 /* ── Status dot ── */
 .ov-status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; }
 .ov-status-up   { background: var(--color-emerald); box-shadow: 0 0 6px var(--color-emerald); }
@@ -174,56 +86,66 @@
 
 <!-- ── Page header ── -->
 <div class="page-header animate-in">
-  <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:16px;">
-    <div>
-      <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-        <h1 class="page-title">OpenVPN</h1>
-        <?php if ($running): ?>
-          <span class="badge badge-success" style="font-size:0.73rem;">● Running</span>
-        <?php else: ?>
-          <span class="badge badge-muted" style="font-size:0.73rem;">● Stopped</span>
-        <?php endif; ?>
-        <?php if ($livePeers > 0): ?>
-          <span class="badge badge-info" style="font-size:0.73rem;"><?= $livePeers ?> connected</span>
-        <?php endif; ?>
-      </div>
-      <p class="page-subtitle">Head-end daemons for road-warrior access, plus site-to-site client tunnels dialling remote OpenVPN peers</p>
+  <div class="page-header-content">
+    <div class="page-breadcrumb">
+      <a href="<?= base_url() ?>">Dashboard</a>
+      <span>/</span>
+      <a href="<?= base_url('vpn/portal') ?>">VPN</a>
+      <span>/</span>
+      <span class="current">OpenVPN</span>
     </div>
-    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-      <?= \App\Libraries\ServiceStatus::widget('openvpn') ?>
-      <?php if ($canManage): ?>
-        <button type="button" class="btn btn-primary btn-sm" onclick="openOvModal('server', null)">
-          <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
-          </svg>
-          Add Server
-        </button>
-        <button type="button" class="btn btn-primary btn-sm" onclick="openOvModal('client', null)">
-          <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
-          </svg>
-          Add Site-to-Site Client
-        </button>
-        <form method="POST" action="<?= base_url('vpn/openvpn/restart') ?>" style="display:inline;">
-          <?= csrf_field() ?>
-          <button type="submit" class="btn btn-ghost btn-sm" title="Rebuild configs from the database and reload the daemon">
-            <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-            </svg>
-            Reload
-          </button>
-        </form>
-      <?php endif; ?>
-      <a href="<?= base_url('certificates') ?>" class="btn btn-ghost btn-sm" title="Manage Certificate Authorities and issue OpenVPN certificates">
-        <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+    <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+      <div class="page-title-icon">
+        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
         </svg>
-        PKI &amp; Certificates
-      </a>
-      <?php if ($isMock): ?>
-        <span class="badge badge-warning">⚠ Mock Mode</span>
+      </div>
+      <h1 class="page-title">OpenVPN</h1>
+      <?php if ($running): ?>
+        <span class="badge badge-success" style="font-size:0.73rem;">● Running</span>
+      <?php else: ?>
+        <span class="badge badge-muted" style="font-size:0.73rem;">● Stopped</span>
+      <?php endif; ?>
+      <?php if ($livePeers > 0): ?>
+        <span class="badge badge-info" style="font-size:0.73rem;"><?= $livePeers ?> connected</span>
       <?php endif; ?>
     </div>
+    <p class="page-subtitle">Head-end daemons for road-warrior access, plus site-to-site client tunnels dialling remote OpenVPN peers</p>
+  </div>
+  <div class="page-header-actions">
+    <?= \App\Libraries\ServiceStatus::widget('openvpn') ?>
+    <?php if ($canManage): ?>
+      <button type="button" class="btn btn-primary btn-sm" onclick="openOvModal('server', null)">
+        <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+        </svg>
+        Add Server
+      </button>
+      <button type="button" class="btn btn-primary btn-sm" onclick="openOvModal('client', null)">
+        <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+        </svg>
+        Add Site-to-Site Client
+      </button>
+      <form method="POST" action="<?= base_url('vpn/openvpn/restart') ?>" style="display:inline;">
+        <?= csrf_field() ?>
+        <button type="submit" class="btn btn-ghost btn-sm" title="Rebuild configs from the database and reload the daemon">
+          <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+          </svg>
+          Reload
+        </button>
+      </form>
+    <?php endif; ?>
+    <a href="<?= base_url('certificates') ?>" class="btn btn-ghost btn-sm" title="Manage Certificate Authorities and issue OpenVPN certificates">
+      <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+      </svg>
+      PKI &amp; Certificates
+    </a>
+    <?php if ($isMock): ?>
+      <span class="badge badge-warning">⚠ Mock Mode</span>
+    <?php endif; ?>
   </div>
 </div>
 
@@ -235,12 +157,12 @@
 <?php endif; ?>
 
 <!-- ── Tabs ── -->
-<div class="ov-tabs animate-in">
-  <button type="button" class="ov-tab-btn active" id="ovTabBtnServers" onclick="switchOvTab('servers')">
+<div class="tab-bar ov-tabs animate-in">
+  <button type="button" class="tab-item ov-tab-btn active" id="ovTabBtnServers" onclick="switchOvTab('servers')">
     Servers
     <span class="badge badge-muted" style="font-size:0.65rem; margin-left:4px;"><?= count($servers) ?></span>
   </button>
-  <button type="button" class="ov-tab-btn" id="ovTabBtnClients" onclick="switchOvTab('clients')">
+  <button type="button" class="tab-item ov-tab-btn" id="ovTabBtnClients" onclick="switchOvTab('clients')">
     Site-to-Site Clients
     <span class="badge badge-muted" style="font-size:0.65rem; margin-left:4px;"><?= count($clients) ?></span>
   </button>

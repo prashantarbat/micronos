@@ -35,7 +35,38 @@ class ServiceStatus
             return $fallback;
         }
 
-        return $row ?: $fallback;
+        if ($row) {
+            return $row;
+        }
+
+        try {
+            $manager  = \Config\Services::packageManager();
+            $pluginId = $id;
+            $manifest = $manager->registry()->get($pluginId);
+            if ($manifest === null) {
+                foreach ($manager->catalogue() as $cat) {
+                    $m = $manager->registry()->get($cat['id']);
+                    if ($m && (in_array($id, $m->units(), true) || in_array($id, $cat['services'] ?? [], true))) {
+                        $pluginId = (string) $cat['id'];
+                        $manifest = $m;
+                        break;
+                    }
+                }
+            }
+            if ($manifest !== null) {
+                $res    = $manager->status($pluginId);
+                $status = (($res['success'] ?? false) === true && isset($res['state'])) ? (string) $res['state'] : 'unknown';
+                return [
+                    'id'        => $id,
+                    'name'      => $manifest->name(),
+                    'status'    => $status,
+                    'subsystem' => 'plugins',
+                    'pid'       => null,
+                ];
+            }
+        } catch (\Throwable $e) {}
+
+        return $fallback;
     }
 
     public static function isRunning(string $id): bool

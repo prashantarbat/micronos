@@ -50,9 +50,10 @@ $controlUrl = base_url('plugins/zerotier/control');
       controller outside the appliance and the overlay changes the routing of live traffic.
     </p>
   </div>
-  <div style="display:flex; gap:8px; flex-wrap:wrap;">
+  <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
     <a href="<?= base_url('plugins') ?>" class="btn btn-ghost btn-sm">All Plugins</a>
     <button type="button" class="btn btn-ghost btn-sm" onclick="ztRefresh()">Refresh status</button>
+    <?= \App\Libraries\ServiceStatus::widget('zerotier-one') ?>
   </div>
 </div>
 
@@ -138,13 +139,6 @@ $controlUrl = base_url('plugins/zerotier/control');
   </form>
 </div>
 
-<div class="card card-glass animate-in animate-in-delay-2" style="padding:16px 18px;">
-  <div style="font-weight:700; font-size:0.9rem; margin-bottom:8px;">Diagnostics</div>
-  <div style="font-size:.74rem; color:var(--text-muted); margin-bottom:10px;">
-    The agent's own service unit is controllable here, and its journal is available beside it.
-  </div>
-  <?= \App\Libraries\ServiceStatus::widget(['zerotier-one'], ['zerotier-one' => 'ZeroTier One agent']) ?>
-</div>
 
 <script>
 const ZT_STATUS_URL  = <?= json_encode($statusUrl, JSON_UNESCAPED_SLASHES) ?>;

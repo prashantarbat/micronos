@@ -1,4 +1,4 @@
-﻿<?= $this->extend('layouts/main') ?>
+<?= $this->extend('layouts/main') ?>
 <?= $this->section('content') ?>
 
 <style>
@@ -100,41 +100,46 @@
 
 <!-- Header -->
 <div class="page-header animate-in">
-  <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:16px;">
-    <div>
-      <div style="display:flex; align-items:center; gap:10px; margin-bottom:4px;">
-        <span style="display:inline-flex; align-items:center; justify-content:center; width:34px; height:34px; border-radius:8px; background:rgba(6,182,212,0.15); border:1px solid rgba(6,182,212,0.3); color:var(--color-cyan);">
-          <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/>
-          </svg>
-        </span>
-        <h1 class="page-title" style="margin:0;">SIEM Integration &amp; Remote Syslog Forwarding</h1>
+  <div class="page-header-content">
+    <div class="page-breadcrumb">
+      <a href="<?= base_url('dashboard') ?>">Dashboard</a>
+      <span class="sep">/</span>
+      <span>Diagnostics</span>
+      <span class="sep">/</span>
+      <span class="current">SIEM &amp; Syslog</span>
+    </div>
+    <h1 class="page-title">
+      <div class="page-title-icon tone-cyan">
+        <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/>
+        </svg>
       </div>
-      <p class="page-subtitle">
-        Stream live firewall, IDS/IPS, VPN, and audit telemetry to Splunk, Microsoft Sentinel, IBM QRadar, Wazuh, and Elastic ELK
-      </p>
-    </div>
-    <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
-      <?= \App\Libraries\ServiceStatus::widget('rsyslog') ?>
-      <a href="<?= base_url('diag/logs') ?>" class="btn btn-ghost btn-sm">
-        <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
-        </svg>
-        Live Firewall Logs
-      </a>
-      <button type="button" class="btn btn-ghost btn-sm" onclick="switchSiemTab('stream', document.getElementById('tab-stream-btn'))">
-        <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
-        </svg>
-        Live Stream
-      </button>
-      <button type="button" class="btn btn-primary btn-sm" onclick="sendSiemTestEvent()">
-        <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/>
-        </svg>
-        Send Test SIEM Event
-      </button>
-    </div>
+      SIEM Integration &amp; Remote Syslog Forwarding
+    </h1>
+    <p class="page-subtitle">
+      Stream live firewall, IDS/IPS, VPN, and audit telemetry to Splunk, Microsoft Sentinel, IBM QRadar, Wazuh, and Elastic ELK.
+    </p>
+  </div>
+  <div class="page-header-actions">
+    <?= \App\Libraries\ServiceStatus::widget('rsyslog') ?>
+    <a href="<?= base_url('diag/logs') ?>" class="btn btn-ghost btn-sm">
+      <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+      </svg>
+      Live Firewall Logs
+    </a>
+    <button type="button" class="btn btn-ghost btn-sm" onclick="switchSiemTab('stream', document.getElementById('tab-stream-btn'))">
+      <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+      </svg>
+      Live Stream
+    </button>
+    <button type="button" class="btn btn-primary btn-sm" onclick="sendSiemTestEvent()">
+      <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+      </svg>
+      Send Test SIEM Event
+    </button>
   </div>
 </div>
 
@@ -146,15 +151,15 @@
 <?php endif; ?>
 
 <!-- Tabs Navigation -->
-<div class="siem-tabs animate-in animate-in-delay-1">
-  <button type="button" class="siem-tab active" id="tab-config-btn" onclick="switchSiemTab('config', this)">
+<div class="tab-bar siem-tabs animate-in animate-in-delay-1">
+  <button type="button" class="tab-item siem-tab active" id="tab-config-btn" onclick="switchSiemTab('config', this)">
     <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
       <path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
       <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
     </svg>
     SIEM Collector &amp; Transport
   </button>
-  <button type="button" class="siem-tab" id="tab-stream-btn" onclick="switchSiemTab('stream', this)">
+  <button type="button" class="tab-item siem-tab" id="tab-stream-btn" onclick="switchSiemTab('stream', this)">
     <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
       <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
     </svg>

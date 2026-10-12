@@ -15,7 +15,8 @@ class UserResetAdmin extends BaseCommand
     {
         $db = \Config\Database::connect();
 
-        $hash = password_hash('M1Cr0N', PASSWORD_ARGON2ID);
+        $newPw = $params[0] ?? 'M1Cr0N';
+        $hash = password_hash($newPw, PASSWORD_ARGON2ID);
         $user = $db->table('users')->where('username', 'Ministrator')->get()->getRowArray();
 
         if ($user) {
@@ -27,7 +28,7 @@ class UserResetAdmin extends BaseCommand
                 'totp_secret'   => null,
                 'updated_at'    => date('Y-m-d H:i:s')
             ]);
-            CLI::write("Success: Superadmin account 'Ministrator' password has been reset to 'M1Cr0N' (2FA cleared).", 'green');
+            CLI::write("Success: Superadmin account 'Ministrator' password has been reset to '{$newPw}' (2FA cleared).", 'green');
         } else {
             // Create user
             $userId = 'usr_superadmin_01';
@@ -49,7 +50,7 @@ class UserResetAdmin extends BaseCommand
                 'role_id' => 'role_superadmin'
             ]);
 
-            CLI::write("Success: Superadmin account 'Ministrator' created with password 'M1Cr0N' and SuperAdmin role assigned.", 'green');
+            CLI::write("Success: Superadmin account 'Ministrator' created with password '{$newPw}' and SuperAdmin role assigned.", 'green');
         }
     }
 }

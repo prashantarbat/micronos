@@ -3,44 +3,44 @@
 
 <!-- ── Page Header ── -->
 <div class="page-header animate-in">
-  <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:16px;">
-    <div>
-      <div style="display:flex; align-items:center; gap:8px; font-size:0.75rem; color:var(--text-muted); margin-bottom:4px;">
-        <a href="<?= base_url('dashboard') ?>" style="color:var(--text-muted); text-decoration:none;">Dashboard</a>
-        <span>/</span>
-        <span style="color:var(--text-primary); font-weight:600;">Security</span>
-        <span>/</span>
-        <span style="color:var(--text-primary); font-weight:600;">Web Filter & Proxy</span>
-      </div>
-      <h1 class="page-title" style="display:flex; align-items:center; gap:10px;">
-        <svg width="26" height="26" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="color:var(--color-cyan);">
+  <div class="page-header-content">
+    <div class="page-breadcrumb">
+      <a href="<?= base_url('dashboard') ?>">Dashboard</a>
+      <span>/</span>
+      <span>Security</span>
+      <span>/</span>
+      <span class="current">Web Filter &amp; Proxy</span>
+    </div>
+    <div style="display:flex; align-items:center; gap:12px;">
+      <div class="page-title-icon">
+        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
           <path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"/>
         </svg>
-        Enterprise Web Proxy & Content Filter
-      </h1>
-      <p class="page-subtitle">Deep packet web inspection, category enforcement, ACL access controls, and automated WPAD/PAC discovery</p>
+      </div>
+      <h1 class="page-title">Enterprise Web Proxy &amp; Content Filter</h1>
     </div>
-    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
-      <?= \App\Libraries\ServiceStatus::widget('squid') ?>
-      <a href="<?= base_url('webfilter/download-ca') ?>" class="btn btn-ghost" style="display:inline-flex; align-items:center; gap:6px;" title="Download Appliance Root CA Certificate for HTTPS inspection">
-        <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
-        </svg>
-        Download Root CA
-      </a>
+    <p class="page-subtitle">Deep packet web inspection, category enforcement, ACL access controls, and automated WPAD/PAC discovery</p>
+  </div>
+  <div class="page-header-actions">
+    <?= \App\Libraries\ServiceStatus::widget('squid') ?>
+    <a href="<?= base_url('webfilter/download-ca') ?>" class="btn btn-ghost btn-sm" title="Download Appliance Root CA Certificate for HTTPS inspection">
+      <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+      </svg>
+      Download Root CA
+    </a>
 
-      <?php if (session()->get('is_superadmin') || in_array('webfilter.reload', session()->get('permissions') ?? [])): ?>
-        <form method="POST" action="<?= base_url('webfilter/reload') ?>" style="margin:0;">
-          <?= csrf_field() ?>
-          <button type="submit" class="btn btn-success" style="display:inline-flex; align-items:center; gap:6px;">
-            <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-            </svg>
-            Apply & Reload Proxy
-          </button>
-        </form>
-      <?php endif; ?>
-    </div>
+    <?php if (session()->get('is_superadmin') || in_array('webfilter.reload', session()->get('permissions') ?? [])): ?>
+      <form method="POST" action="<?= base_url('webfilter/reload') ?>" style="margin:0; display:inline;">
+        <?= csrf_field() ?>
+        <button type="submit" class="btn btn-success btn-sm">
+          <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+          </svg>
+          Apply &amp; Reload Proxy
+        </button>
+      </form>
+    <?php endif; ?>
   </div>
 </div>
 

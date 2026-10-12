@@ -4,15 +4,7 @@
  *
  * Rendered by `Plugins::show()` in place of the generic metadata page, so an
  * installed plugin's nav entry ("LLDP Neighbours") lands on something usable.
- * It carries both halves of pfSense's LLDP page: the settings form and the
- * neighbour table.
- *
- * Most of lldpd's options are command line, so a setting is a change to the
- * service's own ExecStart; the few only `lldpcli` can apply at start go in
- * `/etc/lldpd.conf`. Everything here is a *request*: the daemon fixes the plugin
- * id and validates every value (the interface pattern, the management-address
- * pattern, the free-form strings, the hostname, the transmit timing) before it
- * writes a byte or runs a command. The page builds no command and writes no file.
+ * It carries both halves: the settings form and the neighbour table.
  *
  * @var array<string, mixed> $plugin
  */
@@ -24,96 +16,97 @@ $neighboursUrl = base_url('plugins/lldpd/neighbours');
 <?= $this->section('content') ?>
 
 <style>
-.ld-grid { display:grid; grid-template-columns:220px 1fr; gap:14px; }
-@media (max-width: 820px) { .ld-grid { grid-template-columns:1fr; } }
-.ld-meta dt { color:var(--text-muted); font-weight:600; }
-.ld-meta dd { margin:0; color:var(--text-primary); font-family:var(--font-mono); font-size:.74rem; word-break:break-all; }
-.ld-led { display:inline-block; width:9px; height:9px; border-radius:50%; background:#6b7280; box-shadow:0 0 6px rgba(0,0,0,.4); }
+.ld-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:12px; }
+.ld-meta dt { color:var(--text-muted); font-size:0.7rem; text-transform:uppercase; font-weight:600; letter-spacing:0.04em; margin-bottom:2px; }
+.ld-meta dd { margin:0; color:var(--text-primary); font-family:var(--font-mono); font-size:.85rem; font-weight:600; word-break:break-all; }
+.ld-led { display:inline-block; width:10px; height:10px; border-radius:50%; background:#6b7280; box-shadow:0 0 6px rgba(0,0,0,.4); }
 .ld-led.on { background:#22c55e; box-shadow:0 0 8px rgba(34,197,94,.65); }
 .ld-led.off { background:#ef4444; box-shadow:0 0 8px rgba(239,68,68,.5); }
-.ld-field-hint { font-size:.68rem; color:var(--text-muted); margin-top:2px; }
+.ld-field-hint { font-size:.7rem; color:var(--text-muted); margin-top:3px; }
 .ld-neighbours {
-  margin-top:8px; padding:10px 12px; border-radius:8px; overflow:auto; max-height:420px;
-  background:rgba(0,0,0,.28); border:1px solid var(--border-subtle, rgba(255,255,255,.08));
-  color:var(--text-primary); font-family:var(--font-mono); font-size:.72rem; line-height:1.45; white-space:pre;
+  margin-top:8px; padding:12px 14px; border-radius:8px; overflow:auto; max-height:420px;
+  background:rgba(0,0,0,.35); border:1px solid var(--border-subtle, rgba(255,255,255,.08));
+  color:var(--text-primary); font-family:var(--font-mono); font-size:.74rem; line-height:1.45; white-space:pre;
 }
-.ld-ntable-wrap { margin-top:10px; overflow-x:auto; }
-.ld-ntable { width:100%; border-collapse:collapse; font-size:.74rem; }
-.ld-ntable th, .ld-ntable td { text-align:left; padding:7px 10px; vertical-align:top; border-bottom:1px solid var(--border-subtle, rgba(255,255,255,.08)); }
+.ld-ntable-wrap { margin-top:10px; overflow-x:auto; border-radius:8px; border:1px solid var(--border-color, rgba(255,255,255,.08)); }
+.ld-ntable { width:100%; border-collapse:collapse; font-size:.8rem; }
+.ld-ntable th, .ld-ntable td { text-align:left; padding:10px 14px; vertical-align:middle; border-bottom:1px solid var(--border-subtle, rgba(255,255,255,.06)); }
 .ld-ntable th {
-  color:var(--text-muted); font-weight:600; white-space:nowrap; cursor:pointer; user-select:none;
-  position:sticky; top:0; background:var(--bg-panel, rgba(17,20,26,.96));
+  color:var(--text-muted); font-weight:600; font-size:0.72rem; text-transform:uppercase; letter-spacing:0.03em;
+  white-space:nowrap; cursor:pointer; user-select:none; background:rgba(255,255,255,0.03);
 }
 .ld-ntable th:hover, .ld-ntable th:focus-visible { color:var(--text-primary); outline:none; }
-.ld-ntable th .ld-caret { opacity:.35; margin-left:4px; font-size:.68rem; }
+.ld-ntable th .ld-caret { opacity:.4; margin-left:4px; font-size:.7rem; }
 .ld-ntable th[aria-sort="ascending"] .ld-caret,
-.ld-ntable th[aria-sort="descending"] .ld-caret { opacity:1; }
+.ld-ntable th[aria-sort="descending"] .ld-caret { opacity:1; color:var(--color-cyan, #06b6d4); }
 .ld-ntable tbody tr:hover { background:rgba(255,255,255,.03); }
-.ld-ntable td.ld-mono { font-family:var(--font-mono); color:var(--text-secondary); word-break:break-all; }
+.ld-ntable td.ld-mono { font-family:var(--font-mono); color:var(--text-primary); font-weight:600; }
 .ld-ntable td.ld-blank { color:var(--text-muted); }
-.ld-view-toggle { background:none; border:none; padding:0; cursor:pointer; color:var(--text-muted); font-size:.72rem; text-decoration:underline; }
-.ld-view-toggle:hover { color:var(--text-primary); }
+.ld-view-toggle { background:none; border:none; padding:0; cursor:pointer; color:var(--color-cyan, #06b6d4); font-size:.76rem; text-decoration:underline; }
+.ld-view-toggle:hover { opacity:0.8; }
+details.ld-advanced { border:1px solid var(--border-color, rgba(255,255,255,0.08)); border-radius:8px; padding:12px 14px; background:rgba(0,0,0,0.12); margin-top:16px; }
+details.ld-advanced > summary { cursor:pointer; font-weight:600; font-size:0.82rem; color:var(--text-muted); display:flex; align-items:center; gap:8px; list-style:none; user-select:none; }
+details.ld-advanced > summary::-webkit-details-marker { display:none; }
+details.ld-advanced > summary:hover { color:var(--text-primary); }
+details.ld-advanced[open] > summary { margin-bottom:14px; color:var(--text-primary); }
 </style>
 
+<!-- ── Page Header ── -->
 <div class="page-header animate-in">
-  <div>
-    <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-      <h1 class="page-title">lldpd</h1>
-      <span class="badge badge-success" style="font-size:0.7rem;">CLASS B</span>
-      <span class="badge badge-muted" style="font-size:0.7rem;"><?= esc($plugin['id']) ?> · v<?= esc($plugin['version']) ?></span>
-      <span id="ldStateBadge" class="badge badge-muted" style="font-size:0.7rem;">CHECKING…</span>
-    </div>
-    <p class="page-subtitle">
-      Link Layer Discovery Protocol daemon. Advertises this appliance to, and discovers, directly-connected
-      neighbours. Read-only on the wire; no changes to the forwarding path.
-    </p>
-  </div>
-  <div style="display:flex; gap:8px; flex-wrap:wrap;">
-    <a href="<?= base_url('plugins') ?>" class="btn btn-ghost btn-sm">All Plugins</a>
-    <button type="button" class="btn btn-ghost btn-sm" onclick="ldRefresh()">Refresh status</button>
-  </div>
-</div>
-
-<div class="card card-glass animate-in animate-in-delay-1" style="padding:16px 18px; margin-bottom:16px;">
-  <div style="display:flex; align-items:center; gap:10px; margin-bottom:12px;">
-    <span class="ld-led" id="ldLed"></span>
-    <div style="font-weight:700; font-size:0.92rem;">Daemon status</div>
-    <span id="ldStatusNote" style="font-size:.74rem; color:var(--text-muted);"></span>
-  </div>
-
-  <div class="ld-grid">
-    <dl class="ld-meta" style="display:grid; grid-template-columns:1fr; gap:3px;">
-      <dt>lldpd service</dt><dd id="ldService">—</dd>
-      <dt>Configuration drop-in</dt><dd id="ldDropin">—</dd>
-      <dt>Daemon config file</dt><dd id="ldConfig">—</dd>
-      <dt>Interfaces</dt><dd id="ldIfaces">—</dd>
-      <dt>Extra protocols</dt><dd id="ldProtocols">—</dd>
-    </dl>
+  <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:16px;">
     <div>
-      <dl class="ld-meta" style="display:grid; grid-template-columns:170px 1fr; gap:3px 12px;">
-        <dt>Applied</dt><dd id="ldApplied">—</dd>
-      </dl>
-      <div id="ldWarnings" style="margin-top:10px; font-size:.72rem; color:#f59e0b;"></div>
-      <div id="ldSteps" style="margin-top:8px; font-size:.7rem; color:var(--text-muted); font-family:var(--font-mono);"></div>
+      <div style="display:flex; align-items:center; gap:8px; font-size:0.75rem; color:var(--text-muted); margin-bottom:4px;">
+        <a href="<?= base_url('dashboard') ?>" style="color:var(--text-muted); text-decoration:none;">Dashboard</a>
+        <span>/</span>
+        <a href="<?= base_url('plugins') ?>" style="color:var(--text-muted); text-decoration:none;">Plugins</a>
+        <span>/</span>
+        <span style="color:var(--text-primary); font-weight:600;">LLDP Neighbours</span>
+      </div>
+      <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+        <h1 class="page-title" style="margin:0;">lldpd</h1>
+        <span class="badge badge-success" style="font-size:0.7rem;">CLASS B</span>
+        <span class="badge badge-muted" style="font-size:0.7rem;"><?= esc($plugin['id']) ?> · v<?= esc($plugin['version']) ?></span>
+        <span id="ldStateBadge" class="badge badge-muted" style="font-size:0.7rem;">CHECKING…</span>
+      </div>
+      <p class="page-subtitle" style="margin-top:6px;">
+        Link Layer Discovery Protocol daemon. Advertises appliance identity and detects directly-connected network switches, routers, and APs.
+      </p>
+    </div>
+    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+      <button type="button" class="btn btn-primary btn-sm" onclick="ldNeighbours()" style="display:inline-flex; align-items:center; gap:6px;">
+        <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+        </svg>
+        Refresh Neighbours
+      </button>
+      <button type="button" class="btn btn-ghost btn-sm" onclick="ldRefresh()">Refresh Status</button>
+      <a href="<?= base_url('plugins') ?>" class="btn btn-ghost btn-sm">All Plugins</a>
+      <?= \App\Libraries\ServiceStatus::widget('lldpd') ?>
     </div>
   </div>
 </div>
 
-<div class="card card-glass animate-in animate-in-delay-2" style="padding:16px 18px; margin-bottom:16px;">
-  <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
+<!-- ── Discovered Neighbours Table (Main Feature Front & Center) ── -->
+<div class="card card-glass animate-in animate-in-delay-1" style="padding:20px; margin-bottom:20px;">
+  <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-bottom:12px;">
     <div>
-      <div style="font-weight:700; font-size:0.92rem;">Neighbours</div>
-      <div style="font-size:.74rem; color:var(--text-muted);">
-        What the daemon currently sees, parsed into one row per neighbour — click a column to sort. When the
-        table cannot be built the listing is shown exactly as <code>lldpcli show neighbors</code> prints it.
+      <div style="display:flex; align-items:center; gap:8px;">
+        <h2 style="font-weight:700; font-size:1.05rem; margin:0; color:var(--text-primary);">Neighbours</h2>
+        <span id="ldNeighbourBadge" class="badge badge-subtle" style="font-size:0.75rem;">LIVE DISCOVERY</span>
+      </div>
+      <div style="font-size:.76rem; color:var(--text-muted); margin-top:3px;">
+        Directly connected switches and ports discovered by the link-layer protocol engine. Click any column header to sort.
       </div>
     </div>
     <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
       <button type="button" class="ld-view-toggle" id="ldNbToggle" onclick="ldToggleNeighboursView()">Show raw output</button>
-      <button type="button" class="btn btn-primary btn-sm" onclick="ldNeighbours()">Refresh neighbours</button>
+      <button type="button" class="btn btn-sm btn-ghost" onclick="ldNeighbours()" style="border:1px solid rgba(255,255,255,0.12);">
+        Refresh
+      </button>
     </div>
   </div>
-  <div id="ldNeighboursNote" style="margin-top:8px; font-size:.74rem; color:var(--text-muted);"></div>
+
+  <div id="ldNeighboursNote" style="margin-bottom:8px; font-size:.75rem; color:var(--text-muted); font-weight:600;"></div>
 
   <div class="ld-ntable-wrap" id="ldNeighboursTableWrap">
     <table class="ld-ntable" id="ldNeighboursTable">
@@ -126,7 +119,11 @@ $neighboursUrl = base_url('plugins/lldpd/neighbours');
           <th data-key="ttl" role="button" tabindex="0" onclick="ldNbSort('ttl')" onkeydown="ldNbHeaderKey(event, 'ttl')">TTL<span class="ld-caret">▲</span></th>
         </tr>
       </thead>
-      <tbody id="ldNeighboursBody"></tbody>
+      <tbody id="ldNeighboursBody">
+        <tr>
+          <td colspan="5" style="text-align:center; padding:24px; color:var(--text-muted);">Discovering connected switch ports…</td>
+        </tr>
+      </tbody>
     </table>
   </div>
 
@@ -136,115 +133,165 @@ $neighboursUrl = base_url('plugins/lldpd/neighbours');
   <div id="ldNeighboursWarnings" style="margin-top:8px; font-size:.72rem; color:#f59e0b;"></div>
 </div>
 
-<div class="card card-glass animate-in animate-in-delay-2" style="padding:16px 18px; margin-bottom:16px;">
-  <div style="font-weight:700; font-size:0.92rem; margin-bottom:2px;">Settings</div>
-  <div style="font-size:.74rem; color:var(--text-muted); margin-bottom:12px;">
-    Most of lldpd's options are command line, so applying these writes a systemd drop-in over the package's own
-    <code>lldpd.service</code>; the transmit timing and an optional hostname override go in
-    <code>/etc/lldpd.conf</code>, which the daemon processes at start. The unit name stays the package's, so the
-    generic plugin status and control still reach the same service.
+<!-- ── Daemon Status & Network Summary ── -->
+<div class="card card-glass animate-in animate-in-delay-2" style="padding:16px 20px; margin-bottom:20px;">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
+    <div style="display:flex; align-items:center; gap:10px;">
+      <span class="ld-led" id="ldLed"></span>
+      <div style="font-weight:700; font-size:0.92rem; color:var(--text-primary);">Daemon Status</div>
+      <span id="ldStatusNote" style="font-size:.74rem; color:var(--text-muted);"></span>
+    </div>
+    <div style="font-size:0.75rem; color:var(--text-muted);" id="ldApplied">Last applied: —</div>
   </div>
+
+  <div class="ld-grid">
+    <div style="padding:10px 12px; background:rgba(255,255,255,0.02); border-radius:6px; border:1px solid rgba(255,255,255,0.04);">
+      <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; font-weight:600;">Service Unit</div>
+      <div id="ldService" style="font-size:1.15rem; font-weight:700; color:var(--text-primary); margin-top:2px;">—</div>
+      <div style="font-size:0.7rem; color:var(--text-muted); margin-top:2px;">lldpd.service</div>
+    </div>
+
+    <div style="padding:10px 12px; background:rgba(255,255,255,0.02); border-radius:6px; border:1px solid rgba(255,255,255,0.04);">
+      <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; font-weight:600;">Monitored Interfaces</div>
+      <div id="ldIfaces" style="font-size:1.1rem; font-weight:700; color:var(--text-primary); margin-top:2px; font-family:var(--font-mono);">—</div>
+      <div style="font-size:0.7rem; color:var(--text-muted); margin-top:2px;">Listening ports</div>
+    </div>
+
+    <div style="padding:10px 12px; background:rgba(255,255,255,0.02); border-radius:6px; border:1px solid rgba(255,255,255,0.04);">
+      <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; font-weight:600;">Extra Protocols</div>
+      <div id="ldProtocols" style="font-size:1.1rem; font-weight:700; color:var(--color-cyan, #06b6d4); margin-top:2px;">—</div>
+      <div style="font-size:0.7rem; color:var(--text-muted); margin-top:2px;">CDP / FDP / SONMP / EDP</div>
+    </div>
+
+    <div style="padding:10px 12px; background:rgba(255,255,255,0.02); border-radius:6px; border:1px solid rgba(255,255,255,0.04);">
+      <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; font-weight:600;">Configuration File</div>
+      <div id="ldDropin" style="font-size:1.1rem; font-weight:700; color:var(--text-primary); margin-top:2px;">—</div>
+      <div style="font-size:0.7rem; color:var(--text-muted); margin-top:2px;" id="ldConfig">drop-in active</div>
+    </div>
+  </div>
+
+  <div id="ldWarnings" style="margin-top:10px; font-size:.72rem; color:#f59e0b;"></div>
+  <div id="ldSteps" style="margin-top:6px; font-size:.7rem; color:var(--text-muted); font-family:var(--font-mono);"></div>
+</div>
+
+<!-- ── Streamlined Settings Card ── -->
+<div class="card card-glass animate-in animate-in-delay-3" style="padding:20px; margin-bottom:20px;">
+  <div style="margin-bottom:16px;">
+    <h2 style="font-weight:700; font-size:1rem; margin:0; color:var(--text-primary);">Settings</h2>
+    <div style="font-size:.76rem; color:var(--text-muted); margin-top:2px;">
+      Configure interface listening scope and discovery protocol behavior.
+    </div>
+  </div>
+
   <form id="ldForm" onsubmit="return ldApply(event)">
-    <div class="repo-grid">
-      <div class="repo-field">
-        <label for="ldInterface">Interfaces</label>
-        <input type="text" id="ldInterface" name="interfaces" placeholder="eth0, eth1" spellcheck="false">
-        <div class="repo-field-hint ld-field-hint">
-          Comma-separated, with lldpd's globs and <code>!</code> rules (e.g. <code>eth*,!eth1</code>). Leave empty for
-          every physical interface.
+    <!-- Primary Options: The 3-4 essential toggles -->
+    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:16px; margin-bottom:14px;">
+      <div style="padding:12px 14px; background:rgba(255,255,255,0.02); border-radius:8px; border:1px solid rgba(255,255,255,0.06);">
+        <label for="ldEnabled" style="display:flex; align-items:center; gap:10px; cursor:pointer; font-weight:600; color:var(--text-primary);">
+          <input type="checkbox" id="ldEnabled" name="enabled" checked style="width:18px; height:18px;">
+          <span>lldpd enabled</span>
+        </label>
+        <div class="ld-field-hint" style="margin-left:28px;">Run background daemon to discover and announce network links.</div>
+      </div>
+
+      <div>
+        <label for="ldInterface" style="font-weight:600; font-size:0.82rem;">Interfaces</label>
+        <input type="text" id="ldInterface" name="interfaces" placeholder="e.g. eth0, eth1 (leave empty for all)" spellcheck="false" class="form-control" style="margin-top:4px;">
+        <div class="ld-field-hint">Comma-separated, or leave empty for all physical interfaces.</div>
+      </div>
+
+      <div style="display:flex; flex-direction:column; gap:8px; justify-content:center;">
+        <label for="ldCdp" style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:0.82rem;">
+          <input type="checkbox" id="ldCdp" name="cdp">
+          <span>Also speak CDP (Cisco)</span>
+        </label>
+        <label for="ldReceiveOnly" style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:0.82rem;">
+          <input type="checkbox" id="ldReceiveOnly" name="receive_only">
+          <span>Receive-only (do not advertise)</span>
+        </label>
+      </div>
+    </div>
+
+    <!-- Advanced Collapsible Options (Hidden by default to keep the UI clean) -->
+    <details class="ld-advanced">
+      <summary>
+        <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+        </svg>
+        <span>Advanced Options (Timing, Identifiers, Foundry/Nortel &amp; SNMP)</span>
+      </summary>
+
+      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:14px; margin-top:12px;">
+        <div>
+          <label for="ldMgmt" style="font-weight:600; font-size:0.8rem;">Management addresses</label>
+          <input type="text" id="ldMgmt" name="management_addresses" placeholder="(first IPv4 and IPv6)" spellcheck="false" class="form-control" style="margin-top:4px;">
+          <div class="ld-field-hint">Pattern for management IP advertised to peers (e.g. <code>eth0</code>).</div>
+        </div>
+
+        <div>
+          <label for="ldSystemName" style="font-weight:600; font-size:0.8rem;">System name</label>
+          <input type="text" id="ldSystemName" name="system_name" placeholder="(resolved hostname)" spellcheck="false" class="form-control" style="margin-top:4px;">
+          <div class="ld-field-hint">Overrides advertised hostname. Empty uses appliance hostname.</div>
+        </div>
+
+        <div>
+          <label for="ldDescription" style="font-weight:600; font-size:0.8rem;">System description</label>
+          <input type="text" id="ldDescription" name="system_description" placeholder="(kernel name, version, architecture)" spellcheck="false" class="form-control" style="margin-top:4px;">
+          <div class="ld-field-hint">Overrides chassis description string (<code>-S</code>).</div>
+        </div>
+
+        <div>
+          <label for="ldPlatform" style="font-weight:600; font-size:0.8rem;">CDP platform</label>
+          <input type="text" id="ldPlatform" name="platform" placeholder="(kernel name)" spellcheck="false" class="form-control" style="margin-top:4px;">
+          <div class="ld-field-hint">Overrides the platform string CDP advertises (<code>-P</code>).</div>
+        </div>
+
+        <div>
+          <label for="ldTxInterval" style="font-weight:600; font-size:0.8rem;">Transmit interval (seconds)</label>
+          <input type="number" id="ldTxInterval" name="tx_interval" min="1" max="3600" value="30" class="form-control" style="margin-top:4px;">
+          <div class="ld-field-hint">Delay between LLDP advertisements (Default 30s).</div>
+        </div>
+
+        <div>
+          <label for="ldTxHold" style="font-weight:600; font-size:0.8rem;">Transmit hold</label>
+          <input type="number" id="ldTxHold" name="tx_hold" min="1" max="100" value="4" class="form-control" style="margin-top:4px;">
+          <div class="ld-field-hint">Multiplier to determine neighbour TTL (Default 4).</div>
+        </div>
+
+        <div style="display:flex; flex-direction:column; gap:8px;">
+          <label for="ldFdp" style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:0.82rem;">
+            <input type="checkbox" id="ldFdp" name="fdp">
+            <span>Also speak FDP (Foundry)</span>
+          </label>
+          <label for="ldSonmp" style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:0.82rem;">
+            <input type="checkbox" id="ldSonmp" name="sonmp">
+            <span>Also speak SONMP (Nortel)</span>
+          </label>
+          <label for="ldEdp" style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:0.82rem;">
+            <input type="checkbox" id="ldEdp" name="edp">
+            <span>Also speak EDP (Extreme)</span>
+          </label>
+        </div>
+
+        <div style="display:flex; flex-direction:column; gap:8px;">
+          <label for="ldSnmp" style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:0.82rem;">
+            <input type="checkbox" id="ldSnmp" name="snmp_subagent">
+            <span>Enable the SNMP subagent</span>
+          </label>
+          <label for="ldSuppressKernel" style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:0.82rem;">
+            <input type="checkbox" id="ldSuppressKernel" name="suppress_kernel_version">
+            <span>Hide kernel version and machine</span>
+          </label>
         </div>
       </div>
-      <div class="repo-field">
-        <label for="ldMgmt">Management addresses</label>
-        <input type="text" id="ldMgmt" name="management_addresses" placeholder="(first IPv4 and IPv6)" spellcheck="false">
-        <div class="ld-field-hint">Advertised management address pattern, e.g. <code>eth0</code> or <code>!*:*</code> to drop IPv6.</div>
-      </div>
-      <div class="repo-field">
-        <label for="ldSystemName">System name</label>
-        <input type="text" id="ldSystemName" name="system_name" placeholder="(resolved hostname)" spellcheck="false">
-        <div class="ld-field-hint">Overrides the advertised system name; empty uses the appliance's own hostname.</div>
-      </div>
-      <div class="repo-field">
-        <label for="ldDescription">System description</label>
-        <input type="text" id="ldDescription" name="system_description" placeholder="(kernel name, version, architecture)" spellcheck="false">
-        <div class="ld-field-hint">Overrides the chassis description (<code>-S</code>).</div>
-      </div>
-      <div class="repo-field">
-        <label for="ldPlatform">CDP platform</label>
-        <input type="text" id="ldPlatform" name="platform" placeholder="(kernel name)" spellcheck="false">
-        <div class="ld-field-hint">Overrides the platform CDP advertises (<code>-P</code>).</div>
-      </div>
-      <div class="repo-field">
-        <label for="ldTxInterval">Transmit interval (seconds)</label>
-        <input type="number" id="ldTxInterval" name="tx_interval" min="1" max="3600" value="30">
-        <div class="ld-field-hint">Delay between LLDP advertisements. Default 30.</div>
-      </div>
-      <div class="repo-field">
-        <label for="ldTxHold">Transmit hold</label>
-        <input type="number" id="ldTxHold" name="tx_hold" min="1" max="100" value="4">
-        <div class="ld-field-hint">Multiplied by the interval to give the TTL. Default 4.</div>
-      </div>
-      <div class="repo-field">
-        <label for="ldReceiveOnly" style="display:flex; align-items:center; gap:8px; cursor:pointer;">
-          <input type="checkbox" id="ldReceiveOnly" name="receive_only">
-          Receive-only (do not advertise)
-        </label>
-        <div class="ld-field-hint">Passes <code>-r</code>: listen for neighbours, send nothing.</div>
-      </div>
-      <div class="repo-field">
-        <label for="ldCdp" style="display:flex; align-items:center; gap:8px; cursor:pointer;">
-          <input type="checkbox" id="ldCdp" name="cdp">
-          Also speak CDP (Cisco)
-        </label>
-        <div class="ld-field-hint">Passes <code>-c</code>.</div>
-      </div>
-      <div class="repo-field">
-        <label for="ldFdp" style="display:flex; align-items:center; gap:8px; cursor:pointer;">
-          <input type="checkbox" id="ldFdp" name="fdp">
-          Also speak FDP (Foundry)
-        </label>
-        <div class="ld-field-hint">Passes <code>-f</code>.</div>
-      </div>
-      <div class="repo-field">
-        <label for="ldSonmp" style="display:flex; align-items:center; gap:8px; cursor:pointer;">
-          <input type="checkbox" id="ldSonmp" name="sonmp">
-          Also speak SONMP (Nortel)
-        </label>
-        <div class="ld-field-hint">Passes <code>-s</code>.</div>
-      </div>
-      <div class="repo-field">
-        <label for="ldEdp" style="display:flex; align-items:center; gap:8px; cursor:pointer;">
-          <input type="checkbox" id="ldEdp" name="edp">
-          Also speak EDP (Extreme)
-        </label>
-        <div class="ld-field-hint">Passes <code>-e</code>.</div>
-      </div>
-      <div class="repo-field">
-        <label for="ldSnmp" style="display:flex; align-items:center; gap:8px; cursor:pointer;">
-          <input type="checkbox" id="ldSnmp" name="snmp_subagent">
-          Enable the SNMP subagent
-        </label>
-        <div class="ld-field-hint">Passes <code>-x</code>; exposes the neighbour table over SNMP/AgentX.</div>
-      </div>
-      <div class="repo-field">
-        <label for="ldSuppressKernel" style="display:flex; align-items:center; gap:8px; cursor:pointer;">
-          <input type="checkbox" id="ldSuppressKernel" name="suppress_kernel_version">
-          Hide kernel version and machine
-        </label>
-        <div class="ld-field-hint">Passes <code>-k</code>; the software version is advertised as “Unknown”.</div>
-      </div>
-      <div class="repo-field">
-        <label for="ldEnabled" style="display:flex; align-items:center; gap:8px; cursor:pointer;">
-          <input type="checkbox" id="ldEnabled" name="enabled" checked>
-          lldpd enabled
-        </label>
-        <div class="ld-field-hint">Unchecking removes the drop-in and the config, and stops the service.</div>
-      </div>
+    </details>
+
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:20px; flex-wrap:wrap; gap:12px;">
+      <button type="submit" class="btn btn-primary">
+        Apply settings
+      </button>
+      <div id="ldFormNote" style="font-size:.82rem; font-weight:600;"></div>
     </div>
-    <div style="display:flex; gap:8px; margin-top:12px; flex-wrap:wrap;">
-      <button type="submit" class="btn btn-primary btn-sm">Apply settings</button>
-    </div>
-    <div id="ldFormNote" style="margin-top:10px; font-size:.74rem;"></div>
   </form>
 </div>
 
@@ -255,12 +302,14 @@ const LD_NEIGHBOURS_URL = <?= json_encode($neighboursUrl, JSON_UNESCAPED_SLASHES
 let LD_CSRF = <?= json_encode(csrf_hash()) ?>;
 
 function ldLed(el, on) {
+  if (!el) return;
   el.classList.remove('on', 'off');
   el.classList.add(on ? 'on' : 'off');
 }
 
 function ldSet(id, value, fallback) {
-  document.getElementById(id).textContent = (value === undefined || value === null || value === '') ? (fallback || '—') : value;
+  const el = document.getElementById(id);
+  if (el) el.textContent = (value === undefined || value === null || value === '') ? (fallback || '—') : value;
 }
 
 function ldProtocols(data) {
@@ -277,38 +326,42 @@ function ldRender(result) {
   const badge = document.getElementById('ldStateBadge');
   const running = data.service_state === 'running';
 
-  badge.textContent = running ? (data.enabled === false ? 'STOPPED' : 'RUNNING') : (data.dropin_present ? 'STOPPED' : 'NOT CONFIGURED');
-  badge.className = 'badge ' + (running && data.enabled !== false ? 'badge-success' : (data.dropin_present ? 'badge-warning' : 'badge-muted'));
+  if (badge) {
+    badge.textContent = running ? (data.enabled === false ? 'STOPPED' : 'RUNNING') : (data.dropin_present ? 'STOPPED' : 'NOT CONFIGURED');
+    badge.className = 'badge ' + (running && data.enabled !== false ? 'badge-success' : (data.dropin_present ? 'badge-warning' : 'badge-muted'));
+  }
   ldLed(document.getElementById('ldLed'), running && data.enabled !== false);
 
-  ldSet('ldService', data.service_state, '—');
-  ldSet('ldDropin', data.dropin_present ? 'present' : 'absent', 'absent');
-  ldSet('ldConfig', data.config_present ? 'present' : 'absent', 'absent');
-  ldSet('ldIfaces', data.interfaces, 'all physical interfaces');
+  ldSet('ldService', data.service_state ? data.service_state.toUpperCase() : 'STOPPED', 'STOPPED');
+  ldSet('ldDropin', data.dropin_present ? 'Active' : 'Not generated', 'Absent');
+  ldSet('ldConfig', data.config_present ? 'Configured' : 'Default', 'Default');
+  ldSet('ldIfaces', data.interfaces || 'All physical interfaces', 'All physical interfaces');
   ldSet('ldProtocols', ldProtocols(data), 'LLDP only');
-  ldSet('ldApplied', data.applied_at, data.dropin_present ? '—' : 'never');
+  ldSet('ldApplied', data.applied_at ? 'Applied: ' + data.applied_at : (data.dropin_present ? '—' : 'Never applied'));
 
-  // Pre-fill the form from the applied settings so a reload shows what is live.
-  if (data.interfaces !== undefined) document.getElementById('ldInterface').value = data.interfaces || '';
-  if (data.management_addresses !== undefined) document.getElementById('ldMgmt').value = data.management_addresses || '';
-  if (data.system_name !== undefined) document.getElementById('ldSystemName').value = data.system_name || '';
-  if (data.system_description !== undefined) document.getElementById('ldDescription').value = data.system_description || '';
-  if (data.platform !== undefined) document.getElementById('ldPlatform').value = data.platform || '';
-  if (data.tx_interval) document.getElementById('ldTxInterval').value = data.tx_interval;
-  if (data.tx_hold) document.getElementById('ldTxHold').value = data.tx_hold;
-  if (data.receive_only !== undefined) document.getElementById('ldReceiveOnly').checked = data.receive_only === true;
-  if (data.cdp !== undefined) document.getElementById('ldCdp').checked = data.cdp === true;
-  if (data.fdp !== undefined) document.getElementById('ldFdp').checked = data.fdp === true;
-  if (data.sonmp !== undefined) document.getElementById('ldSonmp').checked = data.sonmp === true;
-  if (data.edp !== undefined) document.getElementById('ldEdp').checked = data.edp === true;
-  if (data.snmp_subagent !== undefined) document.getElementById('ldSnmp').checked = data.snmp_subagent === true;
-  if (data.suppress_kernel_version !== undefined) document.getElementById('ldSuppressKernel').checked = data.suppress_kernel_version === true;
-  if (data.enabled !== undefined) document.getElementById('ldEnabled').checked = data.enabled === true;
+  // Pre-fill the form from applied settings
+  if (data.interfaces !== undefined && document.getElementById('ldInterface')) document.getElementById('ldInterface').value = data.interfaces || '';
+  if (data.management_addresses !== undefined && document.getElementById('ldMgmt')) document.getElementById('ldMgmt').value = data.management_addresses || '';
+  if (data.system_name !== undefined && document.getElementById('ldSystemName')) document.getElementById('ldSystemName').value = data.system_name || '';
+  if (data.system_description !== undefined && document.getElementById('ldDescription')) document.getElementById('ldDescription').value = data.system_description || '';
+  if (data.platform !== undefined && document.getElementById('ldPlatform')) document.getElementById('ldPlatform').value = data.platform || '';
+  if (data.tx_interval && document.getElementById('ldTxInterval')) document.getElementById('ldTxInterval').value = data.tx_interval;
+  if (data.tx_hold && document.getElementById('ldTxHold')) document.getElementById('ldTxHold').value = data.tx_hold;
+  if (data.receive_only !== undefined && document.getElementById('ldReceiveOnly')) document.getElementById('ldReceiveOnly').checked = data.receive_only === true;
+  if (data.cdp !== undefined && document.getElementById('ldCdp')) document.getElementById('ldCdp').checked = data.cdp === true;
+  if (data.fdp !== undefined && document.getElementById('ldFdp')) document.getElementById('ldFdp').checked = data.fdp === true;
+  if (data.sonmp !== undefined && document.getElementById('ldSonmp')) document.getElementById('ldSonmp').checked = data.sonmp === true;
+  if (data.edp !== undefined && document.getElementById('ldEdp')) document.getElementById('ldEdp').checked = data.edp === true;
+  if (data.snmp_subagent !== undefined && document.getElementById('ldSnmp')) document.getElementById('ldSnmp').checked = data.snmp_subagent === true;
+  if (data.suppress_kernel_version !== undefined && document.getElementById('ldSuppressKernel')) document.getElementById('ldSuppressKernel').checked = data.suppress_kernel_version === true;
+  if (data.enabled !== undefined && document.getElementById('ldEnabled')) document.getElementById('ldEnabled').checked = data.enabled === true;
 
   const warnings = (result && result.warnings) || [];
-  document.getElementById('ldWarnings').innerHTML = warnings.map(w => '⚠ ' + w).join('<br>');
+  const warnEl = document.getElementById('ldWarnings');
+  if (warnEl) warnEl.innerHTML = warnings.map(w => '⚠ ' + w).join('<br>');
   const steps = (result && result.steps) || [];
-  document.getElementById('ldSteps').innerHTML = steps.map(s => '· ' + s).join('<br>');
+  const stepsEl = document.getElementById('ldSteps');
+  if (stepsEl) stepsEl.innerHTML = steps.map(s => '· ' + s).join('<br>');
 }
 
 async function ldCall(url, options) {
@@ -318,23 +371,18 @@ async function ldCall(url, options) {
 
 async function ldRefresh() {
   const note = document.getElementById('ldStatusNote');
-  note.textContent = 'reading…';
+  if (note) note.textContent = 'reading…';
   try {
     const body = await ldCall(LD_STATUS_URL, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
     if (body.csrf) LD_CSRF = body.csrf;
     ldRender(body.result);
-    note.textContent = body.ok ? '' : (body.message || 'the daemon rejected the request');
+    if (note) note.textContent = body.ok ? '' : (body.message || 'the daemon rejected the request');
   } catch (e) {
-    note.textContent = 'status unavailable';
+    if (note) note.textContent = 'status unavailable';
   }
 }
 
 // --- Neighbour table -------------------------------------------------------
-// The daemon returns one structured row per neighbour (`format=json`); this
-// renders them as a sortable table. LLDP data arrives from the network, so every
-// cell is set as text — never markup. When the structured rows cannot be built
-// (parse error, no neighbours, or the daemon cannot answer) the page falls back
-// to the listing exactly as `lldpcli show neighbors` prints it.
 const LD_NB_KEYS = ['interface', 'chassis', 'port', 'mgmt_ip', 'ttl'];
 let LD_NB_ROWS = [];
 let LD_NB_SORT = { key: 'interface', dir: 'asc' };
@@ -349,6 +397,7 @@ function ldNbFetch(format) {
 
 function ldNbWarnings(list) {
   const box = document.getElementById('ldNeighboursWarnings');
+  if (!box) return;
   box.textContent = '';
   (list || []).filter(Boolean).forEach(function (w) {
     const line = document.createElement('div');
@@ -366,7 +415,6 @@ function ldNbCell(tag, value, mono) {
   return cell;
 }
 
-// Kept in one place so sorting and rendering cannot disagree about a row.
 function ldNbSorted() {
   const rows = LD_NB_ROWS.slice();
   const key = LD_NB_SORT.key;
@@ -374,17 +422,32 @@ function ldNbSorted() {
   return rows.sort(function (a, b) {
     const av = a[key] === null || a[key] === undefined ? '' : String(a[key]);
     const bv = b[key] === null || b[key] === undefined ? '' : String(b[key]);
-    if (av === '' && bv !== '') return 1;   // blanks sort last, either direction
+    if (av === '' && bv !== '') return 1;
     if (bv === '' && av !== '') return -1;
-    // numeric:true sorts a TTL as a number and a port name naturally.
     return dir * av.localeCompare(bv, undefined, { numeric: true, sensitivity: 'base' });
   });
 }
 
 function ldNbRenderTable() {
   const body = document.getElementById('ldNeighboursBody');
+  if (!body) return;
   body.textContent = '';
-  ldNbSorted().forEach(function (row) {
+  const rows = ldNbSorted();
+
+  if (rows.length === 0) {
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.colSpan = 5;
+    td.style.textAlign = 'center';
+    td.style.padding = '24px';
+    td.style.color = 'var(--text-muted)';
+    td.textContent = 'No LLDP neighbours currently detected.';
+    tr.appendChild(td);
+    body.appendChild(tr);
+    return;
+  }
+
+  rows.forEach(function (row) {
     const tr = document.createElement('tr');
     const title = [];
     if (row.chassis_id) title.push('Chassis ID ' + row.chassis_id);
@@ -428,9 +491,13 @@ function ldNbHeaderKey(event, key) {
 
 function ldNbShowView(view) {
   LD_NB_VIEW = view;
-  document.getElementById('ldNeighboursTableWrap').hidden = view !== 'table';
-  document.getElementById('ldRawWrap').hidden = view !== 'raw';
-  document.getElementById('ldNbToggle').textContent = view === 'raw' ? 'Show table' : 'Show raw output';
+  const wrapTable = document.getElementById('ldNeighboursTableWrap');
+  const wrapRaw = document.getElementById('ldRawWrap');
+  const toggleBtn = document.getElementById('ldNbToggle');
+
+  if (wrapTable) wrapTable.hidden = view !== 'table';
+  if (wrapRaw) wrapRaw.hidden = view !== 'raw';
+  if (toggleBtn) toggleBtn.textContent = view === 'raw' ? 'Show table' : 'Show raw output';
 }
 
 async function ldNbLoadRaw(note) {
@@ -439,15 +506,18 @@ async function ldNbLoadRaw(note) {
     if (body.csrf) LD_CSRF = body.csrf;
     const data = (body.result && body.result.data) || {};
     const text = data.neighbours || '';
-    document.getElementById('ldNeighbours').textContent =
-      (body.ok && text.trim()) ? text : '— no LLDP neighbours are currently visible —';
+    const rawEl = document.getElementById('ldNeighbours');
+    if (rawEl) {
+      rawEl.textContent = (body.ok && text.trim()) ? text : '— no LLDP neighbours are currently visible —';
+    }
     LD_NB_RAW_LOADED = true;
-    if (!body.ok) note.textContent = body.message || 'the daemon rejected the request';
+    if (!body.ok && note) note.textContent = body.message || 'the daemon rejected the request';
     return body;
   } catch (e) {
-    document.getElementById('ldNeighbours').textContent = '— unavailable —';
+    const rawEl = document.getElementById('ldNeighbours');
+    if (rawEl) rawEl.textContent = '— unavailable —';
     LD_NB_RAW_LOADED = true;
-    note.textContent = 'the raw listing is unavailable';
+    if (note) note.textContent = 'the raw listing is unavailable';
     return null;
   }
 }
@@ -460,14 +530,13 @@ async function ldToggleNeighboursView() {
   } else if (LD_NB_ROWS.length) {
     ldNbShowView('table');
   } else {
-    // No structured rows to go back to — read the table again.
     await ldNeighbours();
   }
 }
 
 async function ldNeighbours() {
   const note = document.getElementById('ldNeighboursNote');
-  note.textContent = 'reading…';
+  if (note) note.textContent = 'Scanning for neighbours…';
   ldNbWarnings([]);
 
   let body = null;
@@ -485,22 +554,21 @@ async function ldNeighbours() {
     LD_NB_ROWS = rows.filter(function (r) { return r && typeof r === 'object'; });
     ldNbRenderTable();
     ldNbShowView('table');
-    note.textContent = LD_NB_ROWS.length + (LD_NB_ROWS.length === 1 ? ' neighbour' : ' neighbours') + ' discovered.';
+    if (note) note.textContent = LD_NB_ROWS.length + (LD_NB_ROWS.length === 1 ? ' neighbour' : ' neighbours') + ' discovered.';
     ldNbWarnings(warnings);
     return;
   }
 
-  // Nothing structured to show: fall back to the raw listing.
+  // Nothing structured to show: fallback to raw listing
   ldNbShowView('raw');
   const raw = await ldNbLoadRaw(note);
   const rawWarnings = (raw && raw.result && raw.result.warnings) || [];
   if (!raw) {
     warnings.push('the neighbour table could not be read');
-  } else if (raw.ok) {
-    // The raw listing worked, so name the reason the table is not shown.
+  } else if (raw.ok && note) {
     note.textContent = (body && !body.ok && body.message)
       ? body.message + ' — showing the raw listing.'
-      : 'No neighbours were parsed into a table — showing the raw listing.';
+      : 'No neighbours were parsed — showing the raw listing.';
   }
   ldNbWarnings(warnings.concat(rawWarnings));
 }
@@ -509,9 +577,11 @@ async function ldApply(event) {
   event.preventDefault();
   const note = document.getElementById('ldStatusNote');
   const formNote = document.getElementById('ldFormNote');
-  note.textContent = 'applying…';
-  formNote.textContent = '';
-  formNote.style.color = 'var(--text-muted)';
+  if (note) note.textContent = 'applying…';
+  if (formNote) {
+    formNote.textContent = 'Applying settings…';
+    formNote.style.color = 'var(--text-muted)';
+  }
 
   const body = await ldCall(LD_APPLY_URL, {
     method: 'POST',
@@ -536,9 +606,11 @@ async function ldApply(event) {
   });
   if (body.csrf) LD_CSRF = body.csrf;
 
-  formNote.textContent = body.ok ? (body.message || 'applied.') : ('failed: ' + (body.message || 'unknown error'));
-  formNote.style.color = body.ok ? '#22c55e' : '#ef4444';
-  note.textContent = body.ok ? '' : 'apply failed';
+  if (formNote) {
+    formNote.textContent = body.ok ? (body.message || 'Settings applied successfully.') : ('Failed: ' + (body.message || 'unknown error'));
+    formNote.style.color = body.ok ? '#22c55e' : '#ef4444';
+  }
+  if (note) note.textContent = body.ok ? '' : 'apply failed';
   if (body.result) ldRender(body.result);
   return false;
 }

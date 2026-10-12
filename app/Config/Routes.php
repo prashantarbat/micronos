@@ -16,6 +16,12 @@ $routes->get('auth/logout', 'Auth::logout', ['as' => 'auth.logout']);
 $routes->get('auth/totp', 'Auth::totp', ['as' => 'auth.totp']);
 $routes->post('auth/totp', 'Auth::totpPost');
 
+// Centralized Single Sign-On (SSO) Federation Endpoints
+$routes->get('auth/sso/login/(:segment)', 'Sso::login/$1');
+$routes->get('auth/sso/callback/(:segment)', 'Sso::callback/$1');
+$routes->post('auth/sso/saml/acs/(:segment)', 'Sso::acs/$1');
+$routes->get('auth/sso/metadata/(:segment)', 'Sso::metadata/$1');
+
 // ============================================================
 // Protected Routes (auth filter applied globally in Filters.php)
 // ============================================================
@@ -23,6 +29,11 @@ $routes->post('auth/totp', 'Auth::totpPost');
 // Dashboard
 $routes->get('dashboard', 'Dashboard::index', ['as' => 'dashboard', 'filter' => 'permission:dashboard.view']);
 $routes->get('dashboard/traffic', 'Dashboard::traffic', ['filter' => 'permission:dashboard.view']);
+$routes->get('dashboard/telemetry', 'Dashboard::telemetry', ['filter' => 'permission:dashboard.view']);
+$routes->get('dashboard/layout', 'Dashboard::layout', ['filter' => 'permission:dashboard.view']);
+$routes->post('dashboard/layout/save', 'Dashboard::saveLayout', ['filter' => 'permission:dashboard.view']);
+$routes->post('dashboard/layout/reset', 'Dashboard::resetLayout', ['filter' => 'permission:dashboard.view']);
+$routes->post('dashboard/port-action', 'Dashboard::portAction', ['filter' => 'permission:dashboard.view']);
 $routes->post('dashboard/service-toggle', 'Dashboard::serviceToggle', ['filter' => 'permission:dashboard.view']);
 
 // ---- Interfaces ----
@@ -39,6 +50,10 @@ $routes->group('interfaces', ['filter' => 'permission:interfaces.view'], functio
     // Link Aggregation / Bonding (bond0 LACP)
     $r->post('bonds/store', 'Interfaces::storeBond', ['filter' => 'permission:interfaces.edit']);
     $r->post('bonds/(:segment)/delete', 'Interfaces::deleteBond/$1', ['filter' => 'permission:interfaces.edit']);
+
+    // Layer 2 Bridge Interfaces (br0, br-lan)
+    $r->post('bridges/store', 'Interfaces::storeBridge', ['filter' => 'permission:interfaces.edit']);
+    $r->post('bridges/(:segment)/delete', 'Interfaces::deleteBridge/$1', ['filter' => 'permission:interfaces.edit']);
 
     // Wireless LAN (wlan0 AP / Station)
     $r->post('wireless/save', 'Interfaces::saveWireless', ['filter' => 'permission:interfaces.edit']);
@@ -255,6 +270,21 @@ $routes->group('routing', ['filter' => 'permission:routing.table.view'], functio
     $r->post('multiwan/apply', 'Routing::applyMultiWan', ['filter' => 'permission:routing.static.manage']);
 });
 
+// ---- Application-Aware Dynamic SD-WAN (SLA Path Steering) ----
+$routes->group('routing/sdwan', ['filter' => 'permission:routing.table.view'], function ($r) {
+    $r->get('/', 'Sdwan::index');
+    $r->post('member/save', 'Sdwan::saveMember', ['filter' => 'permission:routing.static.manage']);
+    $r->post('member/(:segment)/delete', 'Sdwan::deleteMember/$1', ['filter' => 'permission:routing.static.manage']);
+    $r->post('profile/save', 'Sdwan::saveProfile', ['filter' => 'permission:routing.static.manage']);
+    $r->post('profile/(:segment)/delete', 'Sdwan::deleteProfile/$1', ['filter' => 'permission:routing.static.manage']);
+    $r->post('rule/save', 'Sdwan::saveRule', ['filter' => 'permission:routing.pbr.manage']);
+    $r->post('rule/(:segment)/delete', 'Sdwan::deleteRule/$1', ['filter' => 'permission:routing.pbr.manage']);
+    $r->post('settings/save', 'Sdwan::saveSettings', ['filter' => 'permission:routing.static.manage']);
+    $r->get('probe-now', 'Sdwan::probeNow');
+    $r->post('apply', 'Sdwan::apply', ['filter' => 'permission:routing.static.manage']);
+    $r->get('metrics', 'Sdwan::metrics');
+});
+
 // ---- PPPoE Server ----
 $routes->group('pppoe', ['filter' => 'permission:pppoe.server.view'], function ($r) {
     $r->get('/', 'Pppoe::index');
@@ -323,6 +353,20 @@ $routes->group('vpn/ipsec', ['filter' => 'permission:vpn.ipsec.view'], function 
     $r->post('restart', 'VpnIpsec::restart', ['filter' => 'permission:vpn.ipsec.manage']);
     $r->get('config', 'VpnIpsec::compiledConfig', ['filter' => 'permission:vpn.ipsec.view']);
     $r->get('(:segment)/vti-script', 'VpnIpsec::vtiScript/$1', ['filter' => 'permission:vpn.ipsec.view']);
+});
+
+// ---- In-Browser Clientless Web Application & Desktop Gateway (HTML5 RDP/SSH - ZTNA) ----
+$routes->group('vpn/clientless-gateway', function ($r) {
+    $r->get('/', 'ZtnaGateway::index', ['filter' => 'permission:vpn.openvpn.view']);
+    $r->get('portal', 'ZtnaGateway::portal');
+    $r->post('resource/save', 'ZtnaGateway::saveResource', ['filter' => 'permission:vpn.openvpn.manage']);
+    $r->post('resource/(:segment)/delete', 'ZtnaGateway::deleteResource/$1', ['filter' => 'permission:vpn.openvpn.manage']);
+    $r->get('launch/(:segment)', 'ZtnaGateway::launch/$1');
+    $r->get('connect/(:segment)', 'ZtnaGateway::connect/$1');
+    $r->post('session/(:segment)/terminate', 'ZtnaGateway::terminateSession/$1', ['filter' => 'permission:vpn.openvpn.manage']);
+    $r->match(['get', 'post'], 'verify-auth', 'ZtnaGateway::verifyAuth');
+    $r->post('settings/save', 'ZtnaGateway::saveSettings', ['filter' => 'permission:vpn.openvpn.manage']);
+    $r->post('apply', 'ZtnaGateway::apply', ['filter' => 'permission:vpn.openvpn.manage']);
 });
 
 // ---- DHCP ----
@@ -446,6 +490,51 @@ $routes->group('ssl-inspection', ['filter' => 'permission:webfilter.view'], func
     $r->get('download-ca/(:segment)', 'SslInspection::downloadCaCert/$1');
     $r->post('apply', 'SslInspection::apply', ['filter' => 'permission:webfilter.policy.edit']);
     $r->get('active-sessions', 'SslInspection::activeSessions');
+});
+$routes->group('security/ssl-inspection', ['filter' => 'permission:webfilter.view'], function ($r) {
+    $r->get('/', 'SslInspection::index');
+    $r->post('profile/save', 'SslInspection::saveProfile', ['filter' => 'permission:webfilter.policy.edit']);
+    $r->post('profile/(:segment)/delete', 'SslInspection::deleteProfile/$1', ['filter' => 'permission:webfilter.policy.edit']);
+    $r->post('bypass/save', 'SslInspection::saveBypassDomain', ['filter' => 'permission:webfilter.policy.edit']);
+    $r->post('bypass/(:segment)/delete', 'SslInspection::deleteBypassDomain/$1', ['filter' => 'permission:webfilter.policy.edit']);
+    $r->post('settings/save', 'SslInspection::saveSettings', ['filter' => 'permission:webfilter.policy.edit']);
+    $r->post('simulate-cert', 'SslInspection::simulateMitmCert');
+    $r->get('download-ca', 'SslInspection::downloadCaCert/pem');
+    $r->get('download-ca/(:segment)', 'SslInspection::downloadCaCert/$1');
+    $r->post('apply', 'SslInspection::apply', ['filter' => 'permission:webfilter.policy.edit']);
+    $r->get('active-sessions', 'SslInspection::activeSessions');
+});
+
+// ---- Automated Dynamic Threat Intelligence Feed Ingest (MISP / AlienVault / AbuseIPDB) ----
+$routes->group('security/threat-intel', ['filter' => 'permission:ids.view'], function ($r) {
+    $r->get('/', 'ThreatIntel::index');
+    $r->post('save-feed', 'ThreatIntel::saveFeed', ['filter' => 'permission:ids.edit']);
+    $r->post('toggle/(:segment)', 'ThreatIntel::toggleFeed/$1', ['filter' => 'permission:ids.edit']);
+    $r->post('delete/(:segment)', 'ThreatIntel::deleteFeed/$1', ['filter' => 'permission:ids.edit']);
+    $r->post('sync', 'ThreatIntel::syncNow', ['filter' => 'permission:ids.edit']);
+    $r->post('sync/(:segment)', 'ThreatIntel::syncNow/$1', ['filter' => 'permission:ids.edit']);
+    $r->post('save-settings', 'ThreatIntel::saveSettings', ['filter' => 'permission:ids.edit']);
+    $r->post('add-whitelist', 'ThreatIntel::addWhitelist', ['filter' => 'permission:ids.edit']);
+    $r->post('delete-whitelist/(:segment)', 'ThreatIntel::deleteWhitelist/$1', ['filter' => 'permission:ids.edit']);
+    $r->post('add-manual-ioc', 'ThreatIntel::addManualIoc', ['filter' => 'permission:ids.edit']);
+    $r->post('delete-manual-ioc/(:segment)', 'ThreatIntel::deleteManualIoc/$1', ['filter' => 'permission:ids.edit']);
+    $r->get('compile', 'ThreatIntel::compileRuleset');
+    $r->get('compile-dnsbl', 'ThreatIntel::compileDnsblRuleset');
+});
+$routes->group('threat-intel', ['filter' => 'permission:ids.view'], function ($r) {
+    $r->get('/', 'ThreatIntel::index');
+    $r->post('save-feed', 'ThreatIntel::saveFeed', ['filter' => 'permission:ids.edit']);
+    $r->post('toggle/(:segment)', 'ThreatIntel::toggleFeed/$1', ['filter' => 'permission:ids.edit']);
+    $r->post('delete/(:segment)', 'ThreatIntel::deleteFeed/$1', ['filter' => 'permission:ids.edit']);
+    $r->post('sync', 'ThreatIntel::syncNow', ['filter' => 'permission:ids.edit']);
+    $r->post('sync/(:segment)', 'ThreatIntel::syncNow/$1', ['filter' => 'permission:ids.edit']);
+    $r->post('save-settings', 'ThreatIntel::saveSettings', ['filter' => 'permission:ids.edit']);
+    $r->post('add-whitelist', 'ThreatIntel::addWhitelist', ['filter' => 'permission:ids.edit']);
+    $r->post('delete-whitelist/(:segment)', 'ThreatIntel::deleteWhitelist/$1', ['filter' => 'permission:ids.edit']);
+    $r->post('add-manual-ioc', 'ThreatIntel::addManualIoc', ['filter' => 'permission:ids.edit']);
+    $r->post('delete-manual-ioc/(:segment)', 'ThreatIntel::deleteManualIoc/$1', ['filter' => 'permission:ids.edit']);
+    $r->get('compile', 'ThreatIntel::compileRuleset');
+    $r->get('compile-dnsbl', 'ThreatIntel::compileDnsblRuleset');
 });
 
 // ---- Backup & Restore ----
@@ -738,10 +827,22 @@ $routes->group('plugins', ['filter' => 'permission:plugins.view'], function ($r)
     $r->get('ipv6-tunnel/status', 'Plugins::tunnelStatus', ['filter' => 'permission:plugins.view']);
     $r->post('ipv6-tunnel/apply', 'Plugins::tunnelApply', ['filter' => 'permission:plugins.configure']);
     $r->post('ipv6-tunnel/update', 'Plugins::tunnelUpdate', ['filter' => 'permission:plugins.configure']);
+    // LightSquid report console / static file viewer under /plugins/lightsquid/report
+    $r->get('lightsquid/report', 'Plugins::lightsquidReport', ['filter' => 'permission:plugins.view']);
+    $r->get('lightsquid/report/(:any)', 'Plugins::lightsquidReport/$1', ['filter' => 'permission:plugins.view']);
     // A single plugin's own page — the target of its declared `provides.menu`
     // entries (`/plugins/<id>`). Registered last so the literals above win.
     $r->get('(:segment)', 'Plugins::show/$1');
 });
+
+// ---- LightSquid Console & Plugin Friendly Direct URLs ----
+$routes->get('lightsquid', 'Plugins::lightsquidReport', ['filter' => 'permission:plugins.view']);
+$routes->get('lightsquid/(:any)', 'Plugins::lightsquidReport/$1', ['filter' => 'permission:plugins.view']);
+$routes->get('darkstat', static fn () => redirect()->to('plugins/darkstat'));
+$routes->get('lldpd', static fn () => redirect()->to('plugins/lldpd'));
+$routes->get('zerotier', static fn () => redirect()->to('plugins/zerotier'));
+$routes->get('netbird', static fn () => redirect()->to('plugins/netbird'));
+$routes->get('nat64', static fn () => redirect()->to('plugins/nat64'));
 
 // ---- System Settings ----
 $routes->group('system', ['filter' => 'permission:dashboard.view'], function ($r) {
@@ -770,6 +871,14 @@ $routes->group('system', ['filter' => 'permission:dashboard.view'], function ($r
     $r->post('revisions/commit', 'ConfigRevisions::commitManual', ['filter' => 'permission:system.settings.edit']);
     $r->post('revisions/rollback/(:segment)', 'ConfigRevisions::rollback/$1', ['filter' => 'permission:system.settings.edit']);
     $r->get('revisions/export/(:segment)', 'ConfigRevisions::export/$1');
+
+    // Centralized Single Sign-On (SSO) Federation (OIDC / SAML 2.0)
+    $r->get('sso', 'Sso::index');
+    $r->post('sso/save-provider', 'Sso::saveProvider', ['filter' => 'permission:system.settings.edit']);
+    $r->post('sso/toggle/(:segment)', 'Sso::toggleProvider/$1', ['filter' => 'permission:system.settings.edit']);
+    $r->post('sso/delete/(:segment)', 'Sso::deleteProvider/$1', ['filter' => 'permission:system.settings.edit']);
+    $r->post('sso/save-settings', 'Sso::saveSettings', ['filter' => 'permission:system.settings.edit']);
+    $r->post('sso/discover', 'Sso::discoverEndpoints', ['filter' => 'permission:system.settings.edit']);
 });
 $routes->get('system', 'SystemSettings::index', ['filter' => 'permission:dashboard.view']);
 
