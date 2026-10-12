@@ -829,6 +829,46 @@ class RpcHandler:
             if restored else "No configuration snapshot was available to roll back to.",
         }
 
+    async def rpc_system_ipv6_set(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Apply the system-wide IPv6 master switch.
+
+        When enabled is True, enables IPv6 forwarding, Router Advertisement
+        reception, and dual-stack kernel parameters.
+        When enabled is False, disables IPv6 on all interfaces via sysctl,
+        flushes default IPv6 routes, and re-compiles nftables with drop rules.
+        """
+        enabled = bool(params.get("enabled", True))
+        logger.info(f"Setting system IPv6 stack: enabled={enabled}")
+
+        disable_val = "0" if enabled else "1"
+        try:
+            subprocess.run(["sysctl", "-w", f"net.ipv6.conf.all.disable_ipv6={disable_val}"], check=False)
+            subprocess.run(["sysctl", "-w", f"net.ipv6.conf.default.disable_ipv6={disable_val}"], check=False)
+            if enabled:
+                subprocess.run(["sysctl", "-w", "net.ipv6.conf.all.forwarding=1"], check=False)
+                subprocess.run(["sysctl", "-w", "net.ipv6.conf.default.forwarding=1"], check=False)
+                subprocess.run(["sysctl", "-w", "net.ipv6.conf.all.accept_ra=2"], check=False)
+                subprocess.run(["sysctl", "-w", "net.ipv6.conf.default.accept_ra=2"], check=False)
+            else:
+                subprocess.run(["ip", "-6", "route", "flush", "default"], check=False)
+        except Exception as e:
+            logger.warning(f"Error applying sysctl IPv6 state: {e}")
+
+        # Trigger firewall recompile to update inet filter ruleset (drop/allow IPv6)
+        app_root = "/usr/local/micron"
+        if os.path.exists(os.path.join(app_root, "spark")):
+            try:
+                subprocess.run(["php", "spark", "firewall:compile"], cwd=app_root, check=False)
+            except Exception:
+                pass
+
+        return {
+            "success": True,
+            "status": "ok",
+            "enabled": enabled,
+            "message": f"IPv6 {'enabled' if enabled else 'disabled'} successfully across appliance.",
+        }
+
     # ------------- System Updates & Upgrade (system.updates_*, system.upgrade)
     # The appliance-wide counterpart to the per-plugin package manager: a full
     # OS/package update surface for the Web UI. Both handlers shell out to apt
@@ -844,9 +884,9 @@ class RpcHandler:
                         return v
             except OSError:
                 pass
-        return "0.1.25"
+        return "0.1.23"
 
-    MICRONOS_VERSION = "0.1.25"
+    MICRONOS_VERSION = "0.1.23"
 
     async def rpc_system_updates_check(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """

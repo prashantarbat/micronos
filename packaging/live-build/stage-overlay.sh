@@ -81,7 +81,10 @@ case "${out}" in
         ;;
 esac
 
-install -d "${out}"
+install -d "${out}/tmp"
+chmod 1777 "${out}/tmp" 2>/dev/null || true
+install -d "${out}/var/tmp"
+chmod 1777 "${out}/var/tmp" 2>/dev/null || true
 rm -rf "${app_root}"
 install -d "${app_root}"
 
@@ -119,6 +122,32 @@ if [ -f "${root}/system/numlock.service" ]; then
     install -d "${out}/etc/systemd/system"
     install -m 0644 "${root}/system/numlock.service" "${out}/etc/systemd/system/numlock.service"
 fi
+
+if [ -f "${root}/system/micron-network" ]; then
+    install -m 0755 "${root}/system/micron-network" "${out}/usr/local/bin/micron-network"
+fi
+
+if [ -f "${root}/system/micron-network.service" ]; then
+    install -d "${out}/etc/systemd/system"
+    install -m 0644 "${root}/system/micron-network.service" "${out}/etc/systemd/system/micron-network.service"
+fi
+
+if [ -f "${root}/system/99-micron-routing.conf" ]; then
+    install -d "${out}/etc/sysctl.d"
+    install -m 0644 "${root}/system/99-micron-routing.conf" "${out}/etc/sysctl.d/99-micron-routing.conf"
+fi
+
+if [ -f "${root}/system/micron-ready-beep" ]; then
+    install -m 0755 "${root}/system/micron-ready-beep" "${out}/usr/local/bin/micron-ready-beep"
+fi
+
+if [ -f "${root}/system/micron-ready-beep.service" ]; then
+    install -d "${out}/etc/systemd/system"
+    install -m 0644 "${root}/system/micron-ready-beep.service" "${out}/etc/systemd/system/micron-ready-beep.service"
+fi
+
+install -d "${out}/etc/modules-load.d"
+echo "pcspkr" > "${out}/etc/modules-load.d/pcspkr.conf"
 
 if [ -f "${root}/system/os-release" ]; then
     install -d "${out}/etc"
@@ -199,6 +228,8 @@ for executable in \
     installer/micron-slot-rescue \
     installer/micron-healthcheck \
     system/micron-banner \
+    system/micron-network \
+    system/micron-ready-beep \
     system/micrond/micrond.py
 do
     if [ -f "${app_root}/${executable}" ]; then

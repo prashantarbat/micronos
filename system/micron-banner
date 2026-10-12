@@ -47,29 +47,44 @@ if command -v ip >/dev/null 2>&1; then
     LAN_IP=$(ip -4 addr show dev "$LAN_IF" 2>/dev/null | awk '/inet / && !/169\.254/ {print $2}' | cut -d/ -f1 | head -n1 || true)
 fi
 
-# If LAN has no IP, check DB and activate default 192.168.1.1/24
-if [ -z "$LAN_IP" ]; then
-    DB_LAN_IP=""
-    if [ -f "/usr/local/micron/writable/micron_config.db" ] && command -v sqlite3 >/dev/null 2>&1; then
-        DB_LAN_IP=$(sqlite3 /usr/local/micron/writable/micron_config.db "SELECT ipv4_address FROM interfaces WHERE id='lan' AND enabled=1;" 2>/dev/null || true)
-    fi
-    [ -n "$DB_LAN_IP" ] || DB_LAN_IP="192.168.1.1"
+# If LAN has no IP, check DB mode
+DB_LAN_MODE="static"
+if [ -f "/usr/local/micron/writable/micron_config.db" ] && command -v sqlite3 >/dev/null 2>&1; then
+    DB_LAN_MODE=$(sqlite3 /usr/local/micron/writable/micron_config.db "SELECT ip_assignment_type FROM interfaces WHERE id='lan' AND enabled=1;" 2>/dev/null || echo "static")
+fi
 
-    if [ "$LAN_IF" != "$WAN_IF" ] && [ "${EUID:-$(id -u)}" -eq 0 ]; then
-        LL_ADDR=$(ip -4 addr show dev "$LAN_IF" 2>/dev/null | awk '/inet 169\.254/ {print $2}' | head -n1 || true)
-        [ -z "$LL_ADDR" ] || ip addr del "$LL_ADDR" dev "$LAN_IF" 2>/dev/null || true
-        ip addr add "${DB_LAN_IP}/24" dev "$LAN_IF" 2>/dev/null || true
-        ip link set dev "$LAN_IF" up 2>/dev/null || true
-        LAN_IP=$(ip -4 addr show dev "$LAN_IF" 2>/dev/null | awk '/inet / && !/169\.254/ {print $2}' | cut -d/ -f1 | head -n1 || echo "$DB_LAN_IP")
+if [ -z "$LAN_IP" ]; then
+    if [ "$DB_LAN_MODE" = "dhcp" ]; then
+        for _ in 1 2 3; do
+            LAN_IP=$(ip -4 addr show dev "$LAN_IF" 2>/dev/null | awk '/inet / && !/169\.254/ {print $2}' | cut -d/ -f1 | head -n1 || true)
+            [ -n "$LAN_IP" ] && break
+            sleep 1
+        done
     else
-        LAN_IP="$DB_LAN_IP"
+        DB_LAN_IP=""
+        if [ -f "/usr/local/micron/writable/micron_config.db" ] && command -v sqlite3 >/dev/null 2>&1; then
+            DB_LAN_IP=$(sqlite3 /usr/local/micron/writable/micron_config.db "SELECT ipv4_address FROM interfaces WHERE id='lan' AND enabled=1;" 2>/dev/null || true)
+        fi
+        [ -n "$DB_LAN_IP" ] || DB_LAN_IP="10.10.10.10"
+
+        if [ "$LAN_IF" != "$WAN_IF" ] && [ "${EUID:-$(id -u)}" -eq 0 ]; then
+            LL_ADDR=$(ip -4 addr show dev "$LAN_IF" 2>/dev/null | awk '/inet 169\.254/ {print $2}' | head -n1 || true)
+            [ -z "$LL_ADDR" ] || ip addr del "$LL_ADDR" dev "$LAN_IF" 2>/dev/null || true
+            ip addr add "${DB_LAN_IP}/24" dev "$LAN_IF" 2>/dev/null || true
+            ip link set dev "$LAN_IF" up 2>/dev/null || true
+            LAN_IP=$(ip -4 addr show dev "$LAN_IF" 2>/dev/null | awk '/inet / && !/169\.254/ {print $2}' | cut -d/ -f1 | head -n1 || echo "$DB_LAN_IP")
+        else
+            LAN_IP="$DB_LAN_IP"
+        fi
     fi
 fi
 
 if [ -n "$LAN_IP" ]; then
     LAN_DESC="${LAN_IF} (${LAN_IP})"
+elif [ "$DB_LAN_MODE" = "dhcp" ]; then
+    LAN_DESC="${LAN_IF} (DHCP Client - Acquiring)"
 else
-    LAN_DESC="${LAN_IF} (192.168.1.1/24)"
+    LAN_DESC="${LAN_IF} (10.10.10.10/24)"
 fi
 
 # 3. Determine Management Web IP

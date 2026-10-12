@@ -79,7 +79,7 @@ class NftablesCompiler
         ));
         $dosMitigation = $this->compileDosPolicies($dosPolicies, $deviceMap, $schedules);
 
-        // Identify WAN/external devices for the Stealth Rule (management protection)
+        // Identify WAN/external devices for security and outbound NAT
         $wanDevices = [];
         foreach ($interfaces as $iface) {
             $id   = strtolower($iface['id'] ?? '');
@@ -91,6 +91,28 @@ class NftablesCompiler
             }
         }
         $wanDevices = array_values(array_unique(array_filter($wanDevices)));
+
+        // Identify LAN/internal devices for management access and plug-and-play forwarding
+        $lanDevices = [];
+        foreach ($interfaces as $iface) {
+            $id   = strtolower($iface['id'] ?? '');
+            $name = strtolower($iface['name'] ?? '');
+            $type = strtolower($iface['interface_type'] ?? '');
+            $dev  = $iface['physical_device'] ?? '';
+            if (($id === 'lan' || $name === 'lan' || $type === 'lan' || str_starts_with($id, 'lan') || str_starts_with($name, 'lan') || str_starts_with($id, 'br') || str_starts_with($dev, 'br')) && $dev !== '') {
+                $lanDevices[] = $dev;
+            }
+        }
+        // Fallback: any non-WAN interface is considered LAN
+        if (empty($lanDevices)) {
+            foreach ($interfaces as $iface) {
+                $dev = $iface['physical_device'] ?? '';
+                if ($dev !== '' && !in_array($dev, $wanDevices, true)) {
+                    $lanDevices[] = $dev;
+                }
+            }
+        }
+        $lanDevices = array_values(array_unique(array_filter($lanDevices)));
 
         // Master IPv6 switch (System > Networking). When off, no IPv6 packet is
         // ever accepted — the stack is considered completely disabled.
@@ -171,28 +193,45 @@ class NftablesCompiler
         $lines[] = '        iifname "lo" accept';
         $lines[] = '';
         $lines[] = '        # ICMP Rate Limiting';
-        $lines[] = '        ip protocol icmp icmp type { echo-request, destination-unreachable, time-exceeded } limit rate 20/second accept';
+        $lines[] = '        ip protocol icmp icmp type { echo-request, destination-unreachable, time-exceeded } limit rate 50/second accept';
         if ($ipv6) {
             $lines[] = '        ip6 nexthdr icmpv6 accept';
         } else {
             $lines[] = '        meta nfproto ipv6 drop comment "IPv6 disabled system-wide"';
         }
         $lines[] = '';
-        // Stealth Rule: Shield Firewall Management / Control Plane from WAN/External interfaces
+
+        // WAN Security & Services
         if (!empty($wanDevices)) {
             $wanIifs = count($wanDevices) === 1 ? '"' . reset($wanDevices) . '"' : '{ "' . implode('", "', $wanDevices) . '" }';
-            $lines[] = '        # Stealth Rule: Drop unauthorized management probes and port scans from WAN/untrusted networks';
+            $lines[] = '        # Allow DHCP client on WAN (incoming offer/ack from upstream modem/ISP)';
+            $lines[] = '        iifname ' . $wanIifs . ' udp dport 68 accept comment "WAN DHCP Client Reply"';
+            $lines[] = '';
+            $lines[] = '        # WAN Security: Drop all unauthorized management probes and port scans from WAN';
             $lines[] = '        iifname ' . $wanIifs . ' tcp dport { 80, 443, 8443, 22, 23 } counter drop comment "Stealth Rule: Drop WAN Management Probing"';
+            $lines[] = '        iifname ' . $wanIifs . ' counter drop comment "WAN Security: Drop unsolicited inbound WAN traffic"';
             $lines[] = '';
         }
 
-        $lines[] = '        # System Management Services (Web GUI 80/443 & SSH 22)';
-        $lines[] = '        tcp dport { 80, 443, 8443, 22 } accept comment "Admin UI & SSH"';
-        $lines[] = '';
-        $lines[] = '        # Core Network Services (DHCP, DNS)';
-        $lines[] = '        udp dport { 53, 67 } accept comment "DNS & DHCPv4"';
-        $lines[] = '        tcp dport 53 accept comment "DNS TCP"';
-        $lines[] = '';
+        // LAN Management Services: Web GUI (80/443/8443) & SSH (22) from LAN ONLY
+        if (!empty($lanDevices)) {
+            $lanIifs = count($lanDevices) === 1 ? '"' . reset($lanDevices) . '"' : '{ "' . implode('", "', $lanDevices) . '" }';
+            $lines[] = '        # System Management Services (Web GUI 80/443 & SSH 22) - ALLOWED ON LAN ONLY';
+            $lines[] = '        iifname ' . $lanIifs . ' tcp dport { 80, 443, 8443, 22 } accept comment "Allow WebGUI and SSH from LAN only"';
+            $lines[] = '';
+            $lines[] = '        # Core Network Services (DHCP server, DNS) - ALLOWED ON LAN ONLY';
+            $lines[] = '        iifname ' . $lanIifs . ' udp dport { 53, 67 } accept comment "Allow DNS and DHCPv4 from LAN only"';
+            $lines[] = '        iifname ' . $lanIifs . ' tcp dport 53 accept comment "Allow DNS TCP from LAN only"';
+            $lines[] = '';
+        } else {
+            // Fallback when interface roles are not yet differentiated
+            $lines[] = '        # System Management Services (Web GUI 80/443 & SSH 22)';
+            $lines[] = '        tcp dport { 80, 443, 8443, 22 } accept comment "Admin UI & SSH"';
+            $lines[] = '        udp dport { 53, 67 } accept comment "DNS & DHCPv4"';
+            $lines[] = '        tcp dport 53 accept comment "DNS TCP"';
+            $lines[] = '';
+        }
+
         $lines[] = '        # VPN Daemons (WireGuard, strongSwan IPsec IKEv2, OpenVPN)';
         $lines[] = '        udp dport 51820 accept comment "WireGuard wg0"';
         $lines[] = '        udp dport { 500, 4500 } accept comment "strongSwan IKEv2 / NAT-T"';
@@ -220,6 +259,15 @@ class NftablesCompiler
         $lines[] = '        # WireGuard VPN tunnel interfaces';
         $lines[] = '        iifname "wg+" accept comment "WireGuard Tunnel Ingress"';
         $lines[] = '        oifname "wg+" accept comment "WireGuard Tunnel Egress"';
+        $lines[] = '';
+
+        // Plug-and-Play Router: Default allow routed outbound traffic from LAN
+        if (!empty($lanDevices)) {
+            $lanIifs = count($lanDevices) === 1 ? '"' . reset($lanDevices) . '"' : '{ "' . implode('", "', $lanDevices) . '" }';
+            $lines[] = '        # Standard Router Plug-and-Play: Allow all outbound forwarded traffic from LAN';
+            $lines[] = '        iifname ' . $lanIifs . ' accept comment "Allow LAN Outbound to Internet"';
+            $lines[] = '';
+        }
         $lines[] = '';
 
         // Plugin-owned virtual interfaces. The NAT64/DNS64 translator device
@@ -400,6 +448,18 @@ class NftablesCompiler
                 $dev = !empty($iface['physical_device']) ? $iface['physical_device'] : ($iface['name'] ?? '');
                 if (str_contains(strtoupper($iface['id'] ?? ''), 'WAN') && $dev !== '') {
                     $lines[] = "        oifname \"{$dev}\" masquerade comment \"WAN Outbound NAT ({$dev})\"";
+                }
+            }
+            foreach ($wanDevices as $wdev) {
+                $alreadyAdded = false;
+                foreach ($lines as $existing) {
+                    if (str_contains($existing, "oifname \"{$wdev}\" masquerade")) {
+                        $alreadyAdded = true;
+                        break;
+                    }
+                }
+                if (!$alreadyAdded) {
+                    $lines[] = "        oifname \"{$wdev}\" masquerade comment \"WAN Outbound NAT ({$wdev})\"";
                 }
             }
         }

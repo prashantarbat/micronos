@@ -1,0 +1,16 @@
+[Unit]
+Description=Micron OS System Ready Audible Indicator (3 Short Beeps)
+Documentation=https://github.com/micronos/micronos
+After=network.target network-online.target micron-network.service micrond.service apache2.service systemd-user-sessions.service
+Wants=micron-network.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/micron-ready-beep
+RemainAfterExit=true
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=10
+
+[Install]
+WantedBy=multi-user.target

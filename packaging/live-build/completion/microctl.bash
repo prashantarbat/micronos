@@ -70,7 +70,7 @@ _microctl() {
     if [ "${COMP_CWORD}" -eq 2 ]; then
         case "${COMP_WORDS[1]}" in
             interface) COMPREPLY=($(compgen -W "set-lan" -- "${cur}")); return ;;
-            firewall)  COMPREPLY=($(compgen -W "reset" -- "${cur}")); return ;;
+            firewall)  COMPREPLY=($(compgen -W "enable disable reset" -- "${cur}")); return ;;
             backup)    COMPREPLY=($(compgen -W "create restore" -- "${cur}")); return ;;
             config)    COMPREPLY=($(compgen -W "rollback" -- "${cur}")); return ;;
             admin)     COMPREPLY=($(compgen -W "reset-password" -- "${cur}")); return ;;

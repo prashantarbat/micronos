@@ -629,27 +629,20 @@ select_target_disk_interactive() {
         return
     fi
 
-    # Existing data warning & double confirmation
+    # Existing data warning & confirmation
     if [ "$sel_has_data" -eq 1 ]; then
         echo -e "\n${YELLOW}══════════════════════════════════════════════════════════════════════${NC}"
         echo -e "${YELLOW}WARNING: Existing partitions and filesystems detected on ${TARGET_DISK}!${NC}"
         echo -e "${YELLOW}All existing data, partitions, and operating systems will be destroyed!${NC}"
         echo -e "${YELLOW}══════════════════════════════════════════════════════════════════════${NC}"
-        read -r -p "Are you sure you want to completely erase ${TARGET_DISK}? [Y/n]: " CONFIRM_1
-        CONFIRM_1=${CONFIRM_1:-Y}
-        if [[ "$CONFIRM_1" =~ ^[nN] ]]; then
-            echo "Selection cancelled."
-            select_target_disk_interactive
-            return
-        fi
     fi
 
     echo -e "\n${RED}══════════════════════════════════════════════════════════════════════${NC}"
-    echo -e "${RED}FINAL CONFIRMATION: ALL DATA ON ${TARGET_DISK} WILL BE PERMANENTLY ERASED!${NC}"
+    echo -e "${RED}CONFIRMATION: Target disk ${TARGET_DISK} will be formatted for Micron OS.${NC}"
     echo -e "${RED}══════════════════════════════════════════════════════════════════════${NC}"
-    read -r -p "Proceed with partitioning and installation? [Y/n]: " CONFIRM_2
-    CONFIRM_2=${CONFIRM_2:-Y}
-    if [[ "$CONFIRM_2" =~ ^[nN] ]]; then
+    read -r -p "Proceed with partitioning and installation? [Y/n]: " CONFIRM_INSTALL
+    CONFIRM_INSTALL=${CONFIRM_INSTALL:-Y}
+    if [[ "$CONFIRM_INSTALL" =~ ^[nN] ]]; then
         echo "Installation aborted."
         select_target_disk_interactive
         return
@@ -697,31 +690,55 @@ swapoff -a 2>/dev/null || true
 umount -R "$TARGET_DISK"* 2>/dev/null || true
 umount -R /mnt/micron_target* 2>/dev/null || true
 
-echo "Writing GPT partition table to ${TARGET_DISK}..."
+echo "Writing hybrid GPT partition table to ${TARGET_DISK}..."
 wipefs -a "$TARGET_DISK" || true
 sgdisk -Z "$TARGET_DISK"
-sgdisk -n 1:2048:+512M -t 1:ef00 -c 1:"EFI System Partition" "$TARGET_DISK"
-sgdisk -n 2:0:+4G -t 2:8200 -c 2:"MicronOS Swap" "$TARGET_DISK"
-sgdisk -n 3:0:+"${SLOT_SIZE}" -t 3:8300 -c 3:"MicronOS Root Slot A" "$TARGET_DISK"
-sgdisk -n 4:0:+"${SLOT_SIZE}" -t 4:8300 -c 4:"MicronOS Root Slot B" "$TARGET_DISK"
-sgdisk -n 5:0:0 -t 5:8300 -c 5:"MicronOS Persistent Data" "$TARGET_DISK"
+# Partition 1: EFI System Partition (512MB)
+sgdisk -n 1:2048:+512M   -t 1:ef00 -c 1:"EFI System Partition"   "$TARGET_DISK"
+# Partition 2: BIOS Boot Partition (2MB — MUST be placed early for grub-install i386-pc on GPT)
+sgdisk -n 2:0:+2M        -t 2:ef02 -c 2:"BIOS Boot Partition"     "$TARGET_DISK"
+# Partition 3: Linux Swap (4GB)
+sgdisk -n 3:0:+4G        -t 3:8200 -c 3:"MicronOS Swap"           "$TARGET_DISK"
+# Partition 4: Root Slot A (Active System)
+sgdisk -n 4:0:+"${SLOT_SIZE}" -t 4:8300 -c 4:"MicronOS Root Slot A" "$TARGET_DISK"
+# Partition 5: Root Slot B (Standby Failover System)
+sgdisk -n 5:0:+"${SLOT_SIZE}" -t 5:8300 -c 5:"MicronOS Root Slot B" "$TARGET_DISK"
+# Partition 6: Persistent Data & Configuration (Remainder)
+sgdisk -n 6:0:0          -t 6:8300 -c 6:"MicronOS Persistent Data" "$TARGET_DISK"
+
+# Set ESP and Boot flags on Partition 1 for universal UEFI firmware detection
+sgdisk -A 1:set:2 "$TARGET_DISK" 2>/dev/null || true
+if command -v parted >/dev/null 2>&1; then
+    parted -s "$TARGET_DISK" set 1 esp on 2>/dev/null || true
+    parted -s "$TARGET_DISK" set 1 boot on 2>/dev/null || true
+fi
+
+# Hybrid MBR: makes Legacy BIOS firmware recognize the GPT disk as bootable.
+# Without this, many BIOS implementations refuse to boot a GPT-partitioned disk.
+# We mark partition 1 (EFI) and partition 2 (BIOS Boot) in the hybrid MBR.
+if command -v sgdisk >/dev/null 2>&1; then
+    sgdisk --hybrid 1:2 "$TARGET_DISK" 2>/dev/null || true
+fi
+
 sync
 partprobe "$TARGET_DISK" || true
 udevadm settle 2>/dev/null || sleep 2
 
-# Resolve partition identifiers (handling nvme0n1p1 vs sda1)
-if [[ "$TARGET_DISK" =~ nvme ]] || [[ "$TARGET_DISK" =~ mmcblk ]]; then
+# Resolve partition identifiers (handling nvme0n1p1, mmcblk0p1 vs sda1)
+if [[ "$TARGET_DISK" =~ [0-9]$ ]]; then
     P_EFI="${TARGET_DISK}p1"
-    P_SWAP="${TARGET_DISK}p2"
-    P_ROOT_A="${TARGET_DISK}p3"
-    P_ROOT_B="${TARGET_DISK}p4"
-    P_DATA="${TARGET_DISK}p5"
+    P_BIOS_BOOT="${TARGET_DISK}p2"
+    P_SWAP="${TARGET_DISK}p3"
+    P_ROOT_A="${TARGET_DISK}p4"
+    P_ROOT_B="${TARGET_DISK}p5"
+    P_DATA="${TARGET_DISK}p6"
 else
     P_EFI="${TARGET_DISK}1"
-    P_SWAP="${TARGET_DISK}2"
-    P_ROOT_A="${TARGET_DISK}3"
-    P_ROOT_B="${TARGET_DISK}4"
-    P_DATA="${TARGET_DISK}5"
+    P_BIOS_BOOT="${TARGET_DISK}2"
+    P_SWAP="${TARGET_DISK}3"
+    P_ROOT_A="${TARGET_DISK}4"
+    P_ROOT_B="${TARGET_DISK}5"
+    P_DATA="${TARGET_DISK}6"
 fi
 
 # Ensure device nodes are ready
@@ -733,30 +750,39 @@ for _ in 1 2 3 4 5; do
 done
 
 echo "Formatting filesystems..."
-mkfs.vfat -F32 -n "EFI" "$P_EFI"
-mkswap -L "SWAP" "$P_SWAP"
+mkfs.vfat -F32 -n "EFI"         "$P_EFI"
+# P_BIOS_BOOT (partition 2, type ef02) needs NO filesystem — GRUB writes directly to it
+mkswap    -L "SWAP"             "$P_SWAP"
 mkfs.ext4 -F -L "MICRON_ROOT_A" "$P_ROOT_A"
 mkfs.ext4 -F -L "MICRON_ROOT_B" "$P_ROOT_B"
-mkfs.ext4 -F -L "MICRON_DATA" "$P_DATA"
+mkfs.ext4 -F -L "MICRON_DATA"   "$P_DATA"
 echo -e "${GREEN}[OK] Partitions and filesystems prepared.${NC}\n"
 
 TARGET_MNT="/mnt/micron_target"
 mkdir -p "$TARGET_MNT"
 mount "$P_ROOT_A" "$TARGET_MNT"
 mkdir -p "$TARGET_MNT/boot/efi"
-mount "$P_EFI" "$TARGET_MNT/boot/efi"
+mount "$P_EFI"    "$TARGET_MNT/boot/efi"
 mkdir -p "$TARGET_MNT/var/lib/micron"
-mount "$P_DATA" "$TARGET_MNT/var/lib/micron"
+mount "$P_DATA"   "$TARGET_MNT/var/lib/micron"
 mkdir -p "$TARGET_MNT/mnt/micron-slot-b"
 
-echo "Extracting live root filesystem to Slot A..."
-rsync -aAX --exclude={"/dev/*","/proc/*","/sys/*","/tmp/*","/run/*","/mnt/*","/media/*","/lost+found"} / "$TARGET_MNT/"
+echo -e "\nExtracting live root filesystem to Slot A..."
+echo -e "${CYAN}Showing overall transfer percentage progress:${NC}"
+rsync -aAX --info=progress2 --no-inc-recursive \
+    --exclude={"/dev/*","/proc/*","/sys/*","/tmp/*","/run/*","/mnt/*","/media/*","/lost+found"} \
+    / "$TARGET_MNT/"
 
-echo "Synchronizing factory baseline to Standby Slot B..."
+echo -e "\nSynchronizing factory baseline to Standby Slot B..."
 TARGET_MNT_B="/mnt/micron_target_b"
 mkdir -p "$TARGET_MNT_B"
 mount "$P_ROOT_B" "$TARGET_MNT_B"
-rsync -aAX --exclude={"/dev/*","/proc/*","/sys/*","/tmp/*","/run/*","/mnt/*","/media/*","/lost+found"} / "$TARGET_MNT_B/"
+
+echo -e "${CYAN}Cloning local baseline to Slot B (high-speed local sync):${NC}"
+rsync -aAX --info=progress2 --no-inc-recursive \
+    --exclude={"/boot/efi/*","/var/lib/micron/*","/mnt/*","/lost+found"} \
+    "$TARGET_MNT/" "$TARGET_MNT_B/"
+
 mkdir -p "$TARGET_MNT_B/boot/efi"
 mkdir -p "$TARGET_MNT_B/var/lib/micron"
 mkdir -p "$TARGET_MNT_B/mnt/micron-slot-a"
@@ -764,7 +790,7 @@ mkdir -p "$TARGET_MNT_B/mnt/micron-slot-a"
 # UUID discovery
 ROOT_A_UUID=$(blkid -s UUID -o value "$P_ROOT_A")
 ROOT_B_UUID=$(blkid -s UUID -o value "$P_ROOT_B")
-EFI_UUID=$(blkid -s UUID -o value "$P_EFI")
+EFI_UUID=$(blkid  -s UUID -o value "$P_EFI")
 SWAP_UUID=$(blkid -s UUID -o value "$P_SWAP")
 DATA_UUID=$(blkid -s UUID -o value "$P_DATA")
 
@@ -982,13 +1008,30 @@ for mnt in "$TARGET_MNT" "$TARGET_MNT_B"; do
     fi
 done
 
-# Setup GRUB Bootloader with A/B dual failover
-echo "Configuring GRUB bootloader with A/B dual failover..."
-mount --bind /dev "$TARGET_MNT/dev"
-mount --bind /dev/pts "$TARGET_MNT/dev/pts"
-mount --bind /proc "$TARGET_MNT/proc"
-mount --bind /sys "$TARGET_MNT/sys"
-[ -d /sys/firmware/efi/efivars ] && mount -t efivarfs efivarfs "$TARGET_MNT/sys/firmware/efi/efivars" 2>/dev/null || true
+# Setup chroot environment mounts with full recursive bindings
+# IMPORTANT: These mounts must happen BEFORE update-initramfs and grub-install.
+# Without /dev /proc /sys bound, initramfs generation and grub-install both fail silently.
+echo "Preparing chroot virtual filesystems..."
+mount --rbind /dev  "$TARGET_MNT/dev"
+mount --make-rslave "$TARGET_MNT/dev"
+mount --rbind /proc "$TARGET_MNT/proc"
+mount --make-rslave "$TARGET_MNT/proc"
+mount --rbind /sys  "$TARGET_MNT/sys"
+mount --make-rslave "$TARGET_MNT/sys"
+if [ -d /sys/firmware/efi/efivars ]; then
+    mount -t efivarfs efivarfs "$TARGET_MNT/sys/firmware/efi/efivars" 2>/dev/null || true
+fi
+
+# Export slot UUIDs into /etc/default/grub so 09_micron_slots is guaranteed to resolve them
+for mnt in "$TARGET_MNT" "$TARGET_MNT_B"; do
+    mkdir -p "$mnt/etc/default"
+    cat >> "$mnt/etc/default/grub" <<EOF
+
+# Explicit Micron A/B partition UUID overrides
+MICRON_UUID_A="${ROOT_A_UUID}"
+MICRON_UUID_B="${ROOT_B_UUID}"
+EOF
+done
 
 # Install GRUB slot scripts
 if [ -d "${SCRIPT_DIR}/grub.d" ]; then
@@ -1002,31 +1045,134 @@ mkdir -p "$TARGET_MNT/boot/grub" "$TARGET_MNT_B/boot/grub"
 chmod 755 "$TARGET_MNT/boot/grub" "$TARGET_MNT_B/boot/grub"
 if [ -x "${SCRIPT_DIR}/micron-slot" ]; then
     MICRON_SLOT_ENV="$TARGET_MNT/boot/grub/grubenv" "${SCRIPT_DIR}/micron-slot" init
-    # Both slots hold the same factory baseline, so both start verified-good;
-    # otherwise an LKGC failover to Slot B would be treated as untrusted.
     MICRON_SLOT_ENV="$TARGET_MNT/boot/grub/grubenv" "${SCRIPT_DIR}/micron-slot" mark-ok a
     MICRON_SLOT_ENV="$TARGET_MNT/boot/grub/grubenv" "${SCRIPT_DIR}/micron-slot" mark-ok b
-    cp -p "$TARGET_MNT/boot/grub/grubenv" "$TARGET_MNT_B/boot/grub/grubenv"
+    cp -p  "$TARGET_MNT/boot/grub/grubenv" "$TARGET_MNT_B/boot/grub/grubenv"
     chmod 644 "$TARGET_MNT/boot/grub/grubenv" "$TARGET_MNT_B/boot/grub/grubenv"
 fi
 
-# Update initramfs with numlock hook
-chroot "$TARGET_MNT" update-initramfs -u 2>/dev/null || true
+# Update initramfs — chroot mounts are now active so /dev /proc /sys are available
+echo "Regenerating initramfs inside installed root..."
+chroot "$TARGET_MNT" update-initramfs -u -k all 2>&1 || true
 
-# Install GRUB binary with removable fallback
+# ------------------------------------------------------------------------------
+# Bootloader Installation: Hybrid UEFI & Legacy BIOS Resilience
+# ------------------------------------------------------------------------------
+echo -e "\n${BOLD}Installing bootloaders for UEFI & Legacy BIOS...${NC}"
+
+# Ensure EFI directories exist on ESP
+mkdir -p "$TARGET_MNT/boot/efi/EFI/BOOT"
+mkdir -p "$TARGET_MNT/boot/efi/EFI/micron-os"
+
+# ── Safety net: ensure grub-pc-bin (i386-pc modules) are present in the installed system.
+# grub-pc-bin provides /usr/lib/grub/i386-pc/modinfo.sh WITHOUT conflicting with grub-efi-amd64.
+if [ ! -f "$TARGET_MNT/usr/lib/grub/i386-pc/modinfo.sh" ]; then
+    echo -e "${YELLOW}[!] grub-pc-bin not found in target — installing now (no conflict)...${NC}"
+    chroot "$TARGET_MNT" apt-get install -y --no-install-recommends grub-pc-bin grub-efi-amd64-bin 2>&1 || true
+fi
+
+# Detect firmware mode from the live environment (the booted ISO)
+is_uefi=0
 if [ -d /sys/firmware/efi ]; then
-    echo "Detected UEFI firmware. Installing grub-efi with fallback bootloader..."
-    chroot "$TARGET_MNT" grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=micron-os --recheck --removable "$TARGET_DISK" || true
-    
-    mkdir -p "$TARGET_MNT/boot/efi/EFI/BOOT"
-    if [ -f "$TARGET_MNT/boot/efi/EFI/micron-os/grubx64.efi" ]; then
-        cp -fp "$TARGET_MNT/boot/efi/EFI/micron-os/grubx64.efi" "$TARGET_MNT/boot/efi/EFI/BOOT/BOOTX64.EFI" 2>/dev/null || true
+    is_uefi=1
+fi
+
+if [ "$is_uefi" -eq 1 ]; then
+    echo "Detected UEFI firmware environment."
+    echo "Installing GRUB EFI bootloader..."
+
+    # 1. Primary NVRAM-registered UEFI bootloader
+    # CRITICAL: Never pass target disk block device ($TARGET_DISK) to grub-install on x86_64-efi!
+    chroot "$TARGET_MNT" grub-install \
+        --target=x86_64-efi \
+        --efi-directory=/boot/efi \
+        --bootloader-id=micron-os \
+        --recheck 2>&1
+
+    # 2. Removable fallback bootloader (/boot/efi/EFI/BOOT/BOOTX64.EFI)
+    # Essential for motherboards whose NVRAM resets or ignores custom boot entries
+    chroot "$TARGET_MNT" grub-install \
+        --target=x86_64-efi \
+        --efi-directory=/boot/efi \
+        --recheck \
+        --removable 2>&1 || true
+
+    # 3. Cross-copy grubx64.efi <-> BOOTX64.EFI to guarantee both exist
+    if [ -f "$TARGET_MNT/boot/efi/EFI/micron-os/grubx64.efi" ] && [ ! -f "$TARGET_MNT/boot/efi/EFI/BOOT/BOOTX64.EFI" ]; then
+        cp -fp "$TARGET_MNT/boot/efi/EFI/micron-os/grubx64.efi" "$TARGET_MNT/boot/efi/EFI/BOOT/BOOTX64.EFI"
+    fi
+    if [ -f "$TARGET_MNT/boot/efi/EFI/BOOT/BOOTX64.EFI" ] && [ ! -f "$TARGET_MNT/boot/efi/EFI/micron-os/grubx64.efi" ]; then
+        cp -fp "$TARGET_MNT/boot/efi/EFI/BOOT/BOOTX64.EFI" "$TARGET_MNT/boot/efi/EFI/micron-os/grubx64.efi"
+    fi
+
+    # 4. Fallback grub.cfg on ESP — directs removable bootloader to Slot A by UUID
+    cat <<EOF > "$TARGET_MNT/boot/efi/EFI/BOOT/grub.cfg"
+search --no-floppy --fs-uuid --set=root ${ROOT_A_UUID}
+set prefix=(\$root)'/boot/grub'
+configfile \$prefix/grub.cfg
+EOF
+    cp -fp "$TARGET_MNT/boot/efi/EFI/BOOT/grub.cfg" "$TARGET_MNT/boot/efi/EFI/micron-os/grub.cfg" 2>/dev/null || true
+
+    # 5. Register Micron OS in UEFI NVRAM (remove stale entries first)
+    if command -v efibootmgr >/dev/null 2>&1; then
+        echo "Registering Micron OS in UEFI NVRAM boot table..."
+        for b_num in $(efibootmgr 2>/dev/null | grep -i "micron.os" | sed -E 's/^Boot([0-9A-Fa-f]+).*/\1/' || true); do
+            efibootmgr -b "$b_num" -B 2>/dev/null || true
+        done
+        efibootmgr --create --disk "$TARGET_DISK" --part 1 \
+            --label "Micron OS" \
+            --loader '\EFI\micron-os\grubx64.efi' 2>/dev/null || true
+    fi
+
+    # 6. Also install Legacy BIOS bootloader for hybrid UEFI+BIOS hardware
+    if [ -f "$TARGET_MNT/usr/lib/grub/i386-pc/modinfo.sh" ]; then
+        echo "Installing Legacy BIOS GRUB (hybrid) on partition 2 (BIOS Boot)..."
+        chroot "$TARGET_MNT" grub-install --target=i386-pc --recheck "$TARGET_DISK" 2>&1 || true
     fi
 else
-    echo "Detected Legacy BIOS firmware. Installing grub-pc..."
-    chroot "$TARGET_MNT" grub-install --target=i386-pc --recheck "$TARGET_DISK" || true
+    echo "Detected Legacy BIOS firmware environment."
+    echo "Installing GRUB PC (MBR/GPT) bootloader..."
+
+    # Verify i386-pc modules are present before calling grub-install
+    if [ ! -f "$TARGET_MNT/usr/lib/grub/i386-pc/modinfo.sh" ]; then
+        echo -e "${RED}[!] CRITICAL: /usr/lib/grub/i386-pc/modinfo.sh missing in target!${NC}"
+        echo -e "${RED}    Cannot install Legacy BIOS GRUB. Aborting bootloader install.${NC}"
+        false  # This will trigger the handle_error trap
+    fi
+
+    # BIOS Boot partition is partition 2 (type ef02, no filesystem)
+    # grub-install writes directly to this partition on GPT disks
+    chroot "$TARGET_MNT" grub-install \
+        --target=i386-pc \
+        --recheck \
+        "$TARGET_DISK" 2>&1
+
+    # Also install UEFI bootloader for hybrid compatibility
+    if [ -f "$TARGET_MNT/usr/lib/grub/x86_64-efi/modinfo.sh" ]; then
+        echo "Installing UEFI GRUB (hybrid) for firmware compatibility..."
+        chroot "$TARGET_MNT" grub-install \
+            --target=x86_64-efi \
+            --efi-directory=/boot/efi \
+            --bootloader-id=micron-os \
+            --recheck 2>&1 || true
+        chroot "$TARGET_MNT" grub-install \
+            --target=x86_64-efi \
+            --efi-directory=/boot/efi \
+            --recheck --removable 2>&1 || true
+
+        # Fallback grub.cfg on ESP
+        cat <<EOF > "$TARGET_MNT/boot/efi/EFI/BOOT/grub.cfg"
+search --no-floppy --fs-uuid --set=root ${ROOT_A_UUID}
+set prefix=(\$root)'/boot/grub'
+configfile \$prefix/grub.cfg
+EOF
+        mkdir -p "$TARGET_MNT/boot/efi/EFI/micron-os"
+        cp -fp "$TARGET_MNT/boot/efi/EFI/BOOT/grub.cfg" "$TARGET_MNT/boot/efi/EFI/micron-os/grub.cfg" 2>/dev/null || true
+    fi
 fi
-chroot "$TARGET_MNT" update-grub || true
+
+# Generate complete /boot/grub/grub.cfg
+chroot "$TARGET_MNT" update-grub
 
 # Copy GRUB config to Slot B
 cp -fp "$TARGET_MNT/boot/grub/grub.cfg" "$TARGET_MNT_B/boot/grub/grub.cfg" 2>/dev/null || true
@@ -1034,7 +1180,7 @@ chmod 644 "$TARGET_MNT/boot/grub/grub.cfg" "$TARGET_MNT_B/boot/grub/grub.cfg" 2>
 
 # Install healthcheck, slot rescue and micrond units in both slots
 for mnt in "$TARGET_MNT" "$TARGET_MNT_B"; do
-    mkdir -p "$mnt/usr/local/micron/installer" "$mnt/usr/local/bin" "$mnt/etc/systemd/system/multi-user.target.wants"
+    mkdir -p "$mnt/usr/local/micron/installer" "$mnt/usr/local/bin" "$mnt/etc/systemd/system/multi-user.target.wants" "$mnt/etc/sysctl.d"
     install -m 0755 "${SCRIPT_DIR}/micron-slot" "$mnt/usr/local/micron/installer/micron-slot"
     install -m 0755 "${SCRIPT_DIR}/micron-healthcheck" "$mnt/usr/local/micron/installer/micron-healthcheck"
     if [ -f "${SCRIPT_DIR}/micron-slot-rescue" ]; then
@@ -1059,6 +1205,25 @@ for mnt in "$TARGET_MNT" "$TARGET_MNT_B"; do
     if [ -f "$mnt/usr/local/micron/system/micron-banner" ]; then
         install -m 0755 "$mnt/usr/local/micron/system/micron-banner" "$mnt/usr/local/bin/micron-banner"
     fi
+    if [ -f "$mnt/usr/local/micron/system/micron-network" ]; then
+        install -m 0755 "$mnt/usr/local/micron/system/micron-network" "$mnt/usr/local/bin/micron-network"
+    fi
+    if [ -f "$mnt/usr/local/micron/system/micron-network.service" ]; then
+        install -m 0644 "$mnt/usr/local/micron/system/micron-network.service" "$mnt/etc/systemd/system/micron-network.service"
+        ln -sf /etc/systemd/system/micron-network.service "$mnt/etc/systemd/system/multi-user.target.wants/micron-network.service"
+    fi
+    if [ -f "$mnt/usr/local/micron/system/99-micron-routing.conf" ]; then
+        install -m 0644 "$mnt/usr/local/micron/system/99-micron-routing.conf" "$mnt/etc/sysctl.d/99-micron-routing.conf"
+    fi
+    if [ -f "$mnt/usr/local/micron/system/micron-ready-beep" ]; then
+        install -m 0755 "$mnt/usr/local/micron/system/micron-ready-beep" "$mnt/usr/local/bin/micron-ready-beep"
+    fi
+    if [ -f "$mnt/usr/local/micron/system/micron-ready-beep.service" ]; then
+        install -m 0644 "$mnt/usr/local/micron/system/micron-ready-beep.service" "$mnt/etc/systemd/system/micron-ready-beep.service"
+        ln -sf /etc/systemd/system/micron-ready-beep.service "$mnt/etc/systemd/system/multi-user.target.wants/micron-ready-beep.service"
+    fi
+    mkdir -p "$mnt/etc/modules-load.d"
+    echo "pcspkr" > "$mnt/etc/modules-load.d/pcspkr.conf" 2>/dev/null || true
     if [ -f "$mnt/usr/local/micron/system/os-release" ]; then
         install -m 0644 "$mnt/usr/local/micron/system/os-release" "$mnt/etc/os-release"
         cp "$mnt/etc/os-release" "$mnt/usr/lib/os-release" 2>/dev/null || true
@@ -1086,29 +1251,35 @@ rmdir "$TARGET_MNT_B" 2>/dev/null || true
 
 umount "$TARGET_MNT/var/lib/micron" 2>/dev/null || true
 umount "$TARGET_MNT/boot/efi" 2>/dev/null || true
-umount "$TARGET_MNT/sys/firmware/efi/efivars" 2>/dev/null || true
-umount "$TARGET_MNT/dev/pts" 2>/dev/null || true
-umount "$TARGET_MNT/dev" 2>/dev/null || true
-umount "$TARGET_MNT/proc" 2>/dev/null || true
-umount "$TARGET_MNT/sys" 2>/dev/null || true
+umount -R "$TARGET_MNT/sys" 2>/dev/null || umount -l "$TARGET_MNT/sys" 2>/dev/null || true
+umount -R "$TARGET_MNT/dev" 2>/dev/null || umount -l "$TARGET_MNT/dev" 2>/dev/null || true
+umount -R "$TARGET_MNT/proc" 2>/dev/null || umount -l "$TARGET_MNT/proc" 2>/dev/null || true
 umount "$TARGET_MNT" 2>/dev/null || true
+
+# Pre-enable SysRq in running kernel so reboot is guaranteed even if media is removed
+echo 1 > /proc/sys/kernel/sysrq 2>/dev/null || true
 
 echo -e "\n${CYAN}══════════════════════════════════════════════════════════════════════${NC}"
 echo -e "${GREEN}  MICRON FIREWALL OS (Micron OS) INSTALLATION COMPLETE!${NC}"
 echo -e "${CYAN}══════════════════════════════════════════════════════════════════════${NC}"
 echo -e "Active Boot Slot   : Slot A (Primary)"
 echo -e "Standby Slot       : Slot B (Healthy Failover)"
-echo -e "\n${BOLD}Network Notice:${NC}"
-echo -e "Network interface roles (WAN, LAN, OPT) will be assigned on first boot"
-echo -e "from the interactive CLI console menu ('1) Assign Interfaces')."
-echo -e "\nPlease remove the USB flash drive or optical media, then restart."
+echo -e "\n${BOLD}${YELLOW}Reboot Instructions:${NC}"
+echo -e "Leave the USB installation drive connected while rebooting."
+echo -e "Remove the USB drive as soon as the screen powers off or the BIOS logo appears."
 echo ""
 if [ "$KICKSTART_MODE" -eq 1 ]; then
     echo -e "${GREEN}[Kickstart] Automated unattended installation completed successfully!${NC}"
     if [[ "$REBOOT" =~ ^([yY]|[yY][eE][sS]|1|true|TRUE)$ ]]; then
         echo -e "${YELLOW}Rebooting appliance automatically in 5 seconds (Press Ctrl+C to cancel)...${NC}"
         sleep 5
-        reboot
+        sync 2>/dev/null || true
+        # Zero-disk-I/O kernel reboot via SysRq guarantees instant clean reboot
+        # without touching SquashFS even if the USB media was already removed:
+        echo s > /proc/sysrq-trigger 2>/dev/null || true
+        echo u > /proc/sysrq-trigger 2>/dev/null || true
+        echo b > /proc/sysrq-trigger 2>/dev/null || true
+        systemctl reboot -f 2>/dev/null || reboot -f 2>/dev/null || true
     else
         echo -e "${CYAN}Automatic reboot disabled in Kickstart (REBOOT=${REBOOT}). Finished.${NC}"
     fi
@@ -1116,6 +1287,13 @@ else
     read -r -p "Reboot appliance now? [Y/n]: " REBOOT_NOW
     REBOOT_NOW=${REBOOT_NOW:-Y}
     if [[ ! "$REBOOT_NOW" =~ ^[nN] ]]; then
-        reboot
+        echo -e "\n${YELLOW}Rebooting appliance... Remove USB drive when screen turns off.${NC}"
+        sync 2>/dev/null || true
+        # Zero-disk-I/O kernel reboot via SysRq guarantees instant clean reboot
+        # without touching SquashFS even if the USB media was already removed:
+        echo s > /proc/sysrq-trigger 2>/dev/null || true
+        echo u > /proc/sysrq-trigger 2>/dev/null || true
+        echo b > /proc/sysrq-trigger 2>/dev/null || true
+        systemctl reboot -f 2>/dev/null || reboot -f 2>/dev/null || true
     fi
 fi

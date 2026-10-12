@@ -1,0 +1,16 @@
+[Unit]
+Description=Micron OS Core Network & Plug-and-Play Router Manager
+Documentation=https://github.com/micronos/micronos
+Before=network.target network-online.target micrond.service apache2.service
+After=local-fs.target systemd-sysctl.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/micron-network
+RemainAfterExit=true
+TimeoutStartSec=60s
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

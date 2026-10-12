@@ -282,8 +282,9 @@ while true; do
         3)
             echo -e "\n${BOLD}=== Clone & Repair Slot A from Slot B ===${NC}"
             echo -e "${YELLOW}This will completely overwrite Slot A with the verified state from Slot B!${NC}"
-            read -r -p "Are you sure you want to restore Slot A from Slot B? (type YES): " CONFIRM
-            if [ "$CONFIRM" = "YES" ]; then
+            read -r -p "Are you sure you want to restore Slot A from Slot B? [Y/n]: " CONFIRM
+            CONFIRM=${CONFIRM:-Y}
+            if [[ "$CONFIRM" =~ ^[yY] ]]; then
                 echo "Syncing filesystem: Slot B -> Slot A..."
                 rsync -aAX --delete \
                     --exclude={"/etc/fstab","/dev/*","/proc/*","/sys/*","/tmp/*","/run/*","/mnt/*","/media/*","/lost+found"} \
@@ -316,8 +317,9 @@ EOF
         4)
             echo -e "\n${BOLD}=== Clone & Repair Slot B from Slot A ===${NC}"
             echo -e "${YELLOW}This will completely overwrite Slot B with the verified state from Slot A!${NC}"
-            read -r -p "Are you sure you want to restore Slot B from Slot A? (type YES): " CONFIRM
-            if [ "$CONFIRM" = "YES" ]; then
+            read -r -p "Are you sure you want to restore Slot B from Slot A? [Y/n]: " CONFIRM
+            CONFIRM=${CONFIRM:-Y}
+            if [[ "$CONFIRM" =~ ^[yY] ]]; then
                 echo "Syncing filesystem: Slot A -> Slot B..."
                 rsync -aAX --delete \
                     --exclude={"/etc/fstab","/dev/*","/proc/*","/sys/*","/tmp/*","/run/*","/mnt/*","/media/*","/lost+found"} \

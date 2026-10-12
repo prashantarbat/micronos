@@ -25,7 +25,7 @@ function micron_root(string $scriptDir): string
     $fallback = dirname($scriptDir);
 
     foreach ([getenv('MICRON_ROOT'), $fallback, '/usr/local/micron'] as $candidate) {
-        if (! is_string($candidate) || $candidate === '') {
+        if (!is_string($candidate) || $candidate === '') {
             continue;
         }
 
@@ -77,13 +77,118 @@ function micron_spark(string $root, array $arguments): int
 {
     $process = proc_open(array_merge(['php', $root . '/spark'], $arguments), [1 => STDOUT, 2 => STDERR], $pipes);
 
-    if (! is_resource($process)) {
+    if (!is_resource($process)) {
         echo "[ERROR] Could not launch the application console (php spark).\n";
 
         return 1;
     }
 
     return (int) proc_close($process);
+}
+
+function micron_firewall_disable(string $root): int
+{
+    echo "=== MicronOS Firewall Packet Filtering Control ===\n";
+    echo "[WARNING] You are about to temporarily disable firewall packet filtering!\n";
+    echo "[WARNING] All packet filtering will be bypassed. Network security is significantly reduced.\n";
+
+    $runDir = '/run/micron';
+    if (!is_dir($runDir)) {
+        @mkdir($runDir, 0775, true);
+    }
+    $flagFile = $runDir . '/firewall_disabled';
+
+    if (PHP_OS_FAMILY === 'Linux') {
+        // Permissive filter ruleset that accepts all traffic without filtering,
+        // while preserving WAN NAT/masquerading so Internet access and LAN routing do not break.
+        $permissiveRules = <<<NFT
+table inet filter {
+    chain input {
+        type filter hook input priority 0; policy accept;
+    }
+    chain forward {
+        type filter hook forward priority 0; policy accept;
+    }
+    chain output {
+        type filter hook output priority 0; policy accept;
+    }
+}
+NFT;
+        $tmpFile = '/tmp/nft_disable_' . getmypid() . '.conf';
+        file_put_contents($tmpFile, $permissiveRules);
+        $out = [];
+        $rc = 0;
+        exec("nft -f " . escapeshellarg($tmpFile) . " 2>&1", $out, $rc);
+        @unlink($tmpFile);
+
+        if ($rc !== 0) {
+            // Fallback: set policies to accept and flush input/forward chains
+            exec("nft 'add chain inet filter input { policy accept; }' 2>/dev/null");
+            exec("nft 'add chain inet filter forward { policy accept; }' 2>/dev/null");
+            exec("nft 'flush chain inet filter input' 2>/dev/null");
+            exec("nft 'flush chain inet filter forward' 2>/dev/null");
+        }
+    }
+
+    file_put_contents($flagFile, (string) time());
+    echo "[OK] Firewall packet filtering is now DISABLED (Troubleshooting Mode).\n";
+    echo "[INFO] Network services (LAN, WAN, WebGUI, NAT) remain active.\n";
+    echo "[INFO] The firewall will automatically return to normal enabled state on next reboot.\n";
+    echo "[INFO] Run 'microctl enable' at any time to re-enable firewall filtering.\n";
+
+    return 0;
+}
+
+function micron_firewall_enable(string $root): int
+{
+    echo "=== MicronOS Firewall Packet Filtering Control ===\n";
+    $runDir = '/run/micron';
+    $flagFile = $runDir . '/firewall_disabled';
+    if (file_exists($flagFile)) {
+        @unlink($flagFile);
+    }
+
+    if (PHP_OS_FAMILY === 'Linux') {
+        $applied = false;
+        if (file_exists('/etc/nftables.conf')) {
+            $out = [];
+            $rc = 0;
+            exec("nft -f /etc/nftables.conf 2>&1", $out, $rc);
+            if ($rc === 0) {
+                $applied = true;
+            }
+        }
+
+        if (!$applied) {
+            // Recompile from database if /etc/nftables.conf was not loadable or absent
+            try {
+                $compiler = new \App\Libraries\NftablesCompiler();
+                $ruleset = $compiler->compile();
+                $tmpRules = '/tmp/nft_restore_' . getmypid() . '.conf';
+                file_put_contents($tmpRules, $ruleset);
+                $out = [];
+                $rc = 0;
+                exec("nft -f " . escapeshellarg($tmpRules) . " 2>&1", $out, $rc);
+                @unlink($tmpRules);
+                if ($rc === 0) {
+                    file_put_contents('/etc/nftables.conf', $ruleset);
+                    $applied = true;
+                }
+            } catch (\Throwable $e) {
+                echo "[ERROR] Failed to compile ruleset: " . $e->getMessage() . "\n";
+            }
+        }
+
+        if (!$applied) {
+            fwrite(STDERR, "[ERROR] Failed to re-enable firewall ruleset!\n");
+            return 1;
+        }
+    }
+
+    echo "[OK] Firewall packet filtering RE-ENABLED.\n";
+    echo "[OK] Configured firewall rules restored and actively enforced.\n";
+
+    return 0;
 }
 
 switch ($cmd) {
@@ -98,23 +203,64 @@ switch ($cmd) {
                 echo sprintf("  - %-6s [%s]: %s (%s)\n", $row['name'], $row['physical_device'], $row['ipv4_address'] ?: 'DHCP/Unassigned', $row['ip_assignment_type']);
             }
         }
+        $fwDisabled = file_exists('/run/micron/firewall_disabled');
+        echo "Firewall Filtering: " . ($fwDisabled ? "DISABLED (Troubleshooting Mode)\n" : "ENABLED (Enforcing Rules)\n");
         $ipc = new \App\Libraries\IpcClient();
         $info = $ipc->getSystemInfo();
         echo sprintf("Hostname: %s | Kernel: %s | Uptime: %ds\n", $info['hostname'] ?? 'micronos', $info['kernel'] ?? 'Linux', $info['uptime_sec'] ?? 0);
         break;
 
+    case 'disable':
+        exit(micron_firewall_disable($root));
+
+    case 'enable':
+        exit(micron_firewall_enable($root));
+
     case 'interface':
         $sub = $args[1] ?? '';
         if ($sub === 'set-lan') {
-            $cidr = $args[2] ?? '192.168.1.1/24';
+            $cidr = $args[2] ?? '10.10.10.10/24';
             [$ip, $mask] = explode('/', $cidr . '/24');
+            $mask = (int) $mask;
             $dbPath = $root . '/writable/micron_config.db';
-            $db = new \SQLite3($dbPath);
-            $stmt = $db->prepare("UPDATE interfaces SET ipv4_address = :ip, ipv4_netmask = :mask WHERE id = 'lan'");
-            $stmt->bindValue(':ip', $ip, SQLITE3_TEXT);
-            $stmt->bindValue(':mask', (int)$mask, SQLITE3_INTEGER);
-            $stmt->execute();
+            if (file_exists($dbPath)) {
+                $db = new \SQLite3($dbPath);
+                $stmt = $db->prepare("UPDATE interfaces SET ipv4_address = :ip, ipv4_netmask = :mask WHERE id = 'lan'");
+                $stmt->bindValue(':ip', $ip, SQLITE3_TEXT);
+                $stmt->bindValue(':mask', $mask, SQLITE3_INTEGER);
+                $stmt->execute();
+
+                // Compute DHCP range for new subnet while preserving DHCP enabled state
+                $ipLong = ip2long($ip);
+                if ($ipLong !== false && $mask > 0 && $mask < 31) {
+                    $maskLong = ~((1 << (32 - $mask)) - 1);
+                    $baseLong = $ipLong & $maskLong;
+                    $poolStart = long2ip($baseLong + 100);
+                    $poolEnd = long2ip($baseLong + 200);
+
+                    $chk = $db->querySingle("SELECT enabled FROM dhcp_server_settings WHERE interface_id='lan'");
+                    $dhcpEnabled = ($chk !== null) ? (int) $chk : 0;
+                    $count = $db->querySingle("SELECT COUNT(*) FROM dhcp_server_settings WHERE interface_id='lan'");
+                    if ($count > 0) {
+                        $sDhcp = $db->prepare("UPDATE dhcp_server_settings SET range_from = :from, range_to = :to, gateway = :gw, dns_1 = :dns, enabled = :en WHERE interface_id = 'lan'");
+                    } else {
+                        $sDhcp = $db->prepare("INSERT INTO dhcp_server_settings (interface_id, enabled, range_from, range_to, gateway, dns_1) VALUES ('lan', :en, :from, :to, :gw, :dns)");
+                    }
+                    $sDhcp->bindValue(':en', $dhcpEnabled, SQLITE3_INTEGER);
+                    $sDhcp->bindValue(':from', $poolStart, SQLITE3_TEXT);
+                    $sDhcp->bindValue(':to', $poolEnd, SQLITE3_TEXT);
+                    $sDhcp->bindValue(':gw', $ip, SQLITE3_TEXT);
+                    $sDhcp->bindValue(':dns', $ip, SQLITE3_TEXT);
+                    $sDhcp->execute();
+                }
+            }
+
             echo "[OK] LAN IP reconfigured to {$ip}/{$mask}\n";
+
+            // Trigger system re-application if running on appliance
+            if (PHP_OS_FAMILY === 'Linux' && file_exists('/usr/local/bin/micron-network')) {
+                @exec('/usr/local/bin/micron-network >/dev/null 2>&1');
+            }
         } else {
             micron_fail_usage('microctl interface set-lan <ip/cidr>');
         }
@@ -122,6 +268,12 @@ switch ($cmd) {
 
     case 'firewall':
         $sub = $args[1] ?? '';
+        if ($sub === 'disable') {
+            exit(micron_firewall_disable($root));
+        }
+        if ($sub === 'enable') {
+            exit(micron_firewall_enable($root));
+        }
         if ($sub === 'reset') {
             echo "[OK] Restoring default permissive management rules...\n";
             exit(micron_spark($root, ['micron:verify']));
@@ -135,7 +287,7 @@ switch ($cmd) {
             exit(micron_spark($root, array_merge(['backup:create'], array_slice($args, 2))));
         }
         if ($sub === 'restore') {
-            if (! isset($args[2]) || trim((string) $args[2]) === '') {
+            if (!isset($args[2]) || trim((string) $args[2]) === '') {
                 micron_fail_usage('microctl backup restore <path> [--passphrase <passphrase>]');
             }
             echo "[OK] Restoring a configuration snapshot...\n";
@@ -169,7 +321,9 @@ MicronOS Console Management Utility (microctl)
 Usage: microctl <command> [arguments]
 
 Commands:
-  status                     Display interfaces, system load, and kernel state
+  status                     Display interfaces, system load, firewall, and kernel state
+  enable                     Re-enable firewall packet filtering (troubleshooting equivalent)
+  disable                    Temporarily disable firewall packet filtering 
   interface set-lan <cidr>   Reconfigure management LAN IP (e.g. 192.168.1.1/24)
   firewall reset             Restore default permissive management firewall rules
   backup create [--encrypt]  Snapshot the configuration (with --passphrase it is
@@ -181,7 +335,6 @@ Commands:
   config rollback            Reload the last verified configuration snapshot
   admin reset-password [pw]  Reset break-glass admin password and clear 2FA
   help                       Show this help message
-
 HELP;
         break;
 }

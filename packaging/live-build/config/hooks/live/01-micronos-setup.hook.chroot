@@ -48,11 +48,31 @@ chmod -R 775 /usr/local/micron/writable /run/micron
 if [ -f /usr/local/micron/system/micrond.service ]; then
     install -m 0644 /usr/local/micron/system/micrond.service /etc/systemd/system/micrond.service
 fi
+if [ -f /usr/local/micron/system/micron-network.service ]; then
+    install -m 0644 /usr/local/micron/system/micron-network.service /etc/systemd/system/micron-network.service
+fi
+if [ -f /usr/local/micron/system/micron-network ]; then
+    install -m 0755 /usr/local/micron/system/micron-network /usr/local/bin/micron-network
+fi
+if [ -f /usr/local/micron/system/99-micron-routing.conf ]; then
+    install -d /etc/sysctl.d
+    install -m 0644 /usr/local/micron/system/99-micron-routing.conf /etc/sysctl.d/99-micron-routing.conf
+fi
+if [ -f /usr/local/micron/system/micron-ready-beep.service ]; then
+    install -m 0644 /usr/local/micron/system/micron-ready-beep.service /etc/systemd/system/micron-ready-beep.service
+fi
+if [ -f /usr/local/micron/system/micron-ready-beep ]; then
+    install -m 0755 /usr/local/micron/system/micron-ready-beep /usr/local/bin/micron-ready-beep
+fi
+mkdir -p /etc/modules-load.d
+echo "pcspkr" > /etc/modules-load.d/pcspkr.conf 2>/dev/null || true
 systemctl enable php8.4-fpm || systemctl enable php-fpm || true
 systemctl enable apache2
 systemctl enable nftables
 systemctl enable micrond || true
 systemctl enable ssh || true
+systemctl enable micron-network.service || true
+systemctl enable micron-ready-beep.service || true
 
 # Configure systemd hardware watchdog defaults (30s ping, 60s reboot limit)
 if [ -f /etc/systemd/system.conf ]; then
@@ -85,6 +105,8 @@ fi
 # on the live installer ISO (they are configured and started on the installed appliance)
 systemctl disable unbound || true
 systemctl disable kea-dhcp4-server || true
+systemctl disable kea-dhcp6-server || true
+systemctl disable radvd || true
 systemctl disable squid || true
 systemctl disable suricata || true
 systemctl disable watchdog || true
@@ -176,10 +198,10 @@ EOF
 # ---------------------------------------------------------------------------
 echo "===> [Micron OS Hook] Branding operating system as Micron OS..."
 cat << 'EOF' > /etc/os-release
-PRETTY_NAME="Micron OS 0.1.25 (amd64)"
+PRETTY_NAME="Micron OS 0.1.23 (amd64)"
 NAME="Micron OS"
-VERSION_ID="0.1.25"
-VERSION="0.1.25 (amd64)"
+VERSION_ID="0.1.23"
+VERSION="0.1.23 (amd64)"
 VERSION_CODENAME=trixie
 ID=micronos
 ID_LIKE=debian
@@ -270,5 +292,9 @@ if [ -d /usr/local/micron ] && command -v php >/dev/null 2>&1; then
     chown -R www-data:www-data /usr/local/micron/writable
     chmod -R 777 /usr/local/micron/writable
 fi
+
+# Ensure /tmp and /var/tmp exist with sticky bit permissions
+mkdir -p /tmp /var/tmp
+chmod 1777 /tmp /var/tmp
 
 echo "===> [Micron OS Hook] Setup complete!"

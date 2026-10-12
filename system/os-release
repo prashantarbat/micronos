@@ -1,7 +1,7 @@
-PRETTY_NAME="Micron OS 0.1.25 (amd64)"
+PRETTY_NAME="Micron OS 0.1.23 (amd64)"
 NAME="Micron OS"
-VERSION_ID="0.1.25"
-VERSION="0.1.25 (amd64)"
+VERSION_ID="0.1.23"
+VERSION="0.1.23 (amd64)"
 VERSION_CODENAME=trixie
 ID=micronos
 ID_LIKE=debian

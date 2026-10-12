@@ -21,11 +21,16 @@ lm-sensors
 smartmontools
 nvme-cli
 kbd
+beep
+alsa-utils
 parted
 gdisk
 dosfstools
 e2fsprogs
+zstd
 grub-efi-amd64
+grub-efi-amd64-bin
+grub-pc-bin
 efibootmgr
 rsync
 curl
@@ -34,6 +39,8 @@ wget
 jq
 htop
 tmux
+nano
+vim-tiny
 dialog
 whiptail
 openssh-server
@@ -57,6 +64,7 @@ vlan
 conntrack
 tcpdump
 iperf3
+iputils-ping
 traceroute
 mtr-tiny
 bind9-dnsutils
@@ -72,11 +80,15 @@ libcharon-extra-plugins
 openvpn
 easy-rsa
 
-# Web Proxy, DNS, DHCP, IDS/IPS
+# Web Proxy, DNS, DHCP, IDS/IPS, IPv6 Daemons
 squid
 squid-openssl
 suricata
 kea-dhcp4-server
+kea-dhcp6-server
+radvd
+dhcpcd-base
+isc-dhcp-client
 unbound
 ca-certificates
 openssl

@@ -24,7 +24,7 @@
 
 ## 1. Architectural Overview & Development Paradigm
 
-When developing an enterprise firewall and network appliance operating system like **MicronOS**, compiling a full 2 GB hybrid installation ISO (`micronos-2.0.0-amd64.hybrid.iso`) and reinstalling it inside a virtual machine on every single CSS change, controller tweak, or daemon bugfix is completely impractical. A single build-and-install cycle can take 5 to 15 minutes.
+When developing an enterprise firewall and network appliance operating system like **Micron OS**, compiling a full 2 GB hybrid installation ISO (`micronos-0.1.23-amd64.hybrid.iso`) and reinstalling it inside a virtual machine on every single CSS change, controller tweak, or daemon bugfix is completely impractical. A single build-and-install cycle can take 5 to 15 minutes.
 
 Instead, the engineering workflow adopts a **split-plane host/guest development paradigm**:
 
@@ -203,7 +203,7 @@ Run this script to provision the virtual machine with optimal sizing for firewal
 $vmName   = "MicronOS-Dev"
 $vmPath   = "C:\Hyper-V\Virtual Machines"
 $vhdPath  = "C:\Hyper-V\Virtual Hard Disks\MicronOS-Dev.vhdx"
-$isoPath  = "D:\laragon\www\micronos\micronos-2.0.0-amd64.hybrid.iso" # Update path if stored elsewhere
+$isoPath  = "D:\laragon\www\micronos\micronos-0.1.23-amd64.hybrid.iso" # Update path if stored elsewhere
 
 # Ensure destination folders exist
 New-Item -ItemType Directory -Force -Path "C:\Hyper-V\Virtual Machines", "C:\Hyper-V\Virtual Hard Disks" | Out-Null
@@ -460,7 +460,7 @@ docker run --rm --privileged \
     bash -c "apt update && apt install -y live-build debootstrap xorriso squashfs-tools && auto/config && lb build"
 ```
 
-The resulting `micronos-2.0.0-amd64.hybrid.iso` is ready for physical appliance deployment or datacenter distribution.
+The resulting `micronos-0.1.23-amd64.hybrid.iso` is ready for physical appliance deployment or datacenter distribution.
 
 ---
 

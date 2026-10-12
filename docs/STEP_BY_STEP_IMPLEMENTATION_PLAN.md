@@ -611,7 +611,7 @@ To test the application in a real Linux kernel environment before compiling the 
 Follow the instructions in the [ISO & Installer Guide](ISO_CREATION_AND_INSTALLER_GUIDE.html) (`docs/ISO_CREATION_AND_INSTALLER_GUIDE.md` in the repository):
 1. Install `live-build` on the build machine.
 2. Stage the appliance overlay: `packaging/live-build/stage-overlay.sh` (run automatically by `auto/config` before `lb config`) installs the Terminal CLI and the **whole web application** from the repository into `config/includes.chroot/usr/local/micron`, replacing that tree rather than merging into it, so no hand-copied application can drift from the sources.
-3. Run `sudo lb build` to output `micronos-2.0.0-amd64.hybrid.iso`.
+3. Run `sudo lb build` to output `micronos-0.1.23-amd64.hybrid.iso`.
 4. Flash to a USB flash drive using Rufus or `dd`.
 5. Boot physical hardware (Intel/AMD multi-NIC mini PC or 1U server), complete the Ncurses installer, and log into `https://192.168.1.1`.
 

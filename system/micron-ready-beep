@@ -1,0 +1,110 @@
+#!/bin/bash
+# ==============================================================================
+# Micron OS — Ready Audible Notification (Three Short Beeps)
+# ==============================================================================
+# Emits three short beeps when the appliance has successfully booted, all
+# network interfaces are configured, and management services are operational.
+# ==============================================================================
+
+# Ensure kernel pcspkr module is loaded for PC speaker hardware
+modprobe pcspkr >/dev/null 2>&1 || true
+
+# Helper: Play beeps using Python console ioctl (KIOCSOUND)
+# Directly programs the timer on motherboard PC speakers without external packages
+play_ioctl_beeps() {
+    python3 -c '
+import fcntl, os, time, sys
+
+KIOCSOUND = 0x4B2F
+PIT_FREQ = 1193180
+FREQ = 1200 # 1200 Hz tone
+TONE = int(PIT_FREQ / FREQ)
+
+devices = ["/dev/console", "/dev/tty0", "/dev/tty1"]
+played = False
+
+for dev in devices:
+    if not os.path.exists(dev):
+        continue
+    try:
+        fd = os.open(dev, os.O_WRONLY | os.O_NOCTTY)
+        try:
+            for _ in range(3):
+                try:
+                    fcntl.ioctl(fd, KIOCSOUND, TONE)
+                except Exception:
+                    pass
+                try:
+                    os.write(fd, b"\a")
+                except Exception:
+                    pass
+                time.sleep(0.08)
+                try:
+                    fcntl.ioctl(fd, KIOCSOUND, 0)
+                except Exception:
+                    pass
+                time.sleep(0.08)
+            played = True
+            break
+        finally:
+            try:
+                fcntl.ioctl(fd, KIOCSOUND, 0)
+            except Exception:
+                pass
+            os.close(fd)
+    except Exception:
+        continue
+
+sys.exit(0 if played else 1)
+' 2>/dev/null
+}
+
+# Helper: Play beeps using the standard beep utility
+play_beep_pkg() {
+    if command -v beep >/dev/null 2>&1; then
+        beep -f 1200 -l 80 -D 80 -r 3 2>/dev/null && return 0
+    fi
+    return 1
+}
+
+# Helper: Play beeps using ASCII Bell escape on consoles
+play_bell_ttys() {
+    local success=1
+    for dev in /dev/console /dev/tty0 /dev/tty1; do
+        if [ -w "$dev" ]; then
+            for i in 1 2 3; do
+                printf '\a' > "$dev" 2>/dev/null || true
+                sleep 0.1
+            done
+            success=0
+            break
+        fi
+    done
+    return $success
+}
+
+# Helper: Play synthetic beeps via ALSA audio if soundcard is present
+play_alsa_sound() {
+    if command -v speaker-test >/dev/null 2>&1 && [ -d /dev/snd ]; then
+        for i in 1 2 3; do
+            timeout 0.15 speaker-test -t sine -f 1200 -l 1 >/dev/null 2>&1 || true
+            sleep 0.05
+        done
+        return 0
+    fi
+    return 1
+}
+
+# Execute beep tiers with fallbacks
+if play_ioctl_beeps; then
+    exit 0
+elif play_beep_pkg; then
+    exit 0
+elif play_bell_ttys; then
+    exit 0
+elif play_alsa_sound; then
+    exit 0
+fi
+
+# Exit cleanly even if no audio hardware exists
+exit 0

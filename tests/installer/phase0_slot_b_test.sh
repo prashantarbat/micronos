@@ -63,11 +63,11 @@ echo
 echo "== C. installer provisions slot B =="
 assert_file_contains 'slot B partition is created'      "$INSTALLER" 'sgdisk -n 4:0:\+'
 assert_file_contains 'slot B is formatted'              "$INSTALLER" 'mkfs\.ext4 -F -L "MICRON_ROOT_B"'
-assert_file_contains 'data partition is created'        "$INSTALLER" 'sgdisk -n 5:0:0'
+assert_file_contains 'data partition is created'        "$INSTALLER" 'sgdisk -n (5|6):0:0'
 assert_file_contains 'root A is labelled'               "$INSTALLER" 'MICRON_ROOT_A'
 assert_file_contains 'fstab carries slot B by UUID'     "$INSTALLER" 'UUID=\$\{ROOT_B_UUID\}.*micron-slot-b'
 assert_file_contains 'slot B is not auto-mounted'       "$INSTALLER" 'micron-slot-b\s+ext4\s+noauto'
-assert_file_contains 'persistent data layer is mounted' "$INSTALLER" 'mount "\$P_DATA" "\$TARGET_MNT/var/lib/micron"'
+assert_file_contains 'persistent data layer is mounted' "$INSTALLER" 'mount "\$P_DATA"\s+"\$TARGET_MNT/var/lib/micron"'
 assert_file_contains 'slot selector is installed'       "$INSTALLER" 'install -m 0755 "\$\{SCRIPT_DIR\}/grub\.d/09_micron_slots"'
 assert_file_contains 'slot selector becomes the default' "$INSTALLER" 'GRUB_DEFAULT=0'
 assert_file_contains 'slot environment is seeded'       "$INSTALLER" 'MICRON_SLOT_ENV="\$TARGET_MNT/boot/grub/grubenv"'

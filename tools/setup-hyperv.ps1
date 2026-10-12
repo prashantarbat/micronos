@@ -14,7 +14,7 @@
 param(
     [switch]$CreateVM,
     [string]$VmName = "MicronOS-Dev",
-    [string]$IsoPath = "D:\laragon\www\micronos\micronos-2.0.0-amd64.hybrid.iso",
+    [string]$IsoPath = "D:\laragon\www\micronos\micronos-0.1.23-amd64.hybrid.iso",
     [string]$VhdDir = "C:\Hyper-V\Virtual Hard Disks",
     [string]$VmDir = "C:\Hyper-V\Virtual Machines"
 )

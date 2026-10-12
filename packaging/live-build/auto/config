@@ -37,6 +37,6 @@ lb config noauto \
     --updates true \
     --apt-indices true \
     --apt-recommends false \
-    --bootappend-live "boot=live components quiet splash username=ministrator user-fullname=Ministrator hostname=micron-os" \
+    --bootappend-live "boot=live components quiet username=ministrator user-fullname=Ministrator hostname=micron-os" \
     --checksums sha256 \
     "${@}"

@@ -94,33 +94,57 @@ get_network_info() {
     fi
     [ -n "$WAN_IP" ] || WAN_IP="DHCP (Requesting...)"
 
-    # 4. Resolve LAN IP (ensure clean static assignment, remove 169.254 link-local)
+    # 4. Resolve LAN IP
     LAN_IP=$(ip -4 addr show dev "$LAN_IF" 2>/dev/null | awk '/inet / && !/169\.254/ {print $2}' | head -n1 || true)
-    if [ -z "$LAN_IP" ]; then
-        DB_LAN_IP=""
-        if [ -f "/usr/local/micron/writable/micron_config.db" ] && command -v sqlite3 >/dev/null 2>&1; then
-            DB_LAN_IP=$(sqlite3 /usr/local/micron/writable/micron_config.db "SELECT ipv4_address || '/' || ipv4_netmask FROM interfaces WHERE id='lan' AND enabled=1;" 2>/dev/null || true)
-        fi
-        if [ -n "$DB_LAN_IP" ] && [ "$DB_LAN_IP" != "/" ]; then
-            TARGET_LAN_IP="$DB_LAN_IP"
-        else
-            TARGET_LAN_IP="10.10.10.10/24"
-        fi
+    DB_LAN_MODE="static"
+    if [ -f "/usr/local/micron/writable/micron_config.db" ] && command -v sqlite3 >/dev/null 2>&1; then
+        DB_LAN_MODE=$(sqlite3 /usr/local/micron/writable/micron_config.db "SELECT ip_assignment_type FROM interfaces WHERE id='lan' AND enabled=1;" 2>/dev/null || echo "static")
+    fi
 
-        if [ "$LAN_IF" != "$WAN_IF" ]; then
-            LL_ADDR=$(ip -4 addr show dev "$LAN_IF" 2>/dev/null | awk '/inet 169\.254/ {print $2}' | head -n1 || true)
-            if [ -n "$LL_ADDR" ]; then
-                run_root ip addr del "$LL_ADDR" dev "$LAN_IF" 2>/dev/null || true
-            fi
-            run_root ip addr add "$TARGET_LAN_IP" dev "$LAN_IF" 2>/dev/null || true
-            run_root ip link set dev "$LAN_IF" up 2>/dev/null || true
-            LAN_IP=$(ip -4 addr show dev "$LAN_IF" 2>/dev/null | awk '/inet / && !/169\.254/ {print $2}' | head -n1 || echo "$TARGET_LAN_IP")
+    if [ -z "$LAN_IP" ]; then
+        if [ "$DB_LAN_MODE" = "dhcp" ]; then
+            for _ in 1 2 3; do
+                sleep 1
+                LAN_IP=$(ip -4 addr show dev "$LAN_IF" 2>/dev/null | awk '/inet / && !/169\.254/ {print $2}' | head -n1 || true)
+                [ -n "$LAN_IP" ] && break
+            done
+            [ -n "$LAN_IP" ] || LAN_IP="DHCP (Requesting...)"
         else
-            LAN_IP="$TARGET_LAN_IP"
+            DB_LAN_IP=""
+            if [ -f "/usr/local/micron/writable/micron_config.db" ] && command -v sqlite3 >/dev/null 2>&1; then
+                DB_LAN_IP=$(sqlite3 /usr/local/micron/writable/micron_config.db "SELECT ipv4_address || '/' || ipv4_netmask FROM interfaces WHERE id='lan' AND enabled=1;" 2>/dev/null || true)
+            fi
+            if [ -n "$DB_LAN_IP" ] && [ "$DB_LAN_IP" != "/" ]; then
+                TARGET_LAN_IP="$DB_LAN_IP"
+            else
+                TARGET_LAN_IP="10.10.10.10/24"
+            fi
+
+            if [ "$LAN_IF" != "$WAN_IF" ]; then
+                LL_ADDR=$(ip -4 addr show dev "$LAN_IF" 2>/dev/null | awk '/inet 169\.254/ {print $2}' | head -n1 || true)
+                if [ -n "$LL_ADDR" ]; then
+                    run_root ip addr del "$LL_ADDR" dev "$LAN_IF" 2>/dev/null || true
+                fi
+                run_root ip addr add "$TARGET_LAN_IP" dev "$LAN_IF" 2>/dev/null || true
+                run_root ip link set dev "$LAN_IF" up 2>/dev/null || true
+                LAN_IP=$(ip -4 addr show dev "$LAN_IF" 2>/dev/null | awk '/inet / && !/169\.254/ {print $2}' | head -n1 || echo "$TARGET_LAN_IP")
+            else
+                LAN_IP="$TARGET_LAN_IP"
+            fi
         fi
     fi
 
-    # 5. Management IP
+    # 5. Carrier Link Status
+    WAN_LINK="UP"
+    if [ -f "/sys/class/net/$WAN_IF/carrier" ] && [ "$(cat "/sys/class/net/$WAN_IF/carrier" 2>/dev/null)" = "0" ]; then
+        WAN_LINK="NO LINK"
+    fi
+    LAN_LINK="UP"
+    if [ -f "/sys/class/net/$LAN_IF/carrier" ] && [ "$(cat "/sys/class/net/$LAN_IF/carrier" 2>/dev/null)" = "0" ]; then
+        LAN_LINK="NO LINK"
+    fi
+
+    # 6. Management IP
     MGMT_IP=""
     LAN_CLEAN=$(echo "$LAN_IP" | cut -d/ -f1)
     WAN_CLEAN=$(echo "$WAN_IP" | cut -d/ -f1)
@@ -132,7 +156,7 @@ get_network_info() {
     fi
     [ -n "$MGMT_IP" ] || MGMT_IP="10.10.10.10"
 
-    # 6. Slot Info (examine current mounted root partition)
+    # 7. Slot Info (examine current mounted root partition)
     ROOT_DEV=$(findmnt -n -o SOURCE / 2>/dev/null || true)
     ACTIVE_SLOT="A"
     if [[ "$ROOT_DEV" =~ sda4|nvme0n1p4|vda4 ]] || [ "$ROOT_DEV" = "/dev/disk/by-label/MICRON_ROOT_B" ]; then
@@ -152,7 +176,7 @@ get_network_info() {
         fi
     fi
 
-    # 7. Version & Architecture Resolution (following project VERSION mechanism)
+    # 8. Version & Architecture Resolution (following project VERSION mechanism)
     OS_VERSION=""
     if [ -f "$app_root/VERSION" ]; then
         OS_VERSION=$(head -n1 "$app_root/VERSION" | tr -d '[:space:]')
@@ -163,7 +187,7 @@ get_network_info() {
     elif [ -f "/etc/os-release" ]; then
         OS_VERSION=$(grep -E '^VERSION_ID=' /etc/os-release 2>/dev/null | cut -d= -f2 | tr -d '"' || true)
     fi
-    [ -n "$OS_VERSION" ] || OS_VERSION="0.1.25"
+    [ -n "$OS_VERSION" ] || OS_VERSION="0.1.23"
 
     OS_ARCH=$(uname -m 2>/dev/null || echo "amd64")
     [ "$OS_ARCH" = "x86_64" ] && OS_ARCH="amd64"
@@ -185,21 +209,29 @@ BANNER
     get_network_info
 
     echo -e "${BOLD}*** Welcome to Micron OS ${OS_VERSION} (${OS_ARCH}) on ${HOSTNAME} ***${NC}\n"
-    printf "  %-16s -> %-12s -> %s\n" "WAN (wan)" "$WAN_IF" "v4: $WAN_IP"
-    printf "  %-16s -> %-12s -> %s\n" "LAN (lan)" "$LAN_IF" "v4: $LAN_IP"
+    if [ "$WAN_LINK" = "NO LINK" ]; then
+        printf "  %-16s -> %-10s ${RED}[NO CARRIER]${NC} -> %s\n" "WAN (wan)" "$WAN_IF" "v4: $WAN_IP"
+    else
+        printf "  %-16s -> %-10s ${GREEN}[LINK UP]${NC}   -> %s\n" "WAN (wan)" "$WAN_IF" "v4: $WAN_IP"
+    fi
+    if [ "$LAN_LINK" = "NO LINK" ]; then
+        printf "  %-16s -> %-10s ${RED}[NO CARRIER]${NC} -> %s\n" "LAN (lan)" "$LAN_IF" "v4: $LAN_IP"
+    else
+        printf "  %-16s -> %-10s ${GREEN}[LINK UP]${NC}   -> %s\n" "LAN (lan)" "$LAN_IF" "v4: $LAN_IP"
+    fi
     printf "  %-16s -> %s\n" "Web Management" "http://${MGMT_IP}/ (Port 80)"
     printf "  %-16s -> Slot %s (%s)\n\n" "Active Root Slot" "$ACTIVE_SLOT" "$SLOT_STATUS"
 
-    echo " 0) Logout (SSH only)                  9) System Monitor (htop)"
-    echo " 1) Assign Interfaces                 10) Filter & System Logs"
-    echo " 2) Set interface(s) IP address       11) Restart Web GUI (Apache2)"
-    echo " 3) Reset Web GUI password            12) PHP Shell / App Console"
-    echo " 4) Reset to factory defaults         13) Update & Firmware Manager"
-    echo " 5) Reboot system                     14) Toggle SSH Service"
-    echo " 6) Halt system (Power off)           15) Restore Configuration Backup"
-    echo " 7) Ping host                         16) Restart micrond & PHP-FPM"
-    echo " 8) Shell (Root Bash Prompt)          17) A/B Boot Slot Rescue & Switch"
-    echo "                                      18) Bridge Interfaces (br0 Switch)"
+    echo " 0) Logout (SSH only)                 10) Filter & System Logs"
+    echo " 1) Assign Interfaces                 11) Restart Web GUI (Apache2)"
+    echo " 2) Set interface(s) IP address       12) PHP Shell / App Console"
+    echo " 3) Reset Web GUI password            13) Update & Firmware Manager"
+    echo " 4) Reset to factory defaults         14) Toggle SSH Service"
+    echo " 5) Reboot system                     15) Restore Configuration Backup"
+    echo " 6) Halt system (Power off)           16) Restart micrond & PHP-FPM"
+    echo " 7) Ping host                         17) A/B Boot Slot Rescue & Switch"
+    echo " 8) Shell (Root Bash Prompt)          18) Bridge Interfaces (br0 Switch)"
+    echo " 9) System Monitor (htop)             19) Enable/Disable DHCP"
     echo ""
 }
 
@@ -756,6 +788,181 @@ manage_bridges_menu() {
         esac
     done
 }
+# ------------------------------------------------------------------------------
+# Option 19: Enable / Disable DHCP Server Menu
+# ------------------------------------------------------------------------------
+manage_dhcp_menu() {
+    while true; do
+        ensure_numlock
+        clear 2>/dev/null || true
+        echo -e "${CYAN}══════════════════════════════════════════════════════════════════════${NC}"
+        echo -e "${BOLD}${GREEN}  MICRON OS — DHCP SERVICE MANAGEMENT (Kea DHCPv4)${NC}"
+        echo -e "${CYAN}══════════════════════════════════════════════════════════════════════${NC}\n"
+
+        # 1. Determine active database path
+        local db_found=""
+        for p in /usr/local/micron/writable/micron_config.db "$app_root/writable/micron_config.db"; do
+            if [ -f "$p" ]; then
+                db_found="$p"
+                break
+            fi
+        done
+
+        # 2. Query DHCP enabled status from database
+        local db_enabled="0"
+        local pool_from=""
+        local pool_to=""
+        if [ -n "$db_found" ] && command -v sqlite3 >/dev/null 2>&1; then
+            db_enabled=$(sqlite3 "$db_found" "SELECT enabled FROM dhcp_server_settings WHERE interface_id='lan' LIMIT 1;" 2>/dev/null || echo "0")
+            pool_from=$(sqlite3 "$db_found" "SELECT range_from FROM dhcp_server_settings WHERE interface_id='lan' LIMIT 1;" 2>/dev/null || echo "")
+            pool_to=$(sqlite3 "$db_found" "SELECT range_to FROM dhcp_server_settings WHERE interface_id='lan' LIMIT 1;" 2>/dev/null || echo "")
+        fi
+
+        # 3. Check live system service status
+        local svc_active="inactive"
+        if run_root systemctl is-active --quiet kea-dhcp4-server 2>/dev/null; then
+            svc_active="active"
+        fi
+
+        # 4. Display status
+        if [ "$db_enabled" = "1" ] && [ "$svc_active" = "active" ]; then
+            echo -e "Current DHCP Status : ${BOLD}${GREEN}ENABLED${NC} (Service Active & Running)"
+        elif [ "$db_enabled" = "1" ]; then
+            echo -e "Current DHCP Status : ${BOLD}${YELLOW}ENABLED${NC} (Configured in DB; Service Stopped/Starting)"
+        else
+            echo -e "Current DHCP Status : ${BOLD}${RED}DISABLED${NC} (Service Inactive)"
+        fi
+
+        # 5. Determine current LAN device & subnet
+        get_network_info
+        local lan_dev="${LAN_IF:-eth1}"
+        local lan_cidr="${LAN_IP:-10.10.10.10/24}"
+        local lan_base=$(echo "$lan_cidr" | cut -d/ -f1)
+        local lan_prefix=$(echo "$lan_cidr" | cut -d/ -f2)
+        lan_prefix=${lan_prefix:-24}
+        local lan_3oct=$(echo "$lan_base" | cut -d. -f1-3)
+
+        [ -n "$pool_from" ] || pool_from="${lan_3oct}.100"
+        [ -n "$pool_to" ] || pool_to="${lan_3oct}.200"
+
+        echo -e "Bound Interface     : ${BOLD}${lan_dev}${NC} (LAN)"
+        echo -e "LAN IP / Subnet     : ${BOLD}${lan_cidr}${NC}"
+        echo -e "Configured Range    : ${BOLD}${pool_from} - ${pool_to}${NC}\n"
+
+        echo " 1) Enable DHCP"
+        echo " 2) Disable DHCP"
+        echo " 3) Return to Main Menu"
+        echo ""
+        read -r -p "Enter choice [3]: " DHCP_CHOICE
+        DHCP_CHOICE=${DHCP_CHOICE:-3}
+
+        case "$DHCP_CHOICE" in
+            1)
+                echo -e "\n${BOLD}${YELLOW}Enabling DHCP Service for LAN (${lan_dev})...${NC}"
+
+                # Update SQLite database
+                for dbpath in /usr/local/micron/writable/micron_config.db "$app_root/writable/micron_config.db"; do
+                    if [ -f "$dbpath" ] && command -v sqlite3 >/dev/null 2>&1; then
+                        local has_row
+                        has_row=$(sqlite3 "$dbpath" "SELECT COUNT(*) FROM dhcp_server_settings WHERE interface_id='lan';" 2>/dev/null || echo "0")
+                        if [ "$has_row" -gt 0 ]; then
+                            run_root sqlite3 "$dbpath" "UPDATE dhcp_server_settings SET enabled=1, range_from='${pool_from}', range_to='${pool_to}', gateway='${lan_base}', dns_1='${lan_base}', updated_at=datetime('now') WHERE interface_id='lan';" 2>/dev/null || true
+                        else
+                            run_root sqlite3 "$dbpath" "INSERT INTO dhcp_server_settings (interface_id, enabled, range_from, range_to, gateway, dns_1) VALUES ('lan', 1, '${pool_from}', '${pool_to}', '${lan_base}', '${lan_base}');" 2>/dev/null || true
+                        fi
+                    fi
+                done
+
+                # Configure Kea DHCP configuration file
+                run_root mkdir -p /etc/kea /var/lib/kea
+                run_root bash -c "cat << 'EOF' > /etc/kea/kea-dhcp4.conf
+{
+  \"Dhcp4\": {
+    \"interfaces-config\": {
+      \"interfaces\": [ \"${lan_dev}\" ]
+    },
+    \"lease-database\": {
+      \"type\": \"memfile\",
+      \"persist\": true,
+      \"name\": \"/var/lib/kea/kea-leases4.csv\"
+    },
+    \"valid-lifetime\": 7200,
+    \"max-valid-lifetime\": 86400,
+    \"subnet4\": [
+      {
+        \"id\": 1,
+        \"subnet\": \"${lan_3oct}.0/${lan_prefix}\",
+        \"interface\": \"${lan_dev}\",
+        \"pools\": [
+          { \"pool\": \"${pool_from} - ${pool_to}\" }
+        ],
+        \"option-data\": [
+          {
+            \"name\": \"routers\",
+            \"data\": \"${lan_base}\"
+          },
+          {
+            \"name\": \"domain-name-servers\",
+            \"data\": \"${lan_base}, 1.1.1.1, 8.8.8.8\"
+          }
+        ]
+      }
+    ]
+  }
+}
+EOF"
+
+                # Start and enable kea-dhcp4-server
+                run_root systemctl enable kea-dhcp4-server 2>/dev/null || true
+                local restart_ok=0
+                if run_root systemctl restart kea-dhcp4-server 2>/dev/null; then
+                    restart_ok=1
+                elif run_root service kea-dhcp4-server restart 2>/dev/null; then
+                    restart_ok=1
+                fi
+
+                if [ "$restart_ok" -eq 1 ] || run_root systemctl is-active --quiet kea-dhcp4-server 2>/dev/null; then
+                    echo -e "${GREEN}[OK] DHCP Service successfully ENABLED and started.${NC}"
+                    echo -e "${GREEN}[OK] LAN clients on ${lan_dev} will receive IP leases in range ${pool_from} - ${pool_to}.${NC}"
+                    echo -e "${GREEN}[OK] Configuration saved: DHCP will start automatically on reboot.${NC}"
+                else
+                    echo -e "${GREEN}[OK] DHCP Service configured and ENABLED in database.${NC}"
+                    echo -e "${GREEN}[OK] Configuration saved: DHCP service enabled for ${lan_dev}.${NC}"
+                fi
+                read -r -p "Press Enter to continue..."
+                ;;
+
+            2)
+                echo -e "\n${BOLD}${YELLOW}Disabling DHCP Service...${NC}"
+
+                # Update SQLite database to disabled
+                for dbpath in /usr/local/micron/writable/micron_config.db "$app_root/writable/micron_config.db"; do
+                    if [ -f "$dbpath" ] && command -v sqlite3 >/dev/null 2>&1; then
+                        run_root sqlite3 "$dbpath" "UPDATE dhcp_server_settings SET enabled=0, updated_at=datetime('now') WHERE interface_id='lan';" 2>/dev/null || true
+                    fi
+                done
+
+                # Stop and disable systemd service
+                run_root systemctl stop kea-dhcp4-server 2>/dev/null || true
+                run_root systemctl disable kea-dhcp4-server 2>/dev/null || true
+
+                echo -e "${GREEN}[OK] DHCP Service successfully DISABLED and stopped.${NC}"
+                echo -e "${GREEN}[OK] No dynamic IP addresses will be assigned to LAN clients.${NC}"
+                echo -e "${GREEN}[OK] Configuration saved: DHCP will remain disabled on system reboot.${NC}"
+                read -r -p "Press Enter to continue..."
+                ;;
+
+            3|q|Q|r|R)
+                return 0
+                ;;
+
+            *)
+                echo -e "${RED}Invalid choice '${DHCP_CHOICE}'. Please choose 1, 2, or 3.${NC}"
+                sleep 1
+                ;;
+        esac
+    done
+}
 
 # ------------------------------------------------------------------------------
 # Main Interactive Loop
@@ -781,34 +988,79 @@ while true; do
             IF_CHOICE=${IF_CHOICE:-1}
 
             if [ "$IF_CHOICE" = "1" ]; then
-                read -r -p "Enter new LAN IPv4 address with CIDR mask [10.10.10.10/24]: " NEW_LAN_CIDR
-                NEW_LAN_CIDR=${NEW_LAN_CIDR:-10.10.10.10/24}
+                read -r -p "Configure LAN as (D)HCP or (S)tatic? [S]: " LAN_TYPE
+                LAN_TYPE=${LAN_TYPE:-S}
 
-                if [ -x /usr/local/bin/microctl ]; then
-                    run_root /usr/local/bin/microctl interface set-lan "$NEW_LAN_CIDR" || true
+                if [ "$LAN_TYPE" = "D" ] || [ "$LAN_TYPE" = "d" ]; then
+                    for dbpath in /usr/local/micron/writable/micron_config.db "$app_root/writable/micron_config.db"; do
+                        if [ -f "$dbpath" ] && command -v sqlite3 >/dev/null 2>&1; then
+                            run_root sqlite3 "$dbpath" "UPDATE interfaces SET physical_device='$LAN_IF', ip_assignment_type='dhcp' WHERE id='lan';" 2>/dev/null || true
+                            run_root sqlite3 "$dbpath" "UPDATE dhcp_server_settings SET enabled=0, updated_at=datetime('now') WHERE interface_id='lan';" 2>/dev/null || true
+                        fi
+                    done
+
+                    # Stop and disable Kea DHCP server to prevent rogue DHCP leases on local subnet
+                    run_root systemctl stop kea-dhcp4-server 2>/dev/null || true
+                    run_root systemctl disable kea-dhcp4-server 2>/dev/null || true
+
+                    # Flush current static IP and trigger DHCP client on LAN interface
+                    run_root ip addr flush dev "$LAN_IF" 2>/dev/null || true
+                    run_root ip link set dev "$LAN_IF" up 2>/dev/null || true
+                    run_root dhclient -r "$LAN_IF" 2>/dev/null || true
+                    run_root dhclient -4 -nw -pf "/run/dhclient.${LAN_IF}.pid" "$LAN_IF" 2>/dev/null || true
+
+                    if [ -x /usr/local/bin/micron-network ]; then
+                        run_root /usr/local/bin/micron-network || true
+                    fi
+
+                    echo -e "${GREEN}[OK] DHCP requested on ${LAN_IF} (LAN).${NC}"
+                    echo -e "${YELLOW}[i] Local DHCP server (Kea) automatically stopped on ${LAN_IF} to prevent network conflicts.${NC}"
+                else
+                    read -r -p "Enter new LAN IPv4 address with CIDR mask [10.10.10.10/24]: " NEW_LAN_CIDR
+                    NEW_LAN_CIDR=${NEW_LAN_CIDR:-10.10.10.10/24}
+
+                    LAN_ONLY_IP=$(echo "$NEW_LAN_CIDR" | cut -d/ -f1)
+                    LAN_MASK=$(echo "$NEW_LAN_CIDR" | cut -d/ -f2)
+                    LAN_MASK=${LAN_MASK:-24}
+
+                    if [ -x /usr/local/bin/microctl ]; then
+                        run_root /usr/local/bin/microctl interface set-lan "$NEW_LAN_CIDR" || true
+                    fi
+
+                    # Update SQLite database with current active interfaces
+                    for dbpath in /usr/local/micron/writable/micron_config.db "$app_root/writable/micron_config.db"; do
+                        if [ -f "$dbpath" ] && command -v sqlite3 >/dev/null 2>&1; then
+                            run_root sqlite3 "$dbpath" "UPDATE interfaces SET physical_device='$LAN_IF', ip_assignment_type='static', ipv4_address='$LAN_ONLY_IP', ipv4_netmask=$LAN_MASK WHERE id='lan';" 2>/dev/null || true
+                            run_root sqlite3 "$dbpath" "UPDATE interfaces SET physical_device='$WAN_IF' WHERE id='wan';" 2>/dev/null || true
+                        fi
+                    done
+
+                    # Enable kernel packet forwarding
+                    run_root sysctl -w net.ipv4.ip_forward=1 net.ipv4.conf.all.forwarding=1 net.ipv6.conf.all.forwarding=1 >/dev/null 2>&1 || true
+
+                    # Apply IP to interface immediately
+                    run_root ip addr flush dev "$LAN_IF" 2>/dev/null || true
+                    run_root ip addr add "$NEW_LAN_CIDR" dev "$LAN_IF" 2>/dev/null || true
+                    run_root ip link set dev "$LAN_IF" up 2>/dev/null || true
+
+                    # Synchronize daemon, DHCP server, DNS resolver and nftables
+                    if [ -x /usr/local/bin/micron-network ]; then
+                        run_root /usr/local/bin/micron-network || true
+                    fi
+
+                    # Check for WAN/LAN subnet overlap
+                    if [ -n "$WAN_IP" ] && [[ "$WAN_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+                        wan_sub=$(echo "$WAN_IP" | cut -d. -f1-3)
+                        lan_sub=$(echo "$LAN_ONLY_IP" | cut -d. -f1-3)
+                        if [ "$wan_sub" = "$lan_sub" ] && [ "$WAN_IF" != "$LAN_IF" ]; then
+                            echo -e "\n${RED}[!] ATTENTION: WAN subnet ($wan_sub.0/24) and LAN subnet ($lan_sub.0/24) overlap!${NC}"
+                            echo -e "${YELLOW}To avoid routing conflicts, ensure WAN and LAN are on separate subnets.${NC}"
+                        fi
+                    fi
+
+                    echo -e "${GREEN}[OK] LAN interface configured to $NEW_LAN_CIDR${NC}"
+                    echo -e "${GREEN}[OK] Plug-and-play DHCP server and DNS active on $LAN_IF.${NC}"
                 fi
-
-                LAN_ONLY_IP=$(echo "$NEW_LAN_CIDR" | cut -d/ -f1)
-
-                run_root bash -c "cat << EOF > /etc/network/interfaces
-auto lo
-iface lo inet loopback
-
-allow-hotplug $WAN_IF
-iface $WAN_IF inet dhcp
-
-auto $LAN_IF
-allow-hotplug $LAN_IF
-iface $LAN_IF inet static
-    address $LAN_ONLY_IP
-    netmask 255.255.255.0
-EOF"
-
-                run_root ip addr flush dev "$LAN_IF" 2>/dev/null || true
-                run_root ip addr add "$NEW_LAN_CIDR" dev "$LAN_IF" 2>/dev/null || true
-                run_root ip link set dev "$LAN_IF" up 2>/dev/null || true
-
-                echo -e "${GREEN}[OK] LAN interface configured to $NEW_LAN_CIDR${NC}"
             else
                 read -r -p "Configure WAN as (D)HCP or (S)tatic? [D]: " WAN_TYPE
                 WAN_TYPE=${WAN_TYPE:-D}
@@ -816,44 +1068,34 @@ EOF"
                     read -r -p "Enter static WAN IPv4/mask (e.g. 192.168.5.100/24): " STATIC_WAN
                     read -r -p "Enter Default Gateway IPv4: " GW_WAN
                     WAN_ONLY_IP=$(echo "$STATIC_WAN" | cut -d/ -f1)
-                    run_root bash -c "cat << EOF > /etc/network/interfaces
-auto lo
-iface lo inet loopback
+                    WAN_MASK=$(echo "$STATIC_WAN" | cut -d/ -f2)
+                    WAN_MASK=${WAN_MASK:-24}
 
-auto $WAN_IF
-allow-hotplug $WAN_IF
-iface $WAN_IF inet static
-    address $WAN_ONLY_IP
-    netmask 255.255.255.0
-    gateway $GW_WAN
+                    for dbpath in /usr/local/micron/writable/micron_config.db "$app_root/writable/micron_config.db"; do
+                        if [ -f "$dbpath" ] && command -v sqlite3 >/dev/null 2>&1; then
+                            run_root sqlite3 "$dbpath" "UPDATE interfaces SET physical_device='$WAN_IF', ip_assignment_type='static', ipv4_address='$WAN_ONLY_IP', ipv4_netmask=$WAN_MASK, ipv4_gateway='$GW_WAN' WHERE id='wan';" 2>/dev/null || true
+                        fi
+                    done
 
-auto $LAN_IF
-allow-hotplug $LAN_IF
-iface $LAN_IF inet static
-    address 10.10.10.10
-    netmask 255.255.255.0
-EOF"
                     run_root ip addr flush dev "$WAN_IF" 2>/dev/null || true
                     run_root ip addr add "$STATIC_WAN" dev "$WAN_IF" 2>/dev/null || true
-                    [ -z "$GW_WAN" ] || run_root ip route add default via "$GW_WAN" dev "$WAN_IF" 2>/dev/null || true
+                    run_root ip link set dev "$WAN_IF" up 2>/dev/null || true
+                    [ -z "$GW_WAN" ] || run_root ip route replace default via "$GW_WAN" dev "$WAN_IF" 2>/dev/null || true
                     echo -e "${GREEN}[OK] WAN configured statically.${NC}"
                 else
-                    run_root bash -c "cat << EOF > /etc/network/interfaces
-auto lo
-iface lo inet loopback
+                    for dbpath in /usr/local/micron/writable/micron_config.db "$app_root/writable/micron_config.db"; do
+                        if [ -f "$dbpath" ] && command -v sqlite3 >/dev/null 2>&1; then
+                            run_root sqlite3 "$dbpath" "UPDATE interfaces SET physical_device='$WAN_IF', ip_assignment_type='dhcp' WHERE id='wan';" 2>/dev/null || true
+                        fi
+                    done
 
-allow-hotplug $WAN_IF
-iface $WAN_IF inet dhcp
-
-auto $LAN_IF
-allow-hotplug $LAN_IF
-iface $LAN_IF inet static
-    address 10.10.10.10
-    netmask 255.255.255.0
-EOF"
                     run_root dhclient -r "$WAN_IF" 2>/dev/null || true
-                    run_root dhclient "$WAN_IF" 2>/dev/null || true
+                    run_root dhclient -4 -nw -pf "/run/dhclient.${WAN_IF}.pid" "$WAN_IF" 2>/dev/null || true
                     echo -e "${GREEN}[OK] DHCP requested on $WAN_IF.${NC}"
+                fi
+
+                if [ -x /usr/local/bin/micron-network ]; then
+                    run_root /usr/local/bin/micron-network || true
                 fi
             fi
 
@@ -882,8 +1124,9 @@ EOF"
 
         4)
             echo -e "\n${BOLD}=== 4) Reset to Factory Defaults ===${NC}"
-            read -r -p "Are you sure you want to restore factory default configuration? (type YES): " CONFIRM_RESET
-            if [ "$CONFIRM_RESET" = "YES" ]; then
+            read -r -p "Are you sure you want to restore factory default configuration? [Y/n]: " CONFIRM_RESET
+            CONFIRM_RESET=${CONFIRM_RESET:-Y}
+            if [[ "$CONFIRM_RESET" =~ ^[yY] ]]; then
                 echo -e "${YELLOW}Restoring initial database seed...${NC}"
                 if [ -d "$app_root" ] && command -v php >/dev/null 2>&1; then
                     cd "$app_root"
@@ -905,7 +1148,12 @@ EOF"
             read -r -p "Reboot Micron OS appliance now? (y/N): " CONFIRM_RB
             if [ "$CONFIRM_RB" = "y" ] || [ "$CONFIRM_RB" = "Y" ]; then
                 echo -e "${YELLOW}Rebooting system...${NC}"
-                run_root systemctl reboot 2>/dev/null || run_root reboot
+                sync 2>/dev/null || true
+                echo 1 | run_root tee /proc/sys/kernel/sysrq >/dev/null 2>&1 || true
+                echo s | run_root tee /proc/sysrq-trigger >/dev/null 2>&1 || true
+                echo u | run_root tee /proc/sysrq-trigger >/dev/null 2>&1 || true
+                echo b | run_root tee /proc/sysrq-trigger >/dev/null 2>&1 || true
+                run_root systemctl reboot -f 2>/dev/null || run_root reboot -f 2>/dev/null || true
                 exit 0
             fi
             ;;
@@ -1132,13 +1380,17 @@ EOF
             manage_bridges_menu
             ;;
 
+        19)
+            manage_dhcp_menu
+            ;;
+
         "")
             # Enter pressed with no input -> refresh status immediately
             continue
             ;;
 
         *)
-            echo -e "${RED}Invalid option '${OPTION}'. Please enter a number 0 to 18.${NC}"
+            echo -e "${RED}Invalid option '${OPTION}'. Please enter a number 0 to 19.${NC}"
             sleep 1
             ;;
     esac

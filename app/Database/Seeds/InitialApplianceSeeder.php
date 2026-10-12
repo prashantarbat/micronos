@@ -118,8 +118,8 @@ class InitialApplianceSeeder extends Seeder
                     'action'       => 'pass',
                     'direction'    => 'in',
                     'protocol'     => 'any',
-                    'source_type'  => 'network',
-                    'source_value' => '10.10.10.0/24',
+                    'source_type'  => 'any',
+                    'source_value' => 'any',
                     'source_port'  => null,
                     'dest_type'    => 'any',
                     'dest_value'   => 'any',
@@ -157,6 +157,23 @@ class InitialApplianceSeeder extends Seeder
                 ['id' => 'cat_gambling', 'name' => 'Gambling', 'action' => 'block', 'description' => 'Online betting and casino portals', 'enabled' => 1],
                 ['id' => 'cat_adult', 'name' => 'Adult Content', 'action' => 'block', 'description' => 'Pornography and explicit material', 'enabled' => 1],
                 ['id' => 'cat_social', 'name' => 'Social Media', 'action' => 'allow', 'description' => 'Social networking platforms', 'enabled' => 1],
+            ]);
+        }
+
+        // 5. Seed Default DHCP Server Settings for LAN (Disabled by default on fresh install)
+        if ($db->table('dhcp_server_settings')->where('interface_id', 'lan')->countAllResults() === 0) {
+            $db->table('dhcp_server_settings')->insert([
+                'interface_id' => 'lan',
+                'enabled'      => 0,
+                'range_from'   => '10.10.10.100',
+                'range_to'     => '10.10.10.200',
+                'gateway'      => '10.10.10.10',
+                'dns_1'        => '10.10.10.10',
+                'dns_2'        => '1.1.1.1',
+                'default_lease_time' => 7200,
+                'max_lease_time'     => 86400,
+                'created_at'   => date('Y-m-d H:i:s'),
+                'updated_at'   => date('Y-m-d H:i:s'),
             ]);
         }
     }

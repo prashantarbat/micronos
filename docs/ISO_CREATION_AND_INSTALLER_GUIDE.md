@@ -25,11 +25,11 @@
 
 ## 1. Overview & Boot Architecture
 
-Micron Firewall OS is distributed as a **hybrid ISO image** (`micronos-2.0.0-amd64.hybrid.iso`). A hybrid ISO is structured so that it can be booted either as an optical disc (CD/DVD/Virtual ISO) or written byte-for-byte to a raw USB flash drive, external NVMe enclosure, or CFast card.
+Micron Firewall OS is distributed as a **hybrid ISO image** (`micronos-0.1.23-amd64.hybrid.iso`). A hybrid ISO is structured so that it can be booted either as an optical disc (CD/DVD/Virtual ISO) or written byte-for-byte to a raw USB flash drive, external NVMe enclosure, or CFast card.
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
-│                   MICRONOS HYBRID ISO BOOT ARCHITECTURE                │
+│                   MICRON OS HYBRID ISO BOOT ARCHITECTURE                │
 ├───────────────────────────────────┬────────────────────────────────────┤
 │ Legacy BIOS Boot Path             │ UEFI Boot Path                     │
 │ ├── MBR Partition Table           │ ├── GPT / EFI System Partition     │
@@ -724,7 +724,7 @@ sudo lb build 2>&1 | tee build.log
 ```
 
 When finished, the root directory will contain:
-`micronos-2.0.0-amd64.hybrid.iso`
+`micronos-0.1.23-amd64.hybrid.iso`
 
 ---
 
@@ -744,7 +744,7 @@ qemu-system-x86_64 \
     -smp 4 \
     -cpu host \
     -bios /usr/share/ovmf/OVMF.fd \
-    -cdrom micronos-2.0.0-amd64.hybrid.iso \
+    -cdrom micronos-0.1.23-amd64.hybrid.iso \
     -drive file=test-appliance.qcow2,if=virtio,format=qcow2 \
     -netdev user,id=wan,net=192.168.100.0/24 -device virtio-net-pci,netdev=wan \
     -netdev user,id=lan,net=192.168.1.0/24 -device virtio-net-pci,netdev=lan \
@@ -769,11 +769,11 @@ qemu-system-x86_64 \
 lsblk
 
 # Write hybrid image byte-for-byte
-sudo dd if=micronos-2.0.0-amd64.hybrid.iso of=/dev/sdX bs=4M status=progress oflag=sync
+sudo dd if=micronos-0.1.23-amd64.hybrid.iso of=/dev/sdX bs=4M status=progress oflag=sync
 ```
 
 ### 12.2 Windows Flashing
-- **Rufus:** Select `micronos-2.0.0-amd64.hybrid.iso`. When prompted, choose **"Write in DD Image mode"**.
+- **Rufus:** Select `micronos-0.1.23-amd64.hybrid.iso`. When prompted, choose **"Write in DD Image mode"**.
 - **BalenaEtcher:** Select ISO file $\rightarrow$ Select Target USB $\rightarrow$ Flash.
 
 ---
@@ -1016,7 +1016,7 @@ Then populate it from the Windows-side repository using `rsync` over the `/mnt/`
 
 ```bash
 # Stage the live-build configuration from the repository
-rsync -av /mnt/d/laragon/www/micronos/micronos/packaging/live-build/ /root/micronos-builder/
+rsync -av /mnt/d/laragon/app/micronos/packaging/live-build/ /root/micronos-builder/
 chmod +x auto/config auto/clean auto/build 2>/dev/null || true
 ```
 
@@ -1072,7 +1072,7 @@ A successful build takes **15–45 minutes** depending on network speed and CPU.
 When finished, the following file is created in the builder root:
 
 ```
-/root/micronos-builder/micronos-2.0.0-amd64.hybrid.iso
+/root/micronos-builder/micronos-0.1.23-amd64.hybrid.iso
 ```
 
 Verify the image was produced and check its size:
@@ -1087,13 +1087,13 @@ ls -lh /root/micronos-builder/*.iso
 Copy the generated ISO from the WSL native filesystem back to your Windows workspace:
 
 ```bash
-# Copy to the Windows project directory
-cp /root/micronos-builder/micronos-2.0.0-amd64.hybrid.iso \
-   /mnt/d/laragon/www/micronos/micronos/micronos-2.0.0-amd64.hybrid.iso
+# Copy to the Windows workspace (outside repository tree, directly in D:\laragon\www\micronos)
+cp /root/micronos-builder/micronos-0.1.23-amd64.hybrid.iso \
+   /mnt/d/laragon/www-iso/micronos-0.1.23-amd64.hybrid.iso
 
 # Or to your Desktop
-cp /root/micronos-builder/micronos-2.0.0-amd64.hybrid.iso \
-   "/mnt/c/Users/$USER/Desktop/micronos-2.0.0-amd64.hybrid.iso"
+cp /root/micronos-builder/micronos-0.1.23-amd64.hybrid.iso \
+   "/mnt/c/Users/$USER/Desktop/micronos-0.1.23-amd64.hybrid.iso"
 ```
 
 On the Windows side the file is then accessible from File Explorer, Rufus, Hyper-V, VirtualBox, or any other tool.
@@ -1106,7 +1106,7 @@ When only the PHP application or CLI changed (no package additions), skip the fu
 cd /root/micronos-builder
 
 # 1. Re-stage the overlay (picks up all application changes)
-bash /mnt/d/laragon/www/micronos/micronos/packaging/live-build/stage-overlay.sh
+bash /mnt/d/laragon/app/micronos/packaging/live-build/stage-overlay.sh
 
 # 2. Clean only the binary layer (keeps the chroot)
 sudo lb clean
@@ -1131,9 +1131,9 @@ Save this as `/root/rebuild_iso.sh` inside WSL for one-command rebuilds:
 # ==============================================================================
 set -e
 
-REPO_WIN_PATH="/mnt/d/laragon/www/micronos/micronos"
+REPO_WIN_PATH="/mnt/d/laragon/app/micronos"
 BUILD_DIR="/root/micronos-builder"
-OUT_ISO_NAME="micronos-2.0.0-amd64.hybrid.iso"
+OUT_ISO_NAME="micronos-0.1.23-amd64.hybrid.iso"
 
 FULL_BUILD=0
 [ "$1" = "--full" ] && FULL_BUILD=1

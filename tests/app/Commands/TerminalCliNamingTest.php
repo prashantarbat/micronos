@@ -84,7 +84,7 @@ final class TerminalCliNamingTest extends CIUnitTestCase
      *
      * @var list<string>
      */
-    private const FOREIGN_CTL_TOOLS = ['systemctl', 'journalctl', 'networkctl', 'resolvectl', 'sysctl', 'swanctl'];
+    private const FOREIGN_CTL_TOOLS = ['systemctl', 'journalctl', 'networkctl', 'resolvectl', 'sysctl', 'swanctl', 'timedatectl', 'ioctl'];
 
     /** §19.1 lists the console commands; a shrunken section must not pass vacuously. */
     private const MIN_DOCUMENTED_COMMANDS = 7;
