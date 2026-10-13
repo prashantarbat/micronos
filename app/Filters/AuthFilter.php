@@ -2,6 +2,7 @@
 
 namespace App\Filters;
 
+use App\Libraries\IntendedUrl;
 use CodeIgniter\Filters\FilterInterface;
 use CodeIgniter\HTTP\RequestInterface;
 use CodeIgniter\HTTP\ResponseInterface;
@@ -12,6 +13,13 @@ use CodeIgniter\HTTP\ResponseInterface;
  * Routes protected by this filter will redirect unauthenticated users to the
  * login page.  After authentication, the user is redirected back to the
  * originally requested URI.
+ *
+ * Only destinations a GET can render are remembered (see App\Libraries\IntendedUrl).
+ * Remembering a POST endpoint — which is what happened when an expired session
+ * submitted a form — sent the browser back to that address with a GET after
+ * login, where no route exists for it:
+ *
+ *     Can't find a route for 'GET: vpn/wireguard/tunnels/store'
  */
 class AuthFilter implements FilterInterface
 {
@@ -20,8 +28,8 @@ class AuthFilter implements FilterInterface
         $session = session();
 
         if (! $session->get('user_id')) {
-            // Store the intended URL so we can redirect after login
-            $session->set('redirect_url', current_url());
+            // Remember where to resume, never a POST-only address.
+            IntendedUrl::remember($request, $session);
             return redirect()->to(base_url('auth/login'))->with('info', 'Please log in to continue.');
         }
 

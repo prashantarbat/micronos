@@ -399,7 +399,7 @@ class IpcClient
             $method === 'vpn.wireguard.status' => $this->mockWgStatus(),
             $method === 'vpn.wireguard.peers'  => ['peers' => []],
             $method === 'vpn.wireguard.genkey' => $this->mockWgKeypair(),
-            $method === 'vpn.wireguard.pubkey' => ['public_key' => $this->mockWgKeypair()['public_key'], 'mock' => true],
+            $method === 'vpn.wireguard.pubkey' => ['public_key' => !empty($params['private_key']) ? WireguardCompiler::publicKeyFromPrivateKey($params['private_key']) : $this->mockWgKeypair()['public_key'], 'mock' => true],
             $method === 'vpn.wireguard.pskgen' => $this->mockWgPresharedKey(),
             $method === 'vpn.openvpn.status'   => ['running' => false, 'clients' => 0],
             $method === 'vpn.openvpn.sync' || $method === 'vpn.openvpn.reload' => ['success' => true, 'status' => 'reloaded'],
@@ -1379,11 +1379,9 @@ class IpcClient
      */
     private function mockWgKeypair(): array
     {
-        return [
-            'private_key' => base64_encode(random_bytes(32)),
-            'public_key'  => base64_encode(random_bytes(32)),
-            'mock'        => true,
-        ];
+        $pair = WireguardCompiler::generateKeypair();
+        $pair['mock'] = true;
+        return $pair;
     }
 
     /**
@@ -1393,7 +1391,7 @@ class IpcClient
     private function mockWgPresharedKey(): array
     {
         return [
-            'preshared_key' => base64_encode(random_bytes(32)),
+            'preshared_key' => WireguardCompiler::generatePresharedKey(),
             'mock'          => true,
         ];
     }

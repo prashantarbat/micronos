@@ -228,16 +228,22 @@ class Database extends Config
         // on sudden power loss without database corruption or lock contention.
         if (($this->default['DBDriver'] ?? '') === 'SQLite3') {
             $dbPath = $this->default['database'] ?? '';
-            if ($dbPath !== ':memory:' && $dbPath !== '' && file_exists($dbPath)) {
-                try {
-                    $sqlite = new \SQLite3($dbPath);
-                    $sqlite->busyTimeout((int) ($this->default['busyTimeout'] ?? 5000));
-                    $sqlite->exec('PRAGMA journal_mode = WAL;');
-                    $sqlite->exec('PRAGMA synchronous = 2;');
-                    $sqlite->exec('PRAGMA wal_autocheckpoint = 1000;');
-                    $sqlite->close();
-                } catch (\Throwable $e) {
-                    // Fail-safe if SQLite file cannot be locked directly
+            if ($dbPath !== ':memory:' && $dbPath !== '') {
+                $dbDir = dirname($dbPath);
+                if (!is_dir($dbDir)) {
+                    @mkdir($dbDir, 0755, true);
+                }
+                if (file_exists($dbPath)) {
+                    try {
+                        $sqlite = new \SQLite3($dbPath);
+                        $sqlite->busyTimeout((int) ($this->default['busyTimeout'] ?? 5000));
+                        $sqlite->exec('PRAGMA journal_mode = WAL;');
+                        $sqlite->exec('PRAGMA synchronous = 2;');
+                        $sqlite->exec('PRAGMA wal_autocheckpoint = 1000;');
+                        $sqlite->close();
+                    } catch (\Throwable $e) {
+                        // Fail-safe if SQLite file cannot be locked directly
+                    }
                 }
             }
         }

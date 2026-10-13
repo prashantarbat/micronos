@@ -146,6 +146,15 @@ if [ -f "${root}/system/micron-ready-beep.service" ]; then
     install -m 0644 "${root}/system/micron-ready-beep.service" "${out}/etc/systemd/system/micron-ready-beep.service"
 fi
 
+if [ -f "${root}/system/micron-sdwan-probe" ]; then
+    install -m 0755 "${root}/system/micron-sdwan-probe" "${out}/usr/local/bin/micron-sdwan-probe"
+fi
+
+if [ -f "${root}/system/micron-sdwan-probe.service" ]; then
+    install -d "${out}/etc/systemd/system"
+    install -m 0644 "${root}/system/micron-sdwan-probe.service" "${out}/etc/systemd/system/micron-sdwan-probe.service"
+fi
+
 install -d "${out}/etc/modules-load.d"
 echo "pcspkr" > "${out}/etc/modules-load.d/pcspkr.conf"
 

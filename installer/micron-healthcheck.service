@@ -7,18 +7,34 @@ Documentation=https://github.com/micronos/micronos
 DefaultDependencies=no
 After=local-fs.target network-online.target
 After=apache2.service php8.4-fpm.service php-fpm.service php8.3-fpm.service micrond.service
-Wants=network-online.target
+Wants=network-online.target apache2.service php8.4-fpm.service micrond.service
 ConditionPathExists=/usr/local/micron/installer/micron-slot
 
 [Service]
 Type=oneshot
 RemainAfterExit=no
-Environment=MICRON_HEALTHCHECK_REBOOT=1
+# REBOOT POLICY: the health check REPORTS a failure; it must not restart the
+# appliance on its own. `MICRON_HEALTHCHECK_REBOOT=1` previously made this unit a
+# machine-wide unconditional reboot path that fired ~20 s after every boot, so an
+# operator sitting in the console menu saw the appliance reboot after whichever
+# option they picked, and a fresh install with one persistently failing probe
+# rebooted in a loop. This default (0) is intentional; set it to 1 only if you
+# explicitly want automatic A/B failover rebooting.
+Environment=MICRON_HEALTHCHECK_REBOOT=0
+# Allow 5 attempts before abandoning the boot slot (up from default 3).
+# This gives more room for services to stabilise after a fresh install.
+Environment=MICRON_MAX_FAILS=5
+# Wait 20 seconds after unit start before probing.
+# apache2, php8.4-fpm and micrond all need a moment to fully initialise
+# after a first-boot database migration; probing immediately causes false
+# failures.
+ExecStartPre=/bin/sleep 20
 ExecStart=/usr/local/micron/installer/micron-healthcheck
-# A failing check records the fallback itself and may reboot the appliance, so
-# its exit status is informational rather than a unit failure.
+# A failing check records the reason and exits 1; its exit status is
+# informational rather than a unit failure.
 SuccessExitStatus=0 1
-TimeoutStartSec=120
+# 180 s = 20 s sleep + up to 120 s for the probes themselves + headroom
+TimeoutStartSec=180
 StandardOutput=journal
 StandardError=journal
 

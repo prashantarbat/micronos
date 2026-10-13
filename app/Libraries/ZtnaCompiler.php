@@ -55,6 +55,13 @@ class ZtnaCompiler
         $lines[] = "    listen 443 ssl http2;";
         $lines[] = "    server_name {$domain};";
         $lines[] = "";
+        // A `listen ... ssl` server block with no ssl_certificate pair makes
+        // `nginx -t` fail outright, which aborted ztna.apply before nginx was
+        // ever reloaded. micrond provisions a self-signed pair at this path when
+        // the operator has not installed a certificate of their own.
+        $lines[] = "    ssl_certificate     /etc/micron/pki/ztna.crt;";
+        $lines[] = "    ssl_certificate_key /etc/micron/pki/ztna.key;";
+        $lines[] = "";
         $lines[] = "    # Internal Identity Authentication Subrequest";
         $lines[] = "    location = /api/ztna/verify-auth {";
         $lines[] = "        internal;";

@@ -1,0 +1,922 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark" data-mode="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Micron Firewall OS (MicronOS) — Completion Master Prompt</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <style>
+    /* ============================================================
+       THEME PRESETS: 9 MicronOS Schemes (Dark + Light)
+       ============================================================ */
+    :root, [data-theme="dark"] {
+      --bg-primary: #070b14;
+      --bg-secondary: #0d1220;
+      --bg-tertiary: #111827;
+      --card-bg: rgba(17, 24, 39, 0.7);
+      --card-border: rgba(255, 255, 255, 0.08);
+      --card-border-bright: rgba(255, 255, 255, 0.14);
+      --text-main: #f1f5f9;
+      --text-muted: #94a3b8;
+      --accent-cyan: #00d4ff;
+      --accent-cyan-dim: rgba(0, 212, 255, 0.15);
+      --accent-deep: #0096c7;
+      --accent-purple: #7c3aed;
+      --accent-emerald: #10b981;
+      --accent-amber: #f59e0b;
+      --accent-rose: #ef4444;
+      --code-bg: #0d1220;
+      --sidebar-w: 320px;
+    }
+
+    [data-theme="midnight"] {
+      --bg-primary: #090712;
+      --bg-secondary: #110f1e;
+      --bg-tertiary: #16132a;
+      --card-bg: rgba(22, 19, 42, 0.75);
+      --card-border: rgba(139, 92, 246, 0.12);
+      --card-border-bright: rgba(139, 92, 246, 0.22);
+      --text-main: #ede9fe;
+      --text-muted: #a1a1b5;
+      --accent-cyan: #a78bfa;
+      --accent-cyan-dim: rgba(167, 139, 250, 0.15);
+      --accent-deep: #7c3aed;
+      --accent-purple: #c084fc;
+      --accent-emerald: #34d399;
+      --accent-amber: #fbbf24;
+      --accent-rose: #f87171;
+      --code-bg: #110f1e;
+    }
+
+    [data-theme="ocean"] {
+      --bg-primary: #030f14;
+      --bg-secondary: #071820;
+      --bg-tertiary: #0c202a;
+      --card-bg: rgba(12, 32, 42, 0.75);
+      --card-border: rgba(45, 212, 191, 0.12);
+      --card-border-bright: rgba(45, 212, 191, 0.22);
+      --text-main: #f0fdfa;
+      --text-muted: #99f6e4;
+      --accent-cyan: #2dd4bf;
+      --accent-cyan-dim: rgba(45, 212, 191, 0.15);
+      --accent-deep: #0f766e;
+      --accent-purple: #818cf8;
+      --accent-emerald: #34d399;
+      --accent-amber: #fbbf24;
+      --accent-rose: #f87171;
+      --code-bg: #071820;
+    }
+
+    [data-theme="forest"] {
+      --bg-primary: #050f08;
+      --bg-secondary: #0a170e;
+      --bg-tertiary: #0e2014;
+      --card-bg: rgba(14, 32, 20, 0.75);
+      --card-border: rgba(74, 222, 128, 0.12);
+      --card-border-bright: rgba(74, 222, 128, 0.22);
+      --text-main: #f0fdf4;
+      --text-muted: #bbf7d0;
+      --accent-cyan: #4ade80;
+      --accent-cyan-dim: rgba(74, 222, 128, 0.15);
+      --accent-deep: #15803d;
+      --accent-purple: #a78bfa;
+      --accent-emerald: #22c55e;
+      --accent-amber: #fbbf24;
+      --accent-rose: #f87171;
+      --code-bg: #0a170e;
+    }
+
+    [data-theme="slate"] {
+      --bg-primary: #0a0d12;
+      --bg-secondary: #111520;
+      --bg-tertiary: #161b28;
+      --card-bg: rgba(22, 27, 40, 0.75);
+      --card-border: rgba(100, 116, 139, 0.14);
+      --card-border-bright: rgba(100, 116, 139, 0.24);
+      --text-main: #e2e8f0;
+      --text-muted: #94a3b8;
+      --accent-cyan: #94a3b8;
+      --accent-cyan-dim: rgba(148, 163, 184, 0.15);
+      --accent-deep: #475569;
+      --accent-purple: #818cf8;
+      --accent-emerald: #34d399;
+      --accent-amber: #fbbf24;
+      --accent-rose: #f87171;
+      --code-bg: #111520;
+    }
+
+    /* Shared light mode base */
+    [data-mode="light"] {
+      --bg-primary: #f1f5f9;
+      --bg-secondary: #ffffff;
+      --bg-tertiary: #f8fafc;
+      --card-bg: #ffffff;
+      --card-border: rgba(0, 0, 0, 0.08);
+      --card-border-bright: rgba(0, 0, 0, 0.15);
+      --text-main: #0f172a;
+      --text-muted: #64748b;
+      --accent-cyan: #0284c7;
+      --accent-cyan-dim: rgba(2, 132, 199, 0.10);
+      --accent-deep: #0369a1;
+      --accent-purple: #7c3aed;
+      --accent-emerald: #059669;
+      --accent-amber: #d97706;
+      --accent-rose: #dc2626;
+      --code-bg: #f8fafc;
+    }
+
+    /* Solar Amber (warm cream) */
+    [data-theme="solar"] {
+      --bg-primary: #fdf7ee;
+      --bg-secondary: #ffffff;
+      --bg-tertiary: #fffaf3;
+      --card-bg: #ffffff;
+      --card-border: rgba(146, 94, 28, 0.14);
+      --card-border-bright: rgba(146, 94, 28, 0.25);
+      --text-main: #3b2410;
+      --text-muted: #7c5a34;
+      --accent-cyan: #ea580c;
+      --accent-cyan-dim: rgba(234, 88, 12, 0.12);
+      --accent-deep: #c2410c;
+      --accent-purple: #9333ea;
+      --accent-emerald: #0f766e;
+      --accent-amber: #b45309;
+      --accent-rose: #dc2626;
+      --code-bg: #fbf0e0;
+    }
+
+    /* Mint Breeze (cool teal) */
+    [data-theme="mint"] {
+      --bg-primary: #f0fdf9;
+      --bg-secondary: #ffffff;
+      --bg-tertiary: #f6fefb;
+      --card-bg: #ffffff;
+      --card-border: rgba(13, 120, 100, 0.14);
+      --card-border-bright: rgba(13, 120, 100, 0.25);
+      --text-main: #0b3b34;
+      --text-muted: #3f6f66;
+      --accent-cyan: #0d9488;
+      --accent-cyan-dim: rgba(13, 148, 136, 0.12);
+      --accent-deep: #0f766e;
+      --accent-purple: #7c3aed;
+      --accent-emerald: #047857;
+      --accent-amber: #b45309;
+      --accent-rose: #dc2626;
+      --code-bg: #e3f9f2;
+    }
+
+    /* Paper Ink (neutral paper) */
+    [data-theme="paper"] {
+      --bg-primary: #f7f7f8;
+      --bg-secondary: #ffffff;
+      --bg-tertiary: #fbfbfc;
+      --card-bg: #ffffff;
+      --card-border: rgba(15, 23, 42, 0.10);
+      --card-border-bright: rgba(15, 23, 42, 0.20);
+      --text-main: #0f172a;
+      --text-muted: #64748b;
+      --accent-cyan: #4f46e5;
+      --accent-cyan-dim: rgba(79, 70, 229, 0.10);
+      --accent-deep: #4338ca;
+      --accent-purple: #7c3aed;
+      --accent-emerald: #047857;
+      --accent-amber: #b45309;
+      --accent-rose: #dc2626;
+      --code-bg: #f0f0f3;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background-color: var(--bg-primary);
+      color: var(--text-main);
+      line-height: 1.65;
+      display: flex;
+      min-height: 100vh;
+      overflow-x: hidden;
+      transition: background-color 0.2s ease, color 0.2s ease;
+    }
+
+    /* Scrollbars */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--card-border-bright); border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--accent-cyan); }
+
+    /* ============================================================
+       FULLPAGE SIDEBAR NAVIGATION
+       ============================================================ */
+    aside.sidebar {
+      width: var(--sidebar-w);
+      background-color: var(--bg-secondary);
+      border-right: 1px solid var(--card-border);
+      position: fixed;
+      top: 0; bottom: 0; left: 0;
+      height: 100vh;
+      max-height: 100vh;
+      overflow: hidden;
+      padding: 1.25rem 1rem 1rem 1rem;
+      display: flex;
+      flex-direction: column;
+      z-index: 100;
+      box-shadow: 2px 0 12px rgba(0, 0, 0, 0.15);
+      transition: background-color 0.2s ease, border-color 0.2s ease;
+    }
+
+    .sidebar-top {
+      flex: 0 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .brand-box {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding-bottom: 0.85rem;
+      border-bottom: 1px solid var(--card-border);
+    }
+    .brand-logo {
+      width: 38px;
+      height: 38px;
+      background: linear-gradient(135deg, var(--accent-cyan), var(--accent-deep));
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 1.2rem;
+      color: #fff;
+      box-shadow: 0 4px 12px var(--accent-cyan-dim);
+    }
+    .brand-text h2 {
+      font-size: 1.02rem;
+      font-weight: 700;
+      color: var(--text-main);
+      letter-spacing: -0.02em;
+    }
+    .brand-text p {
+      font-size: 0.72rem;
+      color: var(--accent-cyan);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .doc-nav-links {
+      display: flex;
+      flex-direction: column;
+      gap: 0.3rem;
+      padding-bottom: 0.85rem;
+      border-bottom: 1px solid var(--card-border);
+    }
+    .doc-nav-links a {
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-decoration: none;
+      padding: 0.45rem 0.65rem;
+      border-radius: 7px;
+      transition: all 0.18s ease;
+      display: flex;
+      align-items: center;
+      gap: 0.55rem;
+    }
+    .doc-nav-links a:hover {
+      color: var(--text-main);
+      background: var(--bg-tertiary);
+    }
+    .doc-nav-links a.active {
+      color: var(--accent-cyan);
+      background: var(--accent-cyan-dim);
+      border-left: 3px solid var(--accent-cyan);
+      font-weight: 700;
+    }
+
+    .toc-header-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .toc-title {
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--accent-cyan);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .toc-search {
+      width: 100%;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--card-border-bright);
+      border-radius: 7px;
+      padding: 7px 10px;
+      font-size: 0.78rem;
+      color: var(--text-main);
+      outline: none;
+      font-family: inherit;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    .toc-search:focus {
+      border-color: var(--accent-cyan);
+      box-shadow: 0 0 0 3px var(--accent-cyan-dim);
+    }
+
+    /* Dedicated scrollable TOC list filling full viewport */
+    nav.toc-nav {
+      flex: 1 1 0;
+      min-height: 0;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+      padding-top: 0.4rem;
+      padding-right: 4px;
+      scrollbar-width: thin;
+    }
+    nav.toc-nav a {
+      font-size: 0.79rem;
+      color: var(--text-muted);
+      text-decoration: none;
+      padding: 0.4rem 0.6rem;
+      border-radius: 6px;
+      transition: all 0.15s ease;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: block;
+      line-height: 1.35;
+    }
+    nav.toc-nav a:hover {
+      color: var(--text-main);
+      background: var(--bg-tertiary);
+    }
+    nav.toc-nav a.active {
+      color: var(--accent-cyan);
+      background: var(--accent-cyan-dim);
+      font-weight: 600;
+    }
+    nav.toc-nav a.h3-link {
+      padding-left: 1.25rem;
+      font-size: 0.74rem;
+      opacity: 0.85;
+    }
+
+    /* Pinned Sidebar Footer (Theme Preset Switcher) */
+    .sidebar-foot {
+      flex: 0 0 auto;
+      padding-top: 0.75rem;
+      border-top: 1px solid var(--card-border);
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+    }
+    .theme-select-label {
+      font-size: 0.68rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+    }
+    .theme-select {
+      width: 100%;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--card-border-bright);
+      border-radius: 6px;
+      padding: 6px 10px;
+      font-size: 0.78rem;
+      color: var(--text-main);
+      outline: none;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .theme-select:focus {
+      border-color: var(--accent-cyan);
+    }
+
+    /* ============================================================
+       MAIN CONTENT
+       ============================================================ */
+    main.main-content {
+      margin-left: var(--sidebar-w);
+      flex: 1;
+      padding: 2.5rem 3.5rem 5rem 3.5rem;
+      max-width: 1200px;
+    }
+
+    .doc-header {
+      margin-bottom: 2.5rem;
+      padding-bottom: 1.5rem;
+      border-bottom: 1px solid var(--card-border);
+    }
+    .doc-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 0.25rem 0.75rem;
+      border-radius: 9999px;
+      background: var(--accent-cyan-dim);
+      color: var(--accent-cyan);
+      border: 1px solid var(--accent-cyan);
+      margin-bottom: 0.75rem;
+    }
+    .doc-header h1 {
+      font-size: 2.2rem;
+      font-weight: 800;
+      color: var(--text-main);
+      letter-spacing: -0.03em;
+      margin-bottom: 0.5rem;
+      line-height: 1.2;
+    }
+    .doc-header p {
+      font-size: 1.05rem;
+      color: var(--text-muted);
+    }
+
+    /* Markdown Styling */
+    #markdown-body {
+      color: var(--text-main);
+      font-size: 0.95rem;
+    }
+    #markdown-body h1, #markdown-body h2, #markdown-body h3, #markdown-body h4 {
+      color: var(--text-main);
+      font-weight: 700;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      letter-spacing: -0.02em;
+      scroll-margin-top: 2rem;
+    }
+    #markdown-body h2 {
+      font-size: 1.45rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 1px solid var(--card-border);
+      margin-top: 2.5rem;
+      color: var(--accent-cyan);
+    }
+    #markdown-body h3 {
+      font-size: 1.2rem;
+      color: var(--text-main);
+    }
+    #markdown-body h4 {
+      font-size: 1rem;
+      color: var(--text-muted);
+    }
+    #markdown-body p {
+      margin-bottom: 1rem;
+      line-height: 1.7;
+    }
+    #markdown-body ul, #markdown-body ol {
+      margin-bottom: 1.25rem;
+      padding-left: 1.5rem;
+    }
+    #markdown-body li {
+      margin-bottom: 0.4rem;
+      line-height: 1.6;
+    }
+    #markdown-body a {
+      color: var(--accent-cyan);
+      text-decoration: none;
+      font-weight: 500;
+    }
+    #markdown-body a:hover {
+      text-decoration: underline;
+    }
+
+    /* ============================================================
+       CODE BLOCKS: Adaptive Theme Presets (Light & Dark)
+       ============================================================ */
+    #markdown-body code {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.85em;
+      background: var(--code-bg);
+      color: var(--accent-cyan);
+      padding: 0.2em 0.45em;
+      border-radius: 5px;
+      border: 1px solid var(--card-border-bright);
+      font-weight: 600;
+    }
+    #markdown-body pre {
+      background: var(--code-bg);
+      border: 1px solid var(--card-border-bright);
+      border-radius: 10px;
+      padding: 1.25rem;
+      overflow-x: auto;
+      margin-bottom: 1.5rem;
+      position: relative;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    }
+    #markdown-body pre code {
+      background: transparent !important;
+      padding: 0 !important;
+      border: none !important;
+      color: var(--text-main) !important;
+      font-size: 0.85rem;
+      line-height: 1.65;
+    }
+
+    /* Theme-adaptive syntax highlighting tokens */
+    #markdown-body pre code.hljs { background: transparent !important; padding: 0 !important; }
+    .hljs-keyword, .hljs-selector-tag, .hljs-subst, .hljs-doctag { color: var(--accent-cyan) !important; font-weight: 600; }
+    .hljs-string, .hljs-title, .hljs-title.function_, .hljs-section, .hljs-attribute, .hljs-literal,
+    .hljs-template-tag, .hljs-template-variable, .hljs-type, .hljs-addition { color: var(--accent-emerald) !important; }
+    .hljs-comment, .hljs-quote, .hljs-deletion, .hljs-meta { color: var(--text-muted) !important; font-style: italic; }
+    .hljs-number, .hljs-regexp, .hljs-link { color: var(--accent-amber) !important; }
+    .hljs-variable, .hljs-params, .hljs-attr { color: var(--text-main) !important; }
+    .hljs-built_in, .hljs-builtin-name, .hljs-symbol, .hljs-bullet { color: var(--accent-purple) !important; font-weight: 600; }
+
+    /* Copy Button */
+    .code-copy-btn {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      background: var(--bg-secondary);
+      border: 1px solid var(--card-border-bright);
+      border-radius: 6px;
+      color: var(--text-muted);
+      font-size: 0.72rem;
+      padding: 4px 8px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      transition: all 0.15s ease;
+      font-family: inherit;
+    }
+    .code-copy-btn:hover {
+      background: var(--accent-cyan);
+      color: #fff;
+      border-color: var(--accent-cyan);
+    }
+
+    #markdown-body table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 1.75rem;
+      background: var(--card-bg);
+      border-radius: 10px;
+      overflow: hidden;
+      border: 1px solid var(--card-border);
+      font-size: 0.88rem;
+    }
+    #markdown-body th {
+      background: var(--bg-tertiary);
+      color: var(--text-main);
+      font-weight: 600;
+      text-align: left;
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid var(--card-border);
+    }
+    #markdown-body td {
+      padding: 0.65rem 1rem;
+      border-bottom: 1px solid var(--card-border);
+      color: var(--text-main);
+    }
+    #markdown-body tr:hover td {
+      background: var(--bg-tertiary);
+    }
+    #markdown-body blockquote {
+      border-left: 4px solid var(--accent-cyan);
+      background: var(--accent-cyan-dim);
+      padding: 0.85rem 1.25rem;
+      border-radius: 0 8px 8px 0;
+      margin-bottom: 1.25rem;
+      color: var(--text-main);
+    }
+    #markdown-body hr {
+      border: none;
+      height: 1px;
+      background: var(--card-border);
+      margin: 2.5rem 0;
+    }
+
+    @media (max-width: 900px) {
+      aside.sidebar { display: none; }
+      main.main-content { margin-left: 0; padding: 1.5rem; }
+    }
+  </style>
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="sidebar-top">
+      <div class="brand-box">
+        <div class="brand-logo">M</div>
+        <div class="brand-text">
+          <h2>MicronOS Docs</h2>
+          <p>Enterprise Firewall</p>
+        </div>
+      </div>
+
+      <div class="doc-nav-links">
+        <a href="index.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
+          </svg>
+          Docs Portal Hub
+        </a>
+
+        <a href="MICRON_FIREWALL_OS_ARCHITECTURE.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/>
+          </svg>
+          Architecture Blueprint
+        </a>
+        <a href="MICRONOS_MODULE_REFERENCE.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/>
+          </svg>
+          Module Reference
+        </a>
+        <a href="STEP_BY_STEP_IMPLEMENTATION_PLAN.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/>
+          </svg>
+          Implementation Plan
+        </a>
+        <a href="ISO_CREATION_AND_INSTALLER_GUIDE.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/>
+          </svg>
+          ISO &amp; Installer Guide
+        </a>
+        <a href="SSLVPN_ZTNA_CLIENTLESS_GATEWAY_SPECIFICATION.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+          </svg>
+          SSL-VPN &amp; ZTNA Spec
+        </a>
+        <a href="MICRONOS_UPDATE_AND_UPGRADE_SPECIFICATION.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+          </svg>
+          Update &amp; Upgrade Spec
+        </a>
+        <a href="MICRONOS_PLUGIN_AND_PACKAGE_MANAGER_SPECIFICATION.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
+          </svg>
+          Plugin &amp; Package Manager
+        </a>
+        <a href="MICRONOS_CONNECTOR_ABSTRACTION_SPECIFICATION.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13.828 10.172a4 4 0 010 5.656l-4 4a4 4 0 11-5.656-5.656l1-1m9.656-2.344a4 4 0 00-5.656-5.656l-4 4a4 4 0 105.656 5.656l1-1"/>
+          </svg>
+          Connector Abstraction Spec
+        </a>
+        <a href="MICRONOS_CONNECTOR_THREAT_MODEL.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+          </svg>
+          Connector Threat Model
+        </a>
+        <a href="HYPERV_WIN11_DEVELOPMENT_AND_AI_COORDINATION_GUIDE.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
+          </svg>
+          Hyper-V &amp; AI Dev Guide
+        </a>
+        <a href="MICRONOS_SYSTEM_RESILIENCE_AND_SELF_HEALING_SPECIFICATION.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+          </svg>
+          System Resilience Spec
+        </a>
+        <a href="MICRONOS_BONDING_AND_WIRELESS_GUIDE.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13.828 10.172a4 4 0 010 5.656l-3 3a4 4 0 01-5.656-5.656l1.5-1.5m7.156-7.156a4 4 0 00-5.656 0l-3 3a4 4 0 000 5.656l1.5 1.5"/>
+          </svg>
+          Bonding &amp; Wi-Fi Guide
+        </a>
+        <a href="MICRONOS_ADVANCED_ROADMAP_SPECIFICATION.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+          </svg>
+          Advanced Roadmap Spec
+        </a>
+        <a href="MICRONOS_VERSIONING_AND_RELEASE_LIFECYCLE_SPECIFICATION.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"/>
+          </svg>
+          Versioning &amp; Release Spec
+        </a>
+        <a href="UI_UX_COMPREHENSIVE_MODERNIZATION_PLAN.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="18" height="18" rx="2" stroke-linecap="round" stroke-linejoin="round"/><path stroke-linecap="round" stroke-linejoin="round" d="M3 9h18M9 21V9"/>
+          </svg>
+          UI/UX Modernization Plan
+        </a>
+        <a href="MICRONOS_CAPTIVE_PORTAL_AND_HOTSPOT_SPECIFICATION.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/>
+          </svg>
+          Captive Portal Spec
+        </a>
+        <a href="MICRONOS_COMPLETION_MASTER_PROMPT.html" class="active">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+          </svg>
+          Completion Master Prompt
+        </a>
+        <a href="MICRONOS_COMPLETION_PROGRAMME.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 11l3 3L22 4M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/>
+          </svg>
+          Completion Programme
+        </a>
+        <a href="MICRONOS_IPC_RPC_CLI_CONTRACT.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M8 4H6a2 2 0 00-2 2v12a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-2M9 4a2 2 0 002 2h2a2 2 0 002-2M9 4a1 1 0 011-1h4a1 1 0 011 1M9 12h6m-6 4h6"/>
+          </svg>
+          IPC / RPC / CLI Contract
+        </a>
+        <a href="MICRONOS_DIAGNOSTIC_TOOLKIT_SPECIFICATION.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M11 19a8 8 0 100-16 8 8 0 000 16zm10 2l-4.35-4.35"/>
+          </svg>
+          Diagnostic Toolkit Spec
+        </a>
+        <a href="MICRONOS_PLUGIN_WORKSPACE_SPECIFICATION.html">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
+          </svg>
+          Plugin Workspaces
+        </a>
+        <a href="http://micronos.test/dashboard" target="_blank" style="color:var(--accent-cyan); background:var(--accent-cyan-dim);">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+          </svg>
+          Launch Appliance GUI &rarr;
+        </a>
+      </div>
+
+      <div class="toc-header-wrap">
+        <div class="toc-title">
+          <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h7"/>
+          </svg>
+          Table of Contents
+        </div>
+        <input type="text" id="toc-search" class="toc-search" placeholder="Filter sections (e.g. snmp, siem, nat)..." oninput="filterToc(this.value)">
+      </div>
+    </div>
+
+    <nav class="toc-nav" id="toc-container">
+      <!-- Generated dynamically -->
+    </nav>
+
+    <div class="sidebar-foot">
+      <label for="themePresetSelect" class="theme-select-label">Theme Preset</label>
+      <select id="themePresetSelect" class="theme-select" onchange="setThemePreset(this.value)">
+        <optgroup label="Dark Themes">
+          <option value="dark">Dark Abyss</option>
+          <option value="midnight">Midnight</option>
+          <option value="ocean">Ocean Teal</option>
+          <option value="forest">Forest</option>
+          <option value="slate">Slate Grey</option>
+        </optgroup>
+        <optgroup label="Light Themes">
+          <option value="light">Light / Day</option>
+          <option value="solar">Solar Amber</option>
+          <option value="mint">Mint Breeze</option>
+          <option value="paper">Paper Ink</option>
+        </optgroup>
+      </select>
+    </div>
+  </aside>
+
+  <main class="main-content">
+    <div class="doc-header">
+      <span class="doc-badge">
+        <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+        </svg>
+        MicronOS Technical Manual
+      </span>
+      <h1>Micron Firewall OS (MicronOS) — Completion Master Prompt</h1>
+      <p>The paste-ready instruction set for finishing the platform: UI revamp, IPC/RPC/CLI alignment, diagnostic toolkit, plugin workspaces, and proof</p>
+    </div>
+
+    <article id="markdown-body"></article>
+  </main>
+
+  <script>
+    const rawMarkdown = "# MicronOS — Master Completion Prompt\n\n> **How to use this document.** Everything between the `=== BEGIN PROMPT ===` and\n> `=== END PROMPT ===` markers is a single, self-contained, paste-ready prompt.\n> Hand it to a coding agent (or a human engineer) exactly as it stands. It carries\n> its own context, constraints, method, acceptance criteria and reporting format, so\n> it needs no additional briefing.\n\n---\n\n=== BEGIN PROMPT ===\n\n# ROLE\n\nYou are a **Principal Linux Systems Engineer** with deep, hands-on mastery of all of\nthe following, and you are expected to work at that level:\n\n* **Networking** — L3/L4 forwarding, nftables/iptables, routing tables, policy\n  routing, VRF, NAT (SNAT/DNAT/NAT64), DHCP/Kea, DNS (Unbound, DNS64), PPPoE, SD-WAN,\n  QoS, multicast, LACP bonding, bridges/VLANs, WireGuard/OpenVPN/IPsec, ZTNA.\n* **Cyber security** — least privilege, RBAC design, capability bounding, input\n  validation at every trust boundary, secrets handling, audit trails, supply-chain\n  integrity (signed artefacts), threat modelling, and the discipline of proving a\n  control actually holds rather than assuming it.\n* **System administration** — Debian/apt, systemd (units, templates, drop-ins,\n  watchdog, `sd_notify`), journald, live-build ISO construction, GRUB/slot A-B\n  updates, filesystem and database resilience, appliance lifecycle.\n* **Software engineering** — PHP 8.3+ and CodeIgniter 4 at production quality,\n  Python 3.13 `asyncio`, JSON-RPC 2.0 protocol design, shell, SQL/SQLite, and\n  test-driven verification of every change you make.\n* **Diagnostics** — you know exactly which tool answers which question: `nmap` for\n  reachability/port state, `telnet`/`openssl s_client` for application handshakes,\n  `tcpdump` for the wire truth, `mtr` for path and loss, `conntrack` for state,\n  `arping` for L2, `iperf3` for throughput.\n\nYou are also a **product-minded engineer**. You care about whether an operator can\nactually finish a task at 03:00 during an outage, not about whether the code compiles.\n\n---\n\n# PROJECT CONTEXT (verified — treat as ground truth)\n\n**MicronOS** (Micron Firewall OS) is an enterprise firewall / router / VPN appliance\nbuilt on **Debian 13 (trixie)**. It is a complete product with a web UI, a privileged\ndaemon, two console CLIs, a TUI installer, an ISO build pipeline, and a substantial\ntest suite.\n\n## Layout\n\n| Path | What it is |\n|---|---|\n| `micronos/app/` | CodeIgniter 4 application: `Controllers/`, `Libraries/`, `Models/`, `Filters/`, `Views/`, `Commands/`, `Config/` |\n| `micronos/public/index.php` | Web front controller |\n| `micronos/system/micrond/micrond.py` | The privileged daemon — **~9,000 lines, 140 JSON-RPC handlers** (`rpc_<namespace>_<name>`) |\n| `micronos/system/micrond/client.py` | Python RPC client used by tooling |\n| `micronos/bin/microctl` | Break-glass **console CLI** (VGA/Serial) — `status`, `enable`, `disable`, `interface set-lan`, `firewall reset`, `backup create|restore|verify`, `config rollback`, `admin reset-password` |\n| `micronos/bin/micron-menu` | Interactive **TUI menu** for console/serial |\n| `micronos/spark` + `micronos/app/Commands/` | 17 CI4 CLI commands (`acme:renew`, `backup:create`, `firewall:compile`, `plugin:manage`, `verify:system`, …) |\n| `micronos/installer/` | Debian TUI installer, kickstart, slot A/B management, healthcheck |\n| `micronos/packaging/` | `live-build` ISO construction |\n| `micronos/tests/` | **142 PHPUnit files**, **16 pytest files**, **3 shell suites** |\n| `micronos/docs/` | Specifications + `build_docs.php` (Markdown → styled HTML) |\n\n## The IPC/RPC contract (already aligned — preserve it)\n\n* Transport: **Unix Domain Socket** `AF_UNIX`, `SOCK_STREAM`, path **`/run/micron/micrond.sock`**.\n* Framing: **4-byte big-endian `uint32` length prefix** + UTF-8 JSON payload.\n* Protocol: **JSON-RPC 2.0** (`jsonrpc`, `id`, `method`, `params` → `result` | `error`).\n* Strictness: both ends refuse `NaN`/`Infinity` and malformed JSON at the boundary\n  (`strict_json_loads`, `json.dumps(..., allow_nan=False)`).\n* PHP side: `app/Libraries/IpcClient.php` (`SOCK_PATH`, `TIMEOUT = 5`, `MAX_READ = 65536`,\n  mock mode on Windows / missing socket).\n* Dispatch: `RpcHandler.handle_request()` resolves `rpc_` + `method.replace('.', '_')`.\n  Unknown method → `-32601`. Handler exception → `-32000`.\n* Socket permissions: `0660`, group `www-data`.\n* Daemon surface is grouped by namespace: `system` (10), `interface` (4), `network` (4),\n  `firewall` (4), `diag` (18), `dhcp` (7), `pppoe` (5), `vpn` (8), `plugin` (32),\n  `webfilter` (4), `squid` (4), `ztna` (3), `captive` (4), `sdwan` (3), `dns`/`dnsbl` (5),\n  `bridge` (3), `bond` (3), `wireless` (2), `ssl` (3), `user` (5), `route`/`routing` (3),\n  `multicast` (2), `ids`/`nat`/`connector`/`service` (1 each).\n\n## Authorization model (preserve it)\n\n* Global filters: `csrf` then `auth` (`app/Config/Filters.php`).\n* Per-route: `['filter' => 'permission:<key>']` → `app/Filters/PermissionFilter.php`\n  → `PermissionModel::userCan()` (session `user_permissions` cache, DB fallback when the\n  permission catalog changed).\n* Controllers must not invent their own authorization. A new page is a new route with\n  a new (or reused) permission key, added to the catalog.\n\n## Plugin model (preserve it)\n\n* Definitions: `app/Plugins/definitions/<id>/plugin.json` (currently: `darkstat`,\n  `iperf3`, `ipv6-tunnel`, `lightsquid`, `lldpd`, `nat64`, `netbird`, `zerotier`).\n* Validated once at load by `app/Plugins/PluginManifest.php`: closed enums for `class`\n  (A/B/C) and lifecycle `actions`; capability grammar; unknown keys refused.\n* Lifecycle actions are a **closed enum** — `apt.install`, `apt.remove`,\n  `system.enable|disable|start|stop`, `template.render`, `file.copy`, `dir.ensure`,\n  `pki.issue`, `dns.setupstream`, `nft.set`. There is deliberately **no `shell.run`**.\n* `provides.menu` entries (`path`, `label`, `permission`) are rendered by\n  `app/Libraries/PluginNav.php` into the main layout, for **installed** plugins only.\n* `Plugins::show/$1` serves `/plugins/<id>`; each plugin also has its own JSON endpoints\n  (`plugins/iperf3/run`, `plugins/lldpd/status`, `plugins/lldpd/neighbours`, …).\n* The daemon resolves every package/unit/capability against a fixed `PLUGIN_CATALOG`\n  and refuses undeclared capabilities and protected packages/units.\n\n---\n\n# MISSION\n\nComplete and consolidate MicronOS into a finished, coherent, defensible appliance:\n\n1. **Finish what is unfinished.** No half-migrated module, no orphaned route, no\n   controller calling an RPC that does not exist, no UI control that does nothing.\n2. **Make the Web UI genuinely user-friendly** — consistent, predictable, keyboard- and\n   screen-reader-usable, honest about state, and fast on a slow link.\n3. **Guarantee Web UI ⇄ IPC/RPC ⇄ CLI alignment.** One source of truth per capability:\n   if the UI can do it, the daemon can do it, a CLI can do it, and all three agree on\n   names, parameters, validation and error reporting.\n4. **Add the missing network/security utilities** (telnet, nmap, mtr, whois, dig, nc,\n   `ss`, `arping`, `openssl s_client`, iperf3, …) as **first-class, safe, permissioned\n   features** with their own menus, RPC methods, CLI commands and tests.\n5. **Make installed plugins first-class workspaces** — each one reachable from the menu,\n   with a real working page (status, configuration, logs, lifecycle), not a stub.\n6. **Prove it.** Very high-coverage regression testing, live validation, and a written\n   evidence trail. Claims without evidence are not acceptable.\n\n---\n\n# NON-NEGOTIABLE GUARDRAILS\n\n1. **No command injection, ever.** User input never reaches a shell string. Use\n   argument arrays / `escapeshellarg` equivalents, and prefer **allow-listed argument\n   sets** over free-form flags. If a tool (e.g. `nmap`) has an option that can write\n   files, run scripts or spawn a shell (`--script`, `-oN`, `-iL` with a path, `-oX`),\n   that option is **not exposed**, or is exposed only as a server-side constant.\n2. **Validate at the boundary, twice.** The controller validates and rejects; the daemon\n   validates again. The daemon assumes the management plane is hostile.\n3. **Least privilege.** New RPCs get the narrowest capability; new routes get the\n   narrowest permission key. Never reuse a `*.manage` key for a read-only view.\n4. **Secrets never reach the browser.** Private keys, pre-shared keys, passwords,\n   tokens, and credential material are never rendered into page source or JSON handed\n   to the client. Key fields are **blank-to-keep**.\n5. **Destructive actions are explicit, confirmed and reversible.** Anything that drops a\n   firewall table, kills a session, removes a package, deletes a VPN peer or rewrites the\n   network configuration must be confirmed in the UI, audited server-side, and must\n   degrade to the last known-good state on failure.\n6. **Never break the appliance out of band.** A change must not be able to lock the\n   operator out of the management interface. Validate the management path before applying.\n7. **Preserve existing contracts.** Do not rename existing RPC methods, routes,\n   database columns or permissions to make something neater. Add, deprecate, migrate.\n8. **Respect the test suite.** Rising coverage is the goal; weakening an assertion,\n   skipping a test, or suppressing a warning to make a run green is a failure and must\n   be reported, not hidden.\n9. **Exit-status fidelity.** When filtering output through `tail`/`grep`, preserve the\n   real exit status (`set -o pipefail` or capture `$?` explicitly). A filtered log is not\n   a passing test.\n10. **Don't touch what you weren't asked to touch.** No opportunistic reformatting, no\n    dependency bumps, no \"while I was in there\" refactors of unrelated modules.\n\n---\n\n# WORKSTREAM W0 — BASELINE TRUTH\n\n**Goal:** know exactly where the project stands before changing anything, and leave the\nbaseline green.\n\n1. Run every suite and record the **verbatim** result and exit status:\n   * `php vendor/bin/phpunit`\n   * `pytest tests/ -q`\n   * every `tests/installer/*.sh` and `tests/*/*_test.sh`\n   * `php spark verify:system`\n2. For every failure: find the **cause**, not a way around it. Two known examples in the\n   current tree (verify and fix, or prove pre-existing and unrelated with a `git stash`\n   comparison):\n   * `StrictDecodingGuardTest` — `system/micrond/micrond.py` decodes base64 without\n     `validate=True`.\n   * `OfflineAssetsTest` — `app/Views/captive/print.php`, `app/Views/portal/success.php`,\n     `app/Views/portal/auth.php` pull Google Fonts with an `@import`, which breaks the\n     captive portal on an appliance with no internet. **An air-gapped appliance must not\n     depend on a CDN for its captive portal.** Self-host or drop the font.\n3. Write the baseline into `docs/` as a dated snapshot: suite, counts, failures, cause\n   of each, and disposition.\n4. **Acceptance:** a single command runs every suite; the result is reproducible; every\n   remaining failure has a written, evidence-backed explanation.\n\n---\n\n# WORKSTREAM W1 — IPC/RPC ⇄ WEB ⇄ CLI ALIGNMENT\n\n**Goal:** make it impossible for the three surfaces to disagree.\n\n1. **Build the inventory.** Extract, mechanically:\n   * every `rpc_*` handler in `micrond.py`,\n   * every `$this->ipc->call('…')` / `Services::ipc()->call('…')` method string in `app/`,\n   * every method string in `system/micrond/client.py` and the CLIs,\n   * every mock response key in `IpcClient::mockDispatch()`.\n   Produce a generated matrix and commit it as documentation\n   (see `docs/MICRONOS_IPC_RPC_CLI_CONTRACT.md`).\n2. **Close the drift.** For every method called but not implemented, either implement it\n   or remove the call. Two concrete examples found during the audit — confirm and fix:\n   * `vpn.wireguard.sync` runs `wg syncconf <iface> /etc/wireguard/<iface>.conf`, but\n     **nothing writes that file** — the compiler output is only ever *downloaded*.\n     The daemon must be able to materialise the interface config (write it atomically,\n     with the enabled/disabled peer set the compiler computes) or the \"sync\" is theatre.\n   * Verify `plugins/refresh` and `plugins/upgrade-all` route-shadowing: they must not be\n     reachable as a plugin *id* by `Plugins::show/$1`.\n3. **Add a contract test** that fails the build when:\n   * the UI calls an RPC the daemon does not implement (excluding documented mock-only),\n   * a `permission:` key used in `Routes.php` is absent from the permission catalog,\n   * a route action class/method does not exist,\n   * a view references a route that does not exist,\n   * a plugin manifest declares a `provides.menu` path with no resolvable route.\n4. **Harden the dispatch boundary.** Keep the existing JSON-RPC behaviour, and add:\n   * an explicit method **registry** with a declared capability class per method\n     (read-only / configure / destructive), so the daemon can refuse a destructive\n     method from a caller that has not been granted that class;\n   * uniform error objects (`code`, `message`, `hint`) with an operator-readable `hint`;\n   * per-method timeouts and output caps (never let one call wedge the socket for all).\n   Document the trust model honestly: the socket group is the current authorization\n   boundary; say so, and describe what a future per-caller identity would look like.\n5. **Parity rule going forward:** a new capability is not \"done\" until it exists as\n   RPC method + controller action + route with permission + UI control + CLI command +\n   tests + documentation row in the matrix.\n6. **Acceptance:** matrix generated in CI, zero unexplained drift, contract tests green,\n   every row of the matrix has RPC + UI + CLI, and the daemon-side write path for\n   WireGuard exists (proved by a test that reads back the file it wrote).\n\n---\n\n# WORKSTREAM W2 — CLI COMPLETION\n\n**Goal:** the console can do what the GUI can do, for the cases that matter at 03:00.\n\n1. **`microctl`** (break-glass, no web): add, at minimum —\n   * `diag ping|traceroute|dns|port|scan|mtr|whois|tcpdump` (bounded, with `--json`),\n   * `vpn wireguard status|peers|sync`, `vpn ipsec status`,\n   * `interface list|show <if>, `route show`,\n   * `dhcp leases|status`,\n   * `service status|restart <unit>` (allow-listed units only),\n   * `plugin list|status|enable|disable`.\n   Every subcommand: `--help`, non-zero exit on failure, machine-readable `--json`,\n   never edit config by hand (call the RPC).\n2. **`micron-menu`** (TUI): mirror the same capabilities, with a consistent\n   back/quit contract, and no action that can lock out the console.\n3. **`spark`**: add the missing operator commands (e.g. `micron:diag`, `micron:doctor`\n   — a single \"check everything\" health report), and make `verify:system` cover the new\n   surfaces.\n4. **Acceptance:** every new command has a test, `--help`, `--json`, and a row in the\n   parity matrix proving it reaches the same RPC as the Web UI.\n\n---\n\n# WORKSTREAM W3 — WEB UI REVAMP\n\n**Goal:** an operator can complete any task without guessing.\n\n1. **Read `docs/UI_UX_COMPREHENSIVE_MODERNIZATION_PLAN.md` first** and continue it —\n   do not restart it or contradict it. Reconcile it with reality and mark what is done.\n2. **Information architecture.** Group nav by task, not by module: Dashboard /\n   Interfaces / Firewall / Routing / Services / VPN / Security / Diagnostics /\n   System / Plugins. Collapse what is unused; promote what is frequent. Every page\n   reachable in ≤2 clicks; breadcrumbs everywhere; a global search/command palette\n   (`Ctrl/⌘+K`) that jumps to any page and any object.\n3. **Design system.** One set of tokens (already present as CSS variables) applied\n   consistently: spacing scale, typography scale, borders, focus rings, badges, tables,\n   empty states, skeletons, toasts. Delete one-off inline styles that fight the tokens.\n   *(Example of the inconsistency to hunt: `app/Views/vpn/wireguard.php` still mixes\n   bespoke `.wg-*` classes with ad-hoc inline `style=\"…\"` on nearly every element.)*\n4. **Honest state.** Every table: loading, empty, error, and \"you lack permission\"\n   states. Every destructive button: confirmation naming the exact object. Every async\n   action: progress and a definite success/failure outcome. **No silently dead buttons\n   and no button that lies about what happened** — the WireGuard toggle messages claim\n   the live interface was brought up/torn down; make the message match what the daemon\n   actually did, or change the daemon.\n5. **Forms.** Inline validation with specific messages, server-side validation echoed\n   back per-field (not one concatenated string), sensible defaults, keyboard submit,\n   tab order, `autocomplete`, and no field that the backend ignores.\n6. **Accessibility & performance.** WCAG 2.2 AA contrast, labels tied to inputs,\n   `aria-live` for async results, full keyboard operation, `prefers-reduced-motion`\n   respected; target < 200 ms server render for list pages, virtualise or paginate\n   long tables (conntrack states, logs), and never block the request on a slow RPC.\n7. **Mobile.** The appliance is often configured from a phone in a rack room: every\n   table must have a usable narrow layout.\n8. **Acceptance:** a written page-by-page audit before/after; a screenshot set for each\n   changed page (desktop + 390 px); an automated accessibility check; zero inline-style\n   regressions in the touched views; and the UI test suite extended to cover the new\n   components.\n\n---\n\n# WORKSTREAM W4 — NETWORK & SECURITY UTILITY TOOLKIT\n\n**Goal:** the Diagnostics area becomes the toolbox a network engineer expects.\n\nImplement as **core features** (not plugins) unless the tool is heavy or optional:\n\n| Tool | Operator question it answers | Notes |\n|---|---|---|\n| **telnet / nc** | \"Is that TCP service actually accepting and speaking?\" | Banner + timeout; never an interactive shell; no `-c`/`-e` |\n| **nmap** | \"Which ports are open on that host/segment?\" | Allow-list flags only (`-sT -sV -Pn -p`, bounded); **no `--script`, no file output**; cap targets and ports; run as a job with progress |\n| **mtr** | \"Where exactly is the loss/latency?\" | Report mode, bounded cycles |\n| **whois / dig / drill** | \"Who owns this, and what does DNS really say?\" | Server-selectable dig, all record types |\n| **arping / ndisc6** | \"Is the neighbour alive at L2?\" | Interface-scoped |\n| **ss / netstat / socket list** | \"Who is listening / what is this process holding?\" | Read-only |\n| **openssl s_client / tls probe** | \"What certificate and cipher is that endpoint offering?\" | Chain, expiry, SNI, protocol versions |\n| **iperf3** | \"How much throughput do I actually get?\" | Already a plugin — promote it into Diagnostics *and* keep the plugin |\n| **curl / HTTP probe** | \"What does the API return, with what headers?\" | Header/method/body control, no arbitrary file paths |\n\nFor each tool, implement the **full stack in one pass**:\n\n1. **RPC** in `micrond.py`: `diag.<tool>` (+ `diag.<tool>_start|_poll|_stop` for long\n   jobs), with strict parameter validation, argument-array execution, hard timeouts,\n   output caps, and a structured result (`{success, status, output, parsed, warnings}`).\n2. **Controller** action in `app/Controllers/Diagnostics.php` (or a new\n   `DiagnosticsScan.php` if it grows), reusing the shared validation helpers that\n   already exist there (`targetInputError`, `sourceInputError`, `ipLiteral`,\n   `isHostname`) — do not create a second validation dialect.\n3. **Route** in `app/Config/Routes.php` under the `diag` group with a **new permission\n   key** (e.g. `diag.scan`, `diag.telnet`) added to the catalog and to the role editor.\n4. **UI**: a tab on the Diagnostics page with its own form, parameter help, live output,\n   copy/download, cancel, and an explicit \"this tool is intrusive — you are auditing an\n   external host\" acknowledgement for scanning.\n5. **CLI**: `microctl diag …` and a `micron-menu` entry.\n6. **Mock mode**: a plausible simulated output in `IpcClient::mockDispatch()` so the UI\n   is developable on Windows and the feature is demoable.\n7. **Tests**: pytest for the daemon (validation rejections, injection attempts, output\n   parsing), PHPUnit for the controller (permission enforcement, invalid input, mock\n   happy path), and a shell/CLI test.\n8. **Docs**: a row in the toolkit spec + the parity matrix.\n\n**Security requirements that must be tested, not asserted:** shell-metacharacter\ninjection via every text field; oversized input; unbounded target lists; extra\narguments; option injection (`--script`, `-oN`, `-iL`, `-c`, `-e`, leading `-`);\nprivate/loopback scanning policy; and audit-log entries for every invocation\n(who, what, when, from where).\n\n**Acceptance:** every tool above works end-to-end on the appliance, is permissioned,\naudited, injected-proof under test, reachable from UI + CLI, and documented.\n\n---\n\n# WORKSTREAM W5 — PLUGIN WORKSPACES\n\n**Goal:** an installed plugin is a real feature, not a card in a list.\n\n1. **Audit all eight plugins** (`darkstat`, `iperf3`, `ipv6-tunnel`, `lightsquid`,\n   `lldpd`, `nat64`, `netbird`, `zerotier`): for each, confirm\n   `install → enable → configure → status → logs → disable → remove` all work from the UI,\n   that `/plugins/<id>` renders a **functional page** (not the generic show stub) when\n   the plugin declares its own surface, and that every `provides.menu` entry resolves.\n2. **Give every plugin a workspace page** with, where applicable: live status\n   (state, uptime, version), configuration form (validated, persisted, applied via RPC),\n   a log viewer, a metrics/neighbour/report view, and lifecycle controls with\n   confirmation. Use one shared component library so all eight look and behave alike.\n3. **Make the plugin menu real.** Installed plugins appear in the nav (already wired via\n   `PluginNav::entries()`); ensure: uninstalled plugins do not appear; the entry's\n   permission is enforced by the route as well as hidden in the nav (never rely on\n   hiding alone); a plugin that fails to install leaves no phantom menu entry; and a\n   plugin with a dead daemon shows an explicit **degraded** state, not a spinner forever.\n4. **Prefer core promotion for generic tools.** `iperf3` and `lldpd` are general-purpose;\n   a plugin is the right wrapper for packaging/dependency management, but the *feature*\n   should also exist as a first-class diagnostics/networking page when it is broadly\n   useful. State the decision and rationale per plugin in the docs.\n5. **Lifecycle correctness:** a plugin whose `requires.binaries` are missing must refuse\n   to enable with the missing dependency named; removal must clean its config, its menu\n   entry and its systemd drop-ins; a failed upgrade must roll back.\n6. **Acceptance:** a table in the plugin workspace spec with one row per plugin ×\n   (page, menu, status, config, logs, lifecycle, tests, docs) all ticked, plus a live\n   walkthrough of at least install → configure → verify → remove on a scratch VM.\n\n---\n\n# WORKSTREAM W6 — REGRESSION, VALIDATION AND PROOF\n\n**Goal:** trustworthy evidence for every claim.\n\n1. **Test tiers, all runnable from one entry point:**\n   * Tier 1 — unit: PHPUnit `tests/app/Libraries`, pytest unit groups.\n   * Tier 2 — feature/contract: PHPUnit `tests/app/Controllers` (route + filter +\n     validation + DB), the new RPC contract test, the parity matrix test.\n   * Tier 3 — integration: pytest against a live `micrond` on a unix socket (the suite\n     already does this), including failure injection (daemon down, socket refused,\n     malformed response, timeout, oversized response).\n   * Tier 4 — installer / packaging: the shell suites and a scripted ISO build check.\n   * Tier 5 — live appliance: deploy to a VM, run a scripted smoke matrix (login,\n     page-render, every new tool, every plugin lifecycle) and capture it.\n2. **Mandatory regression cases for every change:** permission-denied path, invalid\n   input path, daemon-unavailable path, mock-mode path, and the happy path — for both\n   the Web UI and the CLI.\n3. **Never** mark a suite green by relaxing it. If a test must change, explain why the\n   *behaviour* changed and prove the new behaviour.\n4. **Performance guardrails:** page render budget, RPC round-trip budget, and a\n   long-table budget; record before/after numbers for anything you optimise.\n5. **Security validation:** run the injection matrix, the CSRF checks, the\n   permission-matrix sweep (every route × every role), and a secrets-in-response scan\n   (assert no key material appears in any HTML or JSON payload).\n6. **Acceptance:** a dated verification report in `docs/` with commands, raw output\n   excerpts, exit statuses, screenshots, and an explicit list of what could **not** be\n   verified and why. Report limitations as limitations.\n\n---\n\n# WORKSTREAM W7 — DOCUMENTATION & RELEASE\n\n1. Follow the existing docs convention: `docs/MICRONOS_*.md`, declared **once** in the\n   `$docs` map in `docs/build_docs.php`, generated to styled HTML by\n   `php docs/build_docs.php`, and linked from `docs/index.html`.\n2. Every workstream produces or updates its specification, and the **parity matrix** is\n   regenerated rather than hand-edited.\n3. Keep `VERSION`, `system/os-release` (`PRETTY_NAME`, `VERSION_ID`, `BUILD_ID`) and the\n   release notes consistent — they are read by the UI, the updater and the ISO.\n4. Update `README.md`, `MICRONOS_MODULE_REFERENCE.md` and the architecture document for\n   anything structural you add (new controllers, new RPC namespaces, new permissions,\n   new CLI commands, new menus).\n5. **Acceptance:** `php docs/build_docs.php` runs clean, every new document is reachable\n   from the hub, and no document describes behaviour that does not exist.\n\n---\n\n# METHOD — HOW TO WORK\n\nFor every unit of work, in order:\n\n1. **Read before writing.** Find the existing pattern for this kind of change and follow\n   it. Use `code_search`/`grep` first; never invent a second convention.\n2. **State the acceptance criteria** before implementing: exact paths, route names, RPC\n   method names, permission keys, request/response shapes, CLI invocations, and any\n   performance or safety constraint.\n3. **Plan it** as an ordered todo list, and update it as you finish each step.\n4. **Implement minimally** — the smallest change that satisfies the criteria, matching\n   surrounding style, with a comment explaining *why* where the reasoning is not obvious.\n5. **Test it** at the right tier, plus the five mandatory regression cases.\n6. **Verify the artefact the user will touch** — load the page, run the command, call the\n   RPC. A green build is not proof of working behaviour.\n7. **Report honestly**: what you verified, the exact command and result, what failed,\n   and what remains.\n\n**After every edit:** re-run the affected checks. Earlier green results do not cover\nlater changes. If you filter output, keep the real exit status.\n\n**When a check fails, fix the cause.** Never skip, weaken, or suppress.\n\n---\n\n# SEQUENCING\n\n| Milestone | Contents | Exit criterion |\n|---|---|---|\n| **M1 — Truth** | W0 complete; baseline snapshot; contract inventory generated | Every suite runs from one command; drift matrix exists |\n| **M2 — Alignment** | W1 complete; drift closed; contract tests in CI | Zero unexplained drift; WireGuard sync writes a real config |\n| **M3 — Toolkit** | W4 core tools (telnet, nmap, mtr, whois/dig, s_client, tcpdump) | Each tool live, permissioned, injection-proof, in UI + CLI |\n| **M4 — Plugins** | W5 complete | Table of 8 plugins fully ticked; live lifecycle walkthrough |\n| **M5 — CLI** | W2 complete | Parity matrix shows CLI = UI for every row |\n| **M6 — UI** | W3 complete | Page-by-page audit + screenshots + a11y check |\n| **M7 — Proof** | W6 + W7 complete | Verification report with evidence and named limitations |\n\nWork M1→M2 first: everything else depends on the drift inventory being trustworthy.\n\n---\n\n# DEFINITION OF DONE (apply to every single feature)\n\n* [ ] RPC method implemented, validated, bounded, unit-tested (happy + hostile input).\n* [ ] Controller action with server-side validation and per-field errors.\n* [ ] Route registered with a **new or justified** permission key in the catalog.\n* [ ] UI control that works, looks consistent, states what it did, and cannot be\n      triggered without permission.\n* [ ] CLI command (where operator-relevant) with `--help` and `--json`.\n* [ ] Mock-mode response so the UI is developable offline.\n* [ ] Tests: unit, feature, integration, permission-denied, invalid-input,\n      daemon-unavailable.\n* [ ] Secrets do not leak into HTML/JSON (proved by test).\n* [ ] Audit-log entry for state-changing actions.\n* [ ] Documentation: module reference row + parity matrix row + spec section.\n* [ ] Live verification with captured evidence.\n\n---\n\n# REPORTING FORMAT\n\nEnd every work session with:\n\n1. **What changed** — files, with a one-line reason each.\n2. **Verification** — exact commands, observed results, exit statuses.\n3. **Failed or unverified** — and why, without spin.\n4. **Risk / follow-up** — what is now more fragile, what you deferred, what you found\n   that the brief did not mention.\n5. **Next** — the single next best action.\n\n---\n\n# FIRST ACTIONS\n\n1. Read `README.md`, `docs/MICRON_FIREWALL_OS_ARCHITECTURE.md`,\n   `docs/MICRONOS_MODULE_REFERENCE.md`, `docs/UI_UX_COMPREHENSIVE_MODERNIZATION_PLAN.md`,\n   `docs/MICRONOS_ADVANCED_ROADMAP_SPECIFICATION.md`.\n2. Run every suite; write `docs/MICRONOS_BASELINE_SNAPSHOT.md`.\n3. Generate the RPC/UI/CLI parity matrix and start `docs/MICRONOS_IPC_RPC_CLI_CONTRACT.md`.\n4. Fix the two known red tests **at their cause**.\n5. Then begin M2.\n\nReport back with the baseline snapshot and the drift list before starting M2.\n\n=== END PROMPT ===\n\n---\n\n## Companion documents\n\nThis prompt is the *instruction*. The programme is documented across:\n\n| Document | Role |\n|---|---|\n| [MICRONOS_COMPLETION_PROGRAMME.md](MICRONOS_COMPLETION_PROGRAMME.md) | Audited current state, gap register, workstreams, gates, test matrix, risks |\n| [MICRONOS_IPC_RPC_CLI_CONTRACT.md](MICRONOS_IPC_RPC_CLI_CONTRACT.md) | The wire contract and the parity rules that keep UI, RPC and CLI aligned |\n| [MICRONOS_DIAGNOSTIC_TOOLKIT_SPECIFICATION.md](MICRONOS_DIAGNOSTIC_TOOLKIT_SPECIFICATION.md) | telnet/nmap/mtr/whois/tls/iperf3 etc. — safety model, RBAC, API, tests |\n| [MICRONOS_PLUGIN_WORKSPACE_SPECIFICATION.md](MICRONOS_PLUGIN_WORKSPACE_SPECIFICATION.md) | Making every installed plugin a working menu + page |\n\nBuild the HTML editions with:\n\n```bash\nphp docs/build_docs.php\n```\n";
+    
+    // Theme Presets Management
+    const LIGHT_THEMES = ['light', 'solar', 'mint', 'paper'];
+    function setThemePreset(theme) {
+      document.documentElement.dataset.theme = theme;
+      document.documentElement.dataset.mode = LIGHT_THEMES.includes(theme) ? 'light' : 'dark';
+      try {
+        localStorage.setItem('micron_docs_theme', theme);
+      } catch (e) {}
+      const sel = document.getElementById('themePresetSelect');
+      if (sel) sel.value = theme;
+    }
+
+    try {
+      const savedTheme = localStorage.getItem('micron_docs_theme') || 'dark';
+      setThemePreset(savedTheme);
+    } catch (e) {
+      setThemePreset('dark');
+    }
+
+    // Configure marked with highlight.js
+    marked.setOptions({
+      highlight: function(code, lang) {
+        if (lang && hljs.getLanguage(lang)) {
+          return hljs.highlight(code, { language: lang }).value;
+        }
+        return hljs.highlightAuto(code).value;
+      },
+      breaks: false,
+      gfm: true
+    });
+
+    const rendered = marked.parse(rawMarkdown);
+    document.getElementById('markdown-body').innerHTML = rendered;
+
+    // Generate Dynamic TOC with IDs
+    const headings = document.getElementById('markdown-body').querySelectorAll('h2, h3');
+    const tocContainer = document.getElementById('toc-container');
+    
+    headings.forEach(heading => {
+      const text = heading.textContent;
+      const base = text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+      let slug = base;
+      for (let n = 2; document.getElementById(slug); n++) {
+        slug = base + '-' + n;
+      }
+      heading.id = slug;
+      
+      const link = document.createElement('a');
+      link.href = '#' + slug;
+      link.textContent = text;
+      link.dataset.title = text.toLowerCase();
+      if (heading.tagName.toLowerCase() === 'h3') {
+        link.classList.add('h3-link');
+      }
+      tocContainer.appendChild(link);
+    });
+
+    // Add Copy Buttons to Pre blocks
+    document.querySelectorAll('#markdown-body pre').forEach(pre => {
+      const copyBtn = document.createElement('button');
+      copyBtn.className = 'code-copy-btn';
+      copyBtn.innerHTML = '<svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg> Copy';
+      copyBtn.onclick = () => {
+        const codeText = pre.querySelector('code')?.innerText || pre.innerText;
+        navigator.clipboard.writeText(codeText);
+        copyBtn.innerHTML = '✔ Copied!';
+        setTimeout(() => {
+          copyBtn.innerHTML = '<svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg> Copy';
+        }, 2000);
+      };
+      pre.appendChild(copyBtn);
+    });
+
+    // TOC Filter
+    function filterToc(query) {
+      query = (query || '').toLowerCase().trim();
+      document.querySelectorAll('#toc-container a').forEach(a => {
+        if (!query || a.dataset.title.includes(query)) {
+          a.style.display = 'block';
+        } else {
+          a.style.display = 'none';
+        }
+      });
+    }
+
+    // Scrollspy for TOC highlight
+    const tocLinks = Array.from(tocContainer.querySelectorAll('a'));
+    function syncTocActive() {
+      const scrollPos = window.scrollY + 120;
+      let activeHeading = null;
+      headings.forEach(h => {
+        if (h.offsetTop <= scrollPos) {
+          activeHeading = h;
+        }
+      });
+      if (activeHeading) {
+        tocLinks.forEach(link => {
+          link.classList.toggle('active', link.getAttribute('href') === '#' + activeHeading.id);
+        });
+      }
+    }
+    window.addEventListener('scroll', syncTocActive, { passive: true });
+    syncTocActive();
+  </script>
+</body>
+</html>

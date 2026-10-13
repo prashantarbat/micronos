@@ -104,7 +104,7 @@ class SdwanEngine
             return [
                 'selected_member' => $backup,
                 'reason'          => 'Preferred member violated SLA; steering to compliant backup member',
-                'sla_compliant'   => true,
+                'sla_compliant'   => false,
             ];
         }
 

@@ -155,4 +155,14 @@ final class SdwanTest extends BaseTestCase
         $this->assertTrue($applyJson['success'] ?? false);
         $this->assertTrue($applyJson['compiled']['enabled'] ?? false);
     }
+
+    public function testSlaReportEndpoint(): void
+    {
+        $result = $this->withSession($this->sessionData())->get('routing/sdwan/sla-report');
+        $result->assertOK();
+        $json = json_decode($result->getJSON(), true);
+        $this->assertTrue($json['success'] ?? false);
+        $this->assertArrayHasKey('members', $json);
+        $this->assertContains($json['source'], ['live_probe', 'db_cache']);
+    }
 }

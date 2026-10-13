@@ -22,6 +22,24 @@ $routes->get('auth/sso/callback/(:segment)', 'Sso::callback/$1');
 $routes->post('auth/sso/saml/acs/(:segment)', 'Sso::acs/$1');
 $routes->get('auth/sso/metadata/(:segment)', 'Sso::metadata/$1');
 
+// Captive Portal & Hotspot Guest Engine (Public Guest Flow + CNA Detection)
+$routes->get('portal/auth', 'Portal::auth');
+$routes->get('portal/auth/(:segment)', 'Portal::auth/$1');
+$routes->post('portal/authenticate', 'Portal::login');
+$routes->get('portal/status', 'Portal::status');
+$routes->get('portal/logout', 'Portal::logout');
+$routes->get('portal/success', 'Portal::success');
+
+// Captive Network Assistant (CNA) OS Probes (Apple, Android, Windows, Firefox)
+$routes->get('hotspot-detect.html', 'Portal::cnaRedirect');
+$routes->get('canonical.html', 'Portal::cnaRedirect');
+$routes->get('generate_204', 'Portal::cnaRedirect');
+$routes->get('gen_204', 'Portal::cnaRedirect');
+$routes->get('connecttest.txt', 'Portal::cnaRedirect');
+$routes->get('success.txt', 'Portal::cnaRedirect');
+$routes->get('ncsi.txt', 'Portal::cnaRedirect');
+
+
 // ============================================================
 // Protected Routes (auth filter applied globally in Filters.php)
 // ============================================================
@@ -281,6 +299,7 @@ $routes->group('routing/sdwan', ['filter' => 'permission:routing.table.view'], f
     $r->post('rule/(:segment)/delete', 'Sdwan::deleteRule/$1', ['filter' => 'permission:routing.pbr.manage']);
     $r->post('settings/save', 'Sdwan::saveSettings', ['filter' => 'permission:routing.static.manage']);
     $r->get('probe-now', 'Sdwan::probeNow');
+    $r->get('sla-report', 'Sdwan::slaReport');
     $r->post('apply', 'Sdwan::apply', ['filter' => 'permission:routing.static.manage']);
     $r->get('metrics', 'Sdwan::metrics');
 });
@@ -323,6 +342,7 @@ $routes->group('vpn/wireguard', ['filter' => 'permission:vpn.wireguard.view'], f
     $r->get('peers', 'VpnWireguard::peers');
     $r->post('peers/store', 'VpnWireguard::storePeer', ['filter' => 'permission:vpn.wireguard.manage']);
     $r->post('peers/(:segment)/update', 'VpnWireguard::updatePeer/$1', ['filter' => 'permission:vpn.wireguard.manage']);
+    $r->post('peers/(:segment)/toggle', 'VpnWireguard::togglePeer/$1', ['filter' => 'permission:vpn.wireguard.manage']);
     $r->get('peers/(:segment)/download', 'VpnWireguard::downloadPeer/$1', ['filter' => 'permission:vpn.wireguard.view']);
     $r->post('peers/(:segment)/delete', 'VpnWireguard::deletePeer/$1', ['filter' => 'permission:vpn.wireguard.manage']);
 });
@@ -367,7 +387,36 @@ $routes->group('vpn/clientless-gateway', function ($r) {
     $r->match(['get', 'post'], 'verify-auth', 'ZtnaGateway::verifyAuth');
     $r->post('settings/save', 'ZtnaGateway::saveSettings', ['filter' => 'permission:vpn.openvpn.manage']);
     $r->post('apply', 'ZtnaGateway::apply', ['filter' => 'permission:vpn.openvpn.manage']);
+    $r->get('status', 'ZtnaGateway::status');
 });
+
+// ---- Captive Portal & Hotspot Voucher Engine ----
+// Mounted under both /captive and /services/captive (controller redirects use the latter).
+$captiveRoutes = static function ($r) {
+    $r->get('/', 'Captive::index');
+    $r->post('zone/save', 'Captive::saveZone', ['filter' => 'permission:captive.edit']);
+    $r->post('zone/(:segment)/toggle', 'Captive::toggleZone/$1', ['filter' => 'permission:captive.edit']);
+    $r->post('zone/(:segment)/delete', 'Captive::deleteZone/$1', ['filter' => 'permission:captive.edit']);
+
+    $r->get('vouchers', 'Captive::vouchers');
+    $r->get('vouchers/export-csv', 'Captive::exportCsv');
+    $r->post('vouchers/generate', 'Captive::generateVouchers', ['filter' => 'permission:captive.vouchers.generate']);
+    $r->post('vouchers/(:num)/revoke', 'Captive::revokeVoucher/$1', ['filter' => 'permission:captive.vouchers.revoke']);
+    $r->get('vouchers/print/(:segment)', 'Captive::printVouchers/$1');
+
+    $r->get('sessions', 'Captive::sessions');
+    $r->post('sessions/(:segment)/terminate', 'Captive::disconnectSession/$1', ['filter' => 'permission:captive.sessions.terminate']);
+
+    $r->get('branding/(:segment)', 'Captive::branding/$1');
+    $r->post('branding/(:segment)/save', 'Captive::saveBranding/$1', ['filter' => 'permission:captive.edit']);
+
+    $r->post('walled-garden/save', 'Captive::addWalledGarden', ['filter' => 'permission:captive.edit']);
+    $r->post('walled-garden/(:num)/delete', 'Captive::deleteWalledGarden/$1', ['filter' => 'permission:captive.edit']);
+
+    $r->post('apply', 'Captive::applyRuleset', ['filter' => 'permission:captive.apply']);
+};
+$routes->group('captive', ['filter' => 'permission:captive.view'], $captiveRoutes);
+$routes->group('services/captive', ['filter' => 'permission:captive.view'], $captiveRoutes);
 
 // ---- DHCP ----
 $routes->group('dhcp', ['filter' => 'permission:dhcp.view'], function ($r) {

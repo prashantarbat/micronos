@@ -1,0 +1,286 @@
+#!/usr/bin/env python3
+"""
+Micron OS — Autonomous Dynamic SD-WAN SLA Probing Daemon (micron-sdwan-probe)
+
+Continuously measures packet loss, round-trip time (RTT), and jitter (RFC 3550 variance)
+for each active WAN uplink member using interface-bound ICMP probes.
+Persists live metrics to SQLite (/usr/local/micron/writable/micron_config.db)
+and atomically writes runtime state to /run/micron/sdwan_sla.json.
+"""
+
+import argparse
+import json
+import logging
+import os
+import signal
+import sqlite3
+import subprocess
+import sys
+import tempfile
+import time
+from typing import Any, Dict, List, Optional
+
+# Standard paths for Micron OS appliance
+DEFAULT_DB_PATHS = [
+    "/usr/local/micron/writable/micron_config.db",
+    "/var/lib/micron/micron_config.db",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "writable", "micron_config.db"),
+]
+STATE_DIR = "/run/micron"
+SLA_JSON_PATH = os.path.join(STATE_DIR, "sdwan_sla.json")
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] [sdwan-probe] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logger = logging.getLogger("micron-sdwan-probe")
+
+_RUNNING = True
+
+
+def _sig_handler(signum, frame):
+    global _RUNNING
+    logger.info("Signal %d received, shutting down gracefully...", signum)
+    _RUNNING = False
+
+
+signal.signal(signal.SIGTERM, _sig_handler)
+signal.signal(signal.SIGINT, _sig_handler)
+
+
+def find_db_path(custom_path: Optional[str] = None) -> Optional[str]:
+    """Resolve the SQLite configuration database path."""
+    if custom_path and os.path.isfile(custom_path):
+        return custom_path
+    for path in DEFAULT_DB_PATHS:
+        abs_p = os.path.abspath(path)
+        if os.path.isfile(abs_p):
+            return abs_p
+    return None
+
+
+def get_db_connection(db_path: str) -> sqlite3.Connection:
+    """Connect to SQLite with WAL mode and reasonable timeout."""
+    conn = sqlite3.connect(db_path, timeout=5.0)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def load_sdwan_config(db_path: str) -> Dict[str, Any]:
+    """Read enabled members and settings from the database."""
+    config: Dict[str, Any] = {
+        "enabled": True,
+        "interval": 15,
+        "sample_count": 10,
+        "members": [],
+    }
+
+    try:
+        conn = get_db_connection(db_path)
+        cursor = conn.cursor()
+
+        # Check settings table
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='sdwan_settings'")
+        if cursor.fetchone():
+            cursor.execute("SELECT * FROM sdwan_settings LIMIT 1")
+            row = cursor.fetchone()
+            if row:
+                config["enabled"] = bool(row["enabled"]) if "enabled" in row.keys() else True
+                if "probe_interval" in row.keys() and row["probe_interval"]:
+                    config["interval"] = max(5, int(row["probe_interval"]))
+                if "probe_samples" in row.keys() and row["probe_samples"]:
+                    config["sample_count"] = max(3, min(int(row["probe_samples"]), 50))
+
+        # Check members table
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='sdwan_members'")
+        if cursor.fetchone():
+            cursor.execute("SELECT * FROM sdwan_members WHERE enabled = 1 ORDER BY priority ASC")
+            members = [dict(r) for r in cursor.fetchall()]
+            config["members"] = members
+
+        conn.close()
+    except Exception as exc:
+        logger.warning("Failed reading SD-WAN configuration from DB: %s", exc)
+
+    return config
+
+
+def probe_member(member: Dict[str, Any], count: int = 10) -> Dict[str, Any]:
+    """Execute interface-bound ICMP ping probe against target anchor."""
+    iface = member.get("interface", "")
+    target = member.get("ping_target") or member.get("gateway_ip") or "8.8.8.8"
+    gateway = member.get("gateway_ip", "")
+
+    latency_ms = 0.0
+    jitter_ms = 0.0
+    loss_pct = 0.0
+
+    cmd = ["ping", "-c", str(count), "-i", "0.2", "-W", "2"]
+    if iface:
+        cmd.extend(["-I", iface])
+    cmd.append(target)
+
+    try:
+        res = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=count * 2 + 5,
+        )
+        output = res.stdout
+
+        for line in output.splitlines():
+            # Parse latency and jitter from rtt line:
+            # "rtt min/avg/max/mdev = 1.234/2.345/3.456/0.123 ms"
+            if "rtt min/avg/max/mdev" in line:
+                nums = line.split("=")[-1].strip().split("/")
+                if len(nums) >= 4:
+                    latency_ms = float(nums[1])
+                    jitter_ms = float(nums[3].split()[0])
+            if "packet loss" in line:
+                for tok in line.split():
+                    if "%" in tok:
+                        loss_pct = float(tok.replace("%", ""))
+                        break
+
+        # Determine health status
+        status = "alive"
+        if loss_pct >= 50.0 or latency_ms >= 500.0 or res.returncode != 0 and loss_pct == 100.0:
+            status = "dead"
+        elif loss_pct >= 5.0 or latency_ms >= 150.0 or jitter_ms >= 25.0:
+            status = "degraded"
+
+    except subprocess.TimeoutExpired:
+        status = "dead"
+        latency_ms = 9999.0
+        jitter_ms = 0.0
+        loss_pct = 100.0
+    except Exception as exc:
+        logger.debug("Probe error on %s: %s", iface, exc)
+        status = "unknown"
+
+    return {
+        "interface": iface,
+        "gateway": gateway,
+        "target": target,
+        "latency_ms": round(latency_ms, 2),
+        "jitter_ms": round(jitter_ms, 2),
+        "loss_pct": round(loss_pct, 2),
+        "status": status,
+        "measured_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+    }
+
+
+def write_sla_state(metrics: Dict[str, Any]):
+    """Atomically write runtime SLA metrics to /run/micron/sdwan_sla.json."""
+    try:
+        os.makedirs(STATE_DIR, exist_ok=True)
+        temp_fd, temp_path = tempfile.mkstemp(prefix="sdwan_sla_", dir=STATE_DIR, text=True)
+        with os.fdopen(temp_fd, "w") as f:
+            json.dump({
+                "probed_at": time.time(),
+                "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "members": metrics,
+            }, f, indent=2)
+        os.replace(temp_path, SLA_JSON_PATH)
+    except Exception as exc:
+        logger.warning("Could not write runtime SLA state: %s", exc)
+
+
+def update_db_metrics(db_path: str, metrics: Dict[str, Any]):
+    """Persist metrics to SQLite sdwan_members table."""
+    try:
+        conn = get_db_connection(db_path)
+        cursor = conn.cursor()
+        now = time.strftime("%Y-%m-%d %H:%M:%S")
+
+        for member_id, data in metrics.items():
+            cursor.execute(
+                """
+                UPDATE sdwan_members
+                SET current_loss = ?, current_latency = ?, current_jitter = ?, status = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (data["loss_pct"], data["latency_ms"], data["jitter_ms"], data["status"], now, member_id),
+            )
+        conn.commit()
+        conn.close()
+    except Exception as exc:
+        logger.warning("Could not update DB metrics: %s", exc)
+
+
+def run_probe_cycle(db_path: Optional[str], sample_count: int = 10) -> Dict[str, Any]:
+    """Execute one probing round across all active uplinks."""
+    if not db_path:
+        logger.warning("No database available; skipping probe cycle.")
+        return {}
+
+    cfg = load_sdwan_config(db_path)
+    if not cfg["enabled"]:
+        logger.info("Dynamic SD-WAN is disabled in settings; idle.")
+        return {}
+
+    members = cfg["members"]
+    if not members:
+        logger.debug("No active SD-WAN uplink members configured.")
+        return {}
+
+    results = {}
+    for m in members:
+        mid = m["id"]
+        res = probe_member(m, count=sample_count)
+        results[mid] = res
+        logger.info(
+            "Uplink %-8s (%s -> %s): RTT=%.1fms Jitter=%.1fms Loss=%.1f%% [%s]",
+            m.get("name", mid), res["interface"], res["target"],
+            res["latency_ms"], res["jitter_ms"], res["loss_pct"], res["status"].upper()
+        )
+
+    write_sla_state(results)
+    update_db_metrics(db_path, results)
+    return results
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Micron OS SD-WAN SLA Probing Daemon")
+    parser.add_argument("--db", type=str, default=None, help="Path to SQLite database")
+    parser.add_argument("--interval", type=int, default=None, help="Polling interval in seconds")
+    parser.add_argument("--samples", type=int, default=10, help="ICMP sample count per probe")
+    parser.add_argument("--oneshot", action="store_true", help="Run once and exit")
+    args = parser.parse_args()
+
+    db_path = find_db_path(args.db)
+    if not db_path:
+        logger.error("Could not locate Micron OS database. Checked: %s", DEFAULT_DB_PATHS)
+        if not args.oneshot:
+            logger.info("Will retry discovering database in background...")
+
+    logger.info("Micron OS SD-WAN Probing Daemon started (DB: %s)", db_path or "unresolved")
+
+    if args.oneshot:
+        run_probe_cycle(db_path, sample_count=args.samples)
+        sys.exit(0)
+
+    while _RUNNING:
+        if not db_path:
+            db_path = find_db_path(args.db)
+
+        cfg = load_sdwan_config(db_path) if db_path else {"interval": 15, "sample_count": 10}
+        interval = args.interval or cfg.get("interval", 15)
+        samples = args.samples or cfg.get("sample_count", 10)
+
+        run_probe_cycle(db_path, sample_count=samples)
+
+        # Sleep in small increments for prompt shutdown responsiveness
+        for _ in range(max(1, interval)):
+            if not _RUNNING:
+                break
+            time.sleep(1)
+
+    logger.info("Micron OS SD-WAN Probing Daemon stopped.")
+
+
+if __name__ == "__main__":
+    main()

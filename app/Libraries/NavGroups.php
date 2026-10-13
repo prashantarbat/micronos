@@ -52,7 +52,7 @@ final class NavGroups
             'network' => [
                 'label'  => 'Network',
                 'icon'   => $p('M5 12h14M12 5l7 7-7 7'),
-                'routes' => ['/interfaces', '/multicast'],
+                'routes' => ['/interfaces', '/multicast', '/captive', '/services/captive'],
             ],
             'policy' => [
                 'label'  => 'Policy & Objects',

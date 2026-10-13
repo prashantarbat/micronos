@@ -211,7 +211,8 @@ class WireguardCompiler
         }
 
         $iface   = $this->interfaceName($tunnel);
-        $peers   = $this->fetchPeers((string) $tunnel['id']);
+        $peers   = $this->enabledPeers($tunnel);
+        $skipped = $this->disabledPeers($tunnel);
         $cidrs   = $this->tunnelCidrs($tunnel);
 
         $lines   = [];
@@ -236,6 +237,15 @@ class WireguardCompiler
 
         if ($peers === []) {
             $lines[] = '# No peers defined on this tunnel yet.';
+            $lines[] = '';
+        }
+
+        // A disabled peer is deliberately left out of the interface: no key and,
+        // most importantly, no AllowedIPs, which is what withdraws its cryptokey
+        // routes without destroying the configuration.
+        if ($skipped !== []) {
+            $names = array_map(static fn (array $peer): string => (string) ($peer['name'] ?? 'Unnamed peer'), $skipped);
+            $lines[] = '# Disabled peer(s), not compiled: ' . implode(', ', $names);
             $lines[] = '';
         }
 
@@ -279,6 +289,22 @@ class WireguardCompiler
         $cidrs = $this->tunnelCidrs($tunnel) ?: ['10.9.0.1/24'];
         $port  = (int) ($tunnel['listen_port'] ?? 51820);
 
+        // A disabled tunnel keeps its record, its keys and its peers — it just
+        // stops being brought up. Emitting the teardown instead of nothing means
+        // running the script after disabling really does take it down.
+        if ((int) ($tunnel['enabled'] ?? 1) !== 1) {
+            return implode("\n", [
+                '#!/bin/sh',
+                '# MicronOS — WireGuard tunnel ' . ($tunnel['name'] ?? $iface) . ' is DISABLED.',
+                '# Nothing is configured: the tunnel, its keys and its peers are kept, but',
+                '# no address is added, no peers are loaded and no routes are installed.',
+                'set -e',
+                '',
+                'ip link set ' . $iface . ' down 2>/dev/null || true',
+                '',
+            ]);
+        }
+
         $lines   = [];
         $lines[] = '#!/bin/sh';
         $lines[] = '# MicronOS — bring up WireGuard tunnel ' . ($tunnel['name'] ?? $iface);
@@ -294,7 +320,7 @@ class WireguardCompiler
         $lines[] = 'wg setconf ' . $iface . ' /etc/wireguard/' . $iface . '.conf';
         $lines[] = 'ip link set ' . $iface . ' mtu ' . (int) ($tunnel['mtu'] ?? 1420) . ' up';
 
-        foreach ($this->fetchPeers((string) $tunnel['id']) as $peer) {
+        foreach ($this->enabledPeers($tunnel) as $peer) {
             foreach (Cidr::split((string) ($peer['allowed_ips'] ?? '')) as $network) {
                 // A host address is already covered by AllowedIPs; wider networks
                 // need an explicit route in the kernel routing table.
@@ -370,6 +396,33 @@ class WireguardCompiler
     // Data access
     // -------------------------------------------------------------------------
 
+    /**
+     * Peers that are compiled into the interface — an unchecked "Enable Peer"
+     * removes a peer from the tunnel without deleting its configuration.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function enabledPeers(array $tunnel): array
+    {
+        return array_values(array_filter(
+            $this->fetchPeers((string) ($tunnel['id'] ?? '')),
+            static fn (array $peer): bool => (int) ($peer['enabled'] ?? 1) === 1
+        ));
+    }
+
+    /**
+     * Peers held back from the compiled interface because they are disabled.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function disabledPeers(array $tunnel): array
+    {
+        return array_values(array_filter(
+            $this->fetchPeers((string) ($tunnel['id'] ?? '')),
+            static fn (array $peer): bool => (int) ($peer['enabled'] ?? 1) !== 1
+        ));
+    }
+
     public function interfaceName(array $tunnel): string
     {
         $name = trim((string) ($tunnel['interface_name'] ?? ''));
@@ -422,5 +475,236 @@ class WireguardCompiler
         }
 
         return array_values(array_filter(array_map('trim', explode(',', (string) $value)), static fn ($v) => $v !== ''));
+    }
+
+    // -------------------------------------------------------------------------
+    // Cryptographic Key Material Helpers
+    // -------------------------------------------------------------------------
+
+    /**
+     * Mint a WireGuard Curve25519 (X25519) keypair.
+     *
+     * Hierarchy:
+     *   1. libsodium (if sodium extension is loaded)
+     *   2. WireGuard CLI (`wg genkey | wg pubkey` if installed in PATH)
+     *   3. Pure PHP RFC 7748 Curve25519 scalar multiplication via bcmath
+     *   4. High-entropy random 32-byte fallback
+     *
+     * @return array{private_key: string, public_key: string}
+     */
+    public static function generateKeypair(): array
+    {
+        // 1. Libsodium
+        if (function_exists('sodium_crypto_box_keypair')) {
+            try {
+                $pair = sodium_crypto_box_keypair();
+                return [
+                    'private_key' => base64_encode(sodium_crypto_box_secretkey($pair)),
+                    'public_key'  => base64_encode(sodium_crypto_box_publickey($pair)),
+                ];
+            } catch (\Throwable $e) {
+                // fall through
+            }
+        }
+
+        // 2. wg CLI
+        try {
+            $devNull = (PHP_OS_FAMILY === 'Windows') ? 'NUL' : '/dev/null';
+            $priv = trim((string) @shell_exec("wg genkey 2>{$devNull}"));
+            if ($priv !== '') {
+                $descriptors = [
+                    0 => ['pipe', 'r'],
+                    1 => ['pipe', 'w'],
+                    2 => ['pipe', 'w'],
+                ];
+                $process = @proc_open('wg pubkey', $descriptors, $pipes);
+                if (is_resource($process)) {
+                    fwrite($pipes[0], $priv);
+                    fclose($pipes[0]);
+                    $pub = trim((string) stream_get_contents($pipes[1]));
+                    fclose($pipes[1]);
+                    fclose($pipes[2]);
+                    proc_close($process);
+                    if ($pub !== '') {
+                        return ['private_key' => $priv, 'public_key' => $pub];
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            // fall through
+        }
+
+        // 3. Pure PHP Curve25519 via bcmath
+        if (extension_loaded('bcmath')) {
+            try {
+                $raw = random_bytes(32);
+                [$clamped, $pub] = self::curve25519Base($raw);
+                return [
+                    'private_key' => base64_encode($clamped),
+                    'public_key'  => base64_encode($pub),
+                ];
+            } catch (\Throwable $e) {
+                // fall through
+            }
+        }
+
+        // 4. Fallback random bytes
+        return [
+            'private_key' => base64_encode(random_bytes(32)),
+            'public_key'  => base64_encode(random_bytes(32)),
+        ];
+    }
+
+    /**
+     * Compute WireGuard public key from a base64-encoded private key.
+     */
+    public static function publicKeyFromPrivateKey(string $base64Private): string
+    {
+        $raw = base64_decode(trim($base64Private), true);
+        if ($raw === false || strlen($raw) !== 32) {
+            return '';
+        }
+
+        // 1. Libsodium
+        if (function_exists('sodium_crypto_box_publickey_from_secretkey')) {
+            try {
+                return base64_encode(sodium_crypto_box_publickey_from_secretkey($raw));
+            } catch (\Throwable $e) {
+                // fall through
+            }
+        }
+
+        // 2. wg CLI
+        try {
+            $descriptors = [
+                0 => ['pipe', 'r'],
+                1 => ['pipe', 'w'],
+                2 => ['pipe', 'w'],
+            ];
+            $process = @proc_open('wg pubkey', $descriptors, $pipes);
+            if (is_resource($process)) {
+                fwrite($pipes[0], trim($base64Private));
+                fclose($pipes[0]);
+                $pub = trim((string) stream_get_contents($pipes[1]));
+                fclose($pipes[1]);
+                fclose($pipes[2]);
+                proc_close($process);
+                if ($pub !== '') {
+                    return $pub;
+                }
+            }
+        } catch (\Throwable $e) {
+            // fall through
+        }
+
+        // 3. Pure PHP Curve25519 via bcmath
+        if (extension_loaded('bcmath')) {
+            try {
+                [, $pub] = self::curve25519Base($raw);
+                return base64_encode($pub);
+            } catch (\Throwable $e) {
+                // fall through
+            }
+        }
+
+        return '';
+    }
+
+    /**
+     * Generate a 32-byte pre-shared key (base64-encoded).
+     */
+    public static function generatePresharedKey(): string
+    {
+        return base64_encode(random_bytes(32));
+    }
+
+    /**
+     * Pure PHP RFC 7748 Montgomery ladder scalar multiplication on Curve25519 base point (9).
+     *
+     * @param string $scalarBytes 32-byte scalar
+     * @return array{0: string, 1: string} [clamped_scalar_bytes, public_key_bytes]
+     */
+    protected static function curve25519Base(string $scalarBytes): array
+    {
+        $p = bcsub(bcpow('2', '255'), '19');
+        $a24 = '121665';
+
+        // Clamp private key per Curve25519 spec
+        $k = $scalarBytes;
+        $k[0] = chr(ord($k[0]) & 248);
+        $k[31] = chr((ord($k[31]) & 127) | 64);
+
+        $x1 = '9';
+        $x2 = '1';
+        $z2 = '0';
+        $x3 = $x1;
+        $z3 = '1';
+        $swap = 0;
+
+        for ($t = 254; $t >= 0; $t--) {
+            $byteIdx = (int) ($t / 8);
+            $bitIdx  = $t % 8;
+            $kt      = (ord($k[$byteIdx]) >> $bitIdx) & 1;
+
+            $swap ^= $kt;
+            if ($swap) {
+                $tmp = $x2; $x2 = $x3; $x3 = $tmp;
+                $tmp = $z2; $z2 = $z3; $z3 = $tmp;
+            }
+            $swap = $kt;
+
+            $A = bcmod(bcadd($x2, $z2), $p);
+            $AA = bcmod(bcmul($A, $A), $p);
+            $B = bcmod(bcsub($x2, $z2), $p);
+            if (bccomp($B, '0') < 0) {
+                $B = bcadd($B, $p);
+            }
+            $BB = bcmod(bcmul($B, $B), $p);
+            $E = bcmod(bcsub($AA, $BB), $p);
+            if (bccomp($E, '0') < 0) {
+                $E = bcadd($E, $p);
+            }
+            $C = bcmod(bcadd($x3, $z3), $p);
+            $D = bcmod(bcsub($x3, $z3), $p);
+            if (bccomp($D, '0') < 0) {
+                $D = bcadd($D, $p);
+            }
+            $DA = bcmod(bcmul($D, $A), $p);
+            $CB = bcmod(bcmul($C, $B), $p);
+
+            $addDacb = bcmod(bcadd($DA, $CB), $p);
+            $x3 = bcmod(bcmul($addDacb, $addDacb), $p);
+            $subDacb = bcmod(bcsub($DA, $CB), $p);
+            if (bccomp($subDacb, '0') < 0) {
+                $subDacb = bcadd($subDacb, $p);
+            }
+            $subDacbSq = bcmod(bcmul($subDacb, $subDacb), $p);
+            $z3 = bcmod(bcmul($x1, $subDacbSq), $p);
+
+            $x2 = bcmod(bcmul($AA, $BB), $p);
+            $a24E = bcmod(bcmul($a24, $E), $p);
+            $z2 = bcmod(bcmul($E, bcmod(bcadd($AA, $a24E), $p)), $p);
+        }
+
+        if ($swap) {
+            $tmp = $x2; $x2 = $x3; $x3 = $tmp;
+            $tmp = $z2; $z2 = $z3; $z3 = $tmp;
+        }
+
+        // z2^(p-2) mod p
+        $pMinus2 = bcsub($p, '2');
+        $z2Inv = bcpowmod($z2, $pMinus2, $p);
+        $res = bcmod(bcmul($x2, $z2Inv), $p);
+
+        // Convert to 32 bytes little-endian
+        $out = '';
+        $val = $res;
+        for ($i = 0; $i < 32; $i++) {
+            $byte = (int) bcmod($val, '256');
+            $out .= chr($byte);
+            $val = bcdiv($val, '256', 0);
+        }
+
+        return [$k, $out];
     }
 }

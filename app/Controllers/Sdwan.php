@@ -289,6 +289,60 @@ class Sdwan extends BaseController
         ]);
     }
 
+    /**
+     * Live SLA Report — calls the daemon's real ICMP probe via IPC and returns
+     * per-uplink RTT / jitter / loss measurements.
+     */
+    public function slaReport()
+    {
+        $members = $this->memberModel->where('enabled', 1)->findAll();
+
+        // Attempt live probe via IPC daemon on Linux appliance
+        $ipcRes = $this->ipc->call('sdwan.sla_report', [
+            'members'      => array_values($members),
+            'probe_target' => '8.8.8.8',
+            'count'        => 10,
+        ]);
+
+        if (!empty($ipcRes['result']['members'])) {
+            // Merge live IPC metrics back into DB members for status persistence
+            foreach ($ipcRes['result']['members'] as $memberId => $metrics) {
+                $this->memberModel->update($memberId, [
+                    'current_latency' => $metrics['latency_ms'],
+                    'current_jitter'  => $metrics['jitter_ms'],
+                    'current_loss'    => $metrics['loss_pct'],
+                    'status'          => $metrics['status'],
+                    'updated_at'      => date('Y-m-d H:i:s'),
+                ]);
+            }
+            return $this->response->setJSON([
+                'success' => true,
+                'source'  => 'live_probe',
+                'members' => $ipcRes['result']['members'],
+            ]);
+        }
+
+        // Fallback: return DB-cached values from last simulation/probe
+        $memberMetrics = [];
+        foreach ($members as $m) {
+            $memberMetrics[$m['id']] = [
+                'interface'   => $m['interface'],
+                'gateway'     => $m['gateway_ip'],
+                'latency_ms'  => (float) $m['current_latency'],
+                'jitter_ms'   => (float) $m['current_jitter'],
+                'loss_pct'    => (float) $m['current_loss'],
+                'status'      => $m['status'] ?? 'unknown',
+                'measured_at' => $m['updated_at'] ?? '',
+            ];
+        }
+
+        return $this->response->setJSON([
+            'success' => true,
+            'source'  => 'db_cache',
+            'members' => $memberMetrics,
+        ]);
+    }
+
     public function apply()
     {
         $compiled = $this->compiler->compile();

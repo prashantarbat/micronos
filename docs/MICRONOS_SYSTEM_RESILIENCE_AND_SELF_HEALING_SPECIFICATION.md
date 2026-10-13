@@ -1,11 +1,11 @@
-# Micron Firewall OS (MicronOS)
-## Power-Loss-Resilient Router OS — Architecture Review & Recovery Engineering Specification
-### Comprehensive Technical Blueprint for Filesystem Durability, Application-Level Consistency, Pre-Boot LKGC Recovery, and Automated Failover
+# Micron OS — Inherent System Resilience & Self-Healing Architecture Specification
+## Comprehensive Engineering Blueprint for Filesystem Durability, Application Data Integrity, SQLite WAL Durability, Dual-Slot Golden Recovery, and Autonomous Self-Healing
+### Architectural Standards for Appliances Operating in Hostile Power, Network, and Hardware Environments
 
 ---
 
 ## Table of Contents
-1. [Executive Summary & Ground-Truth Codebase Audit](#1-executive-summary--ground-truth-codebase-audit)
+1. [Executive Summary: Resilience by Nature](#1-executive-summary--ground-truth-codebase-audit)
 2. [Tri-Partite Failure Boundary: Filesystem vs. Application vs. System Recoverability](#2-tri-partite-failure-boundary-filesystem-vs-application-vs-system-recoverability)
 3. [Filesystem Resilience Evaluation (SquashFS+OverlayFS, ext4, ZFS, Btrfs, F2FS, UFS)](#3-filesystem-resilience-evaluation)
 4. [Application-Level Data Durability & SQLite WAL Engineering](#4-application-level-data-durability--sqlite-wal-engineering)
@@ -15,16 +15,16 @@
 8. [Proven Industry Architectural Patterns (OpenWrt, ChromeOS, Android, Junos)](#8-proven-industry-architectural-patterns)
 9. [End-to-End System Architecture & Boot Flow Diagram](#9-end-to-end-system-architecture--boot-flow-diagram)
 10. [Prioritized Implementation Roadmap](#10-prioritized-implementation-roadmap)
-11. [Power-Failure Chaos Testing & Verification Suite](#11-power-failure-chaos-testing--verification-suite)
+11. [Chaos Engineering & Verification Suite](#11-power-failure-chaos-testing--verification-suite)
 12. [False Assurances & Common Architectural Anti-Patterns](#12-false-assurances--common-architectural-anti-patterns)
 
 ---
 
 ## 1. Executive Summary & Ground-Truth Codebase Audit
 
-Network security gateways and edge routers in branch offices, industrial plants, and retail locations are routinely subjected to unannounced power cuts, UPS battery exhaustion, and abrupt plug pulls. Operational experience with traditional FreeBSD-based firewalls (pfSense/OPNsense running on UFS) demonstrates that dirty shutdowns frequently cause soft-updates corruption, orphaned inodes, locked state databases, and unbootable filesystems requiring manual `fsck` intervention.
+Network security appliances, edge firewalls, and SD-WAN branch nodes operate in demanding environments characterized by unstable mains electricity, unexpected hard resets, kernel panics, and human misconfiguration. A truly enterprise-grade network operating system cannot merely treat resilience as an afterthought or a "power-loss patch" — **Micron OS must be resilient by nature at every layer of the software stack.**
 
-The primary engineering objective of this specification is to make **Micron Firewall OS (MicronOS)** completely resilient against sudden power outages: **a single power interruption or unexpected runtime crash must never permanently disable an appliance while a valid recovery state remains available.**
+The core architectural requirement is absolute: **no unannounced power interruption, runtime process crash, kernel panic, or interrupted software update may ever leave Micron OS in an unbootable, corrupted, or bricked state.** The operating system must detect failures automatically, heal or quarantine damaged components, roll back to last-known-good configurations without human intervention, and maintain a verifiable, golden baseline that guarantees service continuity under any failure mode.
 
 ### 1.1 Ground-Truth Codebase Audit
 Before designing modifications, every load-bearing claim regarding MicronOS's filesystem layout, persistence layer, and recovery state was verified directly against the active repository source code:

@@ -6,8 +6,12 @@ set -e
 
 echo "===> [MicronOS Hook] Configuring Apache2, PHP-FPM, and Permissions..."
 
-# Enable Apache modules
-a2enmod rewrite ssl proxy_fcgi headers deflate
+# Enable Apache modules. Deliberately NOT mod_ssl: enabling it makes Apache
+# honour Debian's stock `Listen 443` and bind 0.0.0.0:443, which is the port the
+# ZTNA Clientless Gateway reverse proxy (nginx) needs — see ports.conf below.
+a2enmod rewrite proxy_fcgi headers deflate
+# Idempotent cleanup for images/installs where mod_ssl was enabled before.
+a2dismod ssl 2>/dev/null || true
 
 # Configure Apache virtual host for MicronOS
 cat << 'EOF' > /etc/apache2/sites-available/micronos.conf
@@ -32,6 +36,25 @@ EOF
 
 a2dissite 000-default.conf || true
 a2ensite micronos.conf
+
+# Apache must own only the management port. Debian's stock ports.conf declares
+# `Listen 443` inside <IfModule ssl_module>, so any image with mod_ssl enabled
+# (the previous default here) made apache2 reserve 0.0.0.0:443 even though no
+# Apache vhost speaks TLS. nginx is the :443 listener for the ZTNA gateway, so
+# it then failed to bind with
+#     nginx: [emerg] bind() to 0.0.0.0:443 failed (98: Address already in use)
+# and the Clientless Gateway could never start on a freshly installed machine.
+cat << 'EOF' > /etc/apache2/ports.conf
+# Micron OS — Apache2 listener configuration
+#
+# The management GUI is plain HTTP on *:80. Port 443 is reserved for the ZTNA
+# Clientless Gateway reverse proxy (nginx, /etc/nginx/sites-available/micron-ztna.conf),
+# which micrond enables on demand through `ztna.apply`.
+#
+# DO NOT re-add `Listen 443` here: apache2 would claim the port before nginx
+# starts and the Clientless Gateway would fail with EADDRINUSE.
+Listen 80
+EOF
 
 # Setup Micron directories
 mkdir -p /usr/local/micron/writable/cache
@@ -73,6 +96,40 @@ systemctl enable micrond || true
 systemctl enable ssh || true
 systemctl enable micron-network.service || true
 systemctl enable micron-ready-beep.service || true
+
+# ---------------------------------------------------------------------------
+# Nginx must never fight Apache2 for port 80
+# ---------------------------------------------------------------------------
+# apache2 owns *:80 for the management GUI (micronos.conf above). The Debian
+# nginx package also ships /etc/nginx/sites-enabled/default, which contains
+# `listen 80 default_server;`, and its postinst enables nginx.service at boot.
+# Installing nginx from micronos.list.chroot therefore produced an appliance
+# where nginx and apache2 raced for port 80 on every boot. The loser failed to
+# bind; on the affected installs the loser was apache2, which then failed
+# micron-healthcheck's "management plane is active" probe — and with the old
+# reboot policy that restarted the appliance on every boot, on every machine
+# built from the same image.
+#
+# Nginx is used here ONLY as the ZTNA / Clientless-Gateway reverse proxy on
+# :443, started on demand by micrond's ztna.apply. So: remove the stock default
+# site, ship an inert baseline config, and leave the unit disabled at boot.
+if [ -f /etc/nginx/nginx.conf ]; then
+    install -d /etc/nginx/sites-available /etc/nginx/sites-enabled
+    rm -f /etc/nginx/sites-enabled/default
+    rm -f /etc/nginx/sites-enabled/micron-ztna.conf
+    cat << 'EOF' > /etc/nginx/sites-available/micron-ztna.conf
+# Micron OS — ZTNA Clientless Gateway (baseline placeholder)
+#
+# Intentionally inert: it declares no server block, so nginx can be syntax
+# checked and started without claiming a port. micrond's `ztna.apply` replaces
+# this file with the compiled reverse-proxy configuration and enables the
+# service when an operator turns the Clientless Gateway on.
+#
+# Do NOT add a `server { listen 80; }` block here — port 80 belongs to the
+# Apache2 management plane (/etc/apache2/sites-available/micronos.conf).
+EOF
+    systemctl disable nginx 2>/dev/null || true
+fi
 
 # Configure systemd hardware watchdog defaults (30s ping, 60s reboot limit)
 if [ -f /etc/systemd/system.conf ]; then
@@ -196,12 +253,19 @@ EOF
 # ---------------------------------------------------------------------------
 # Operating System Branding (Micron OS)
 # ---------------------------------------------------------------------------
+# The version comes from the image's own VERSION file rather than a literal, so
+# the appliance cannot report a different release than the application it is
+# running (the filename, the console menu, /docs and /etc/os-release used to
+# disagree: 0.1.23 here, 0.1.31 in VERSION).
 echo "===> [Micron OS Hook] Branding operating system as Micron OS..."
-cat << 'EOF' > /etc/os-release
-PRETTY_NAME="Micron OS 0.1.23 (amd64)"
+MICRON_VERSION="$(head -n1 /usr/local/micron/VERSION 2>/dev/null | tr -d '[:space:]')"
+[ -n "$MICRON_VERSION" ] || MICRON_VERSION="0.1.31"
+MICRON_BUILD_ID="$(date -u +%Y%m%d)"
+cat << EOF > /etc/os-release
+PRETTY_NAME="Micron OS ${MICRON_VERSION} (amd64)"
 NAME="Micron OS"
-VERSION_ID="0.1.23"
-VERSION="0.1.23 (amd64)"
+VERSION_ID="${MICRON_VERSION}"
+VERSION="${MICRON_VERSION} (amd64)"
 VERSION_CODENAME=trixie
 ID=micronos
 ID_LIKE=debian
@@ -209,7 +273,7 @@ HOME_URL="https://micronos.local/"
 SUPPORT_URL="https://micronos.local/support"
 BUG_REPORT_URL="https://micronos.local/bugs"
 PRIVACY_POLICY_URL="https://micronos.local/privacy"
-BUILD_ID="20261011"
+BUILD_ID="${MICRON_BUILD_ID}"
 VARIANT="Enterprise Linux Firewall & Network Appliance"
 VARIANT_ID="appliance"
 EOF

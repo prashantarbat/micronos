@@ -4,13 +4,26 @@
 <?php
   $canManage = session()->get('is_superadmin') || in_array('vpn.wireguard.manage', session()->get('permissions') ?? []);
   $tunnelCount = count($tunnels);
-  $nextIface = 'wg' . $tunnelCount;
 
-  // Per-tunnel default pre-shared keys so the Peer form can pre-fill from them.
-  $tunnelPskDefaults = [];
-  foreach ($tunnels as $__tunnel) {
-      $tunnelPskDefaults[$__tunnel['id']] = (string) ($__tunnel['preshared_key'] ?? '');
+  // Lowest free wgN. Counting rows instead would collide as soon as a tunnel is
+  // deleted (with wg0 and wg2 defined, one removed, "wg1" is fine — but with
+  // wg0 and wg2 defined and wg0 removed, count=1 offers "wg1"… while a third
+  // row named wg1 may already exist).
+  $usedIfaces = [];
+  foreach ($tunnels as $__t) {
+      $usedIfaces[strtolower((string) ($__t['interface_name'] ?? ''))] = true;
   }
+  $nextIface = '';
+  for ($__i = 0; $__i < 255; $__i++) {
+      if (! isset($usedIfaces['wg' . $__i])) {
+          $nextIface = 'wg' . $__i;
+          break;
+      }
+  }
+  if ($nextIface === '') {
+      $nextIface = 'wg' . $tunnelCount;
+  }
+
 ?>
 
 <style>
@@ -71,6 +84,17 @@
   color: var(--text-muted);
   margin: 0;
   line-height: 1.45;
+}
+/* Section bar inside a modal (pfSense-style "Peer Configuration") */
+.wg-subheader {
+  background: var(--color-surface-3);
+  border-bottom: 1px solid var(--color-border);
+  padding: 8px 20px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-secondary);
 }
 .wg-input {
   background: var(--color-surface-3);
@@ -332,7 +356,7 @@
         <tr>
           <th style="min-width:110px;">Tunnel</th>
           <th style="min-width:130px;">Description</th>
-          <th style="min-width:150px;">Peer Tunnel Address</th>
+          <th style="min-width:150px;">Tunnel Address</th>
           <th style="min-width:160px;">Networks Routed Through Peer</th>
           <th style="min-width:150px;">Public Key</th>
           <th style="min-width:150px;">Endpoint</th>
@@ -364,8 +388,10 @@
                   $statusClass = 'wg-status-down';
                   $statusLabel = empty($p['enabled']) ? 'Disabled' : 'No handshake';
               }
+
+              $peerEnabled = (int) ($p['enabled'] ?? 1) === 1;
             ?>
-            <tr>
+            <tr<?= $peerEnabled ? '' : ' style="opacity:.55;"' ?>>
               <td>
                 <span class="badge badge-muted" style="font-family:var(--font-mono); font-size:0.68rem;">
                   <?= esc($tunnelNames[$p['tunnel_id']] ?? '— unassigned') ?>
@@ -377,7 +403,11 @@
               <td>
                 <span class="wg-addr"><?= esc($p['peer_address'] ?: '— not set —') ?></span>
                 <?php if (empty($p['peer_address'])): ?>
-                  <div class="wg-addr-sub">Add the peer's own tunnel IP so the interface knows where to send its traffic.</div>
+                  <div class="wg-addr-sub">
+                    No host entry in this peer's Allowed IPs — add its tunnel IP as a /32 (or /128) there.
+                  </div>
+                <?php else: ?>
+                  <div class="wg-addr-sub">from this peer's Allowed IPs</div>
                 <?php endif; ?>
               </td>
               <td style="font-family:var(--font-mono); font-size:0.78rem; color:var(--text-secondary);">
@@ -422,6 +452,12 @@
                       <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z"/>
                     </svg>
                   </button>
+                  <form method="POST" action="<?= base_url('vpn/wireguard/peers/' . esc($p['id']) . '/toggle') ?>" style="display:inline;">
+                    <?= csrf_field() ?>
+                    <button type="submit" class="btn btn-ghost btn-sm"
+                            title="<?= $peerEnabled ? 'Disable this peer — withdraw its AllowedIPs without deleting it' : 'Enable this peer' ?>"
+                            style="padding:4px 9px; font-size:0.72rem;"><?= $peerEnabled ? 'Disable' : 'Enable' ?></button>
+                  </form>
                   <form method="POST" action="<?= base_url('vpn/wireguard/peers/' . esc($p['id']) . '/delete') ?>"
                         style="display:inline;"
                         onsubmit="return confirm('Remove peer <?= esc(addslashes($p['name'])) ?>?');">
@@ -525,11 +561,27 @@
       <?= csrf_field() ?>
       <div class="wg-modal-body modal-scroll">
 
+        <div class="wg-subheader">Tunnel Configuration</div>
+
+        <div class="wg-form-row">
+          <div class="wg-form-label">Enable<abbr>Interface state</abbr></div>
+          <div class="wg-form-control">
+            <div class="wg-toggle">
+              <input type="checkbox" name="enabled" id="tunEnabled" value="1" checked>
+              <span>Enable Tunnel</span>
+            </div>
+            <p class="hint">
+              Uncheck to keep this interface down. The tunnel record, its keys and its peers are kept — the apply
+              script simply stops bringing the interface up, so no traffic is routed over it.
+            </p>
+          </div>
+        </div>
+
         <div class="wg-form-row">
           <div class="wg-form-label">Name<abbr>Tunnel label</abbr></div>
           <div class="wg-form-control">
             <input type="text" name="name" id="tunName" class="wg-input" required maxlength="64" placeholder="e.g. HQ-Backbone">
-            <p class="hint">Administrative name for this tunnel .</p>
+            <p class="hint">Administrative name for this tunnel.</p>
           </div>
         </div>
 
@@ -581,7 +633,12 @@
             <div class="wg-keys-row">
               <div style="flex:1; min-width:210px;">
                 <p style="font-size:0.7rem; color:var(--text-muted); margin:0 0 4px;">Private key (base64)</p>
-                <input type="password" name="private_key" id="tunPrivateKey" class="wg-input wg-input-mono" placeholder="Paste private key" autocomplete="off" spellcheck="false">
+                <div style="position:relative;">
+                  <input type="password" name="private_key" id="tunPrivateKey" class="wg-input wg-input-mono" placeholder="Paste private key" autocomplete="new-password" spellcheck="false" onchange="wgDerivePublicKey(this.value)" style="padding-right:32px;">
+                  <button type="button" onclick="wgToggleKeyVisibility('tunPrivateKey', this)" title="Show/Hide Private Key" style="position:absolute; right:6px; top:50%; transform:translateY(-50%); background:none; border:none; cursor:pointer; color:var(--text-muted); padding:4px; display:flex; align-items:center;">
+                    <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                  </button>
+                </div>
               </div>
               <div style="flex:1; min-width:210px;">
                 <p style="font-size:0.7rem; color:var(--text-muted); margin:0 0 4px;">Public key (base64)</p>
@@ -602,6 +659,7 @@
               <strong>Generate</strong> fills both fields with a new keypair from the daemon
               (<code>wg genkey | wg pubkey</code>) — works before the tunnel is saved. You can also paste an existing keypair,
               or use the <strong>Keys</strong> button on a saved tunnel's row to re-key it later.
+              <br>Editing a tunnel: leave the private key blank to keep the stored one — it is never sent to the browser.
             </p>
           </div>
         </div>
@@ -624,6 +682,7 @@
               Optional symmetric key for post-quantum resistance. WireGuard keeps the PSK on the peer, so this value is the
               tunnel's <em>default</em> — every peer created under it inherits it unless the peer has its own. Generate one and
               paste the same value into the remote end's config.
+              <br>Leave blank to keep the stored key — the current value is never sent to the browser.
             </p>
           </div>
         </div>
@@ -633,16 +692,6 @@
           <div class="wg-form-control">
             <input type="text" name="dns_servers" id="tunDns" class="wg-input wg-input-mono" placeholder="10.9.0.1, 1.1.1.1" spellcheck="false">
             <p class="hint">Handed to clients that download their profile from this tunnel.</p>
-          </div>
-        </div>
-
-        <div class="wg-form-row" style="border-bottom:none;">
-          <div class="wg-form-label">Enabled</div>
-          <div class="wg-form-control">
-            <div class="wg-toggle">
-              <input type="checkbox" name="enabled" id="tunEnabled" value="1" checked>
-              <span>Create the interface and bring it up</span>
-            </div>
           </div>
         </div>
 
@@ -670,15 +719,36 @@
       <?= csrf_field() ?>
       <div class="wg-modal-body modal-scroll">
 
+        <div class="wg-subheader">Peer Configuration</div>
+
+        <div class="wg-form-row">
+          <div class="wg-form-label">Enable<abbr>Peer state</abbr></div>
+          <div class="wg-form-control">
+            <div class="wg-toggle">
+              <input type="checkbox" name="enabled" id="peerEnabled" value="1" checked>
+              <span>Enable Peer</span>
+            </div>
+            <p class="hint" style="color:var(--color-red);">
+              Note: Uncheck this option to disable this peer without removing it from the list.
+            </p>
+          </div>
+        </div>
+
         <div class="wg-form-row">
           <div class="wg-form-label">Tunnel<abbr>Parent interface</abbr></div>
           <div class="wg-form-control">
-            <select name="tunnel_id" id="peerTunnel" class="wg-input" required style="max-width:440px;">
-              <?php foreach ($tunnels as $t): ?>
-                <option value="<?= esc($t['id']) ?>"><?= esc(($t['name'] ?: $t['interface_name']) . ' (' . $t['interface_name'] . ')') ?></option>
-              <?php endforeach; ?>
-            </select>
-            <p class="hint">Which WireGuard interface this peer is attached to.</p>
+            <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+              <select name="tunnel_id" id="peerTunnel" class="wg-input" required style="flex:1; min-width:220px; max-width:440px;">
+                <?php foreach ($tunnels as $t): ?>
+                  <option value="<?= esc($t['id']) ?>"><?= esc(($t['name'] ?: $t['interface_name']) . ' (' . $t['interface_name'] . ')') ?></option>
+                <?php endforeach; ?>
+              </select>
+              <button type="button" class="btn btn-ghost btn-sm"
+                      onclick="closePeerModal(); openTunnelModal(null);"
+                      title="Save a tunnel first, then attach peers to it"
+                      style="white-space:nowrap;">Create a New Tunnel</button>
+            </div>
+            <p class="hint">WireGuard tunnel this peer belongs to. The tunnel owns the interface, its IP address and its listen port.</p>
           </div>
         </div>
 
@@ -686,6 +756,46 @@
           <div class="wg-form-label">Description<abbr>Peer / user name</abbr></div>
           <div class="wg-form-control">
             <input type="text" name="name" id="peerName" class="wg-input" required maxlength="64" placeholder="e.g. branch-office or alice-laptop">
+            <p class="hint">Peer description for administrative reference (not parsed).</p>
+          </div>
+        </div>
+
+        <div class="wg-form-row">
+          <div class="wg-form-label">Dynamic Endpoint<abbr>NAT / road warrior</abbr></div>
+          <div class="wg-form-control">
+            <div class="wg-toggle">
+              <input type="checkbox" name="dynamic_endpoint" id="peerDynamicEndpoint" value="1" onchange="wgSyncEndpointState()">
+              <span>Dynamic</span>
+            </div>
+            <p class="hint" style="color:var(--color-red);">
+              Note: Uncheck this option to assign an endpoint address and port for this peer.
+            </p>
+          </div>
+        </div>
+
+        <div class="wg-form-row">
+          <div class="wg-form-label">Endpoint<abbr>Optional</abbr></div>
+          <div class="wg-form-control">
+            <div style="display:grid; grid-template-columns:minmax(200px, 320px) 130px; gap:8px 10px; align-items:start;">
+              <input type="text" name="endpoint_host" id="peerEndpointHost" class="wg-input wg-input-mono" placeholder="115.124.117.250" autocomplete="off" spellcheck="false" style="max-width:100%;">
+              <input type="number" name="endpoint_port" id="peerEndpointPort" class="wg-input wg-input-mono" placeholder="51820" min="1" max="65535" spellcheck="false" style="max-width:100%;">
+              <p class="hint">
+                Hostname, IPv4, or IPv6 address of this peer.<br>
+                Leave endpoint and port blank if unknown (dynamic endpoints).
+              </p>
+              <p class="hint">
+                Port used by this peer.<br>
+                Leave blank for default (51820).
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div class="wg-form-row">
+          <div class="wg-form-label">Keep Alive<abbr>Seconds</abbr></div>
+          <div class="wg-form-control">
+            <input type="number" name="keepalive_secs" id="peerKeepalive" class="wg-input wg-input-mono wg-input-sm" value="25" min="0" max="3600">
+            <p class="hint">Interval (in seconds) for Keep Alive packets sent to this peer. 25 is recommended behind NAT; 0 disables them.</p>
           </div>
         </div>
 
@@ -694,26 +804,6 @@
           <div class="wg-form-control">
             <input type="text" name="public_key" id="peerPublicKey" class="wg-input wg-input-mono" required placeholder="e.g. 4+gK7uXmZ1K8…=" autocomplete="off" spellcheck="false">
             <p class="hint">The peer's WireGuard public key (generated on the remote device).</p>
-          </div>
-        </div>
-
-        <div class="wg-form-row">
-          <div class="wg-form-label">Peer Tunnel Address(es)<abbr>The other end's tunnel IPs</abbr></div>
-          <div class="wg-form-control">
-            <input type="text" name="peer_address" id="peerAddress" class="wg-input wg-input-mono" placeholder="e.g. 10.9.0.2/32, fd00::2/128" style="max-width:100%;" spellcheck="false">
-            <p class="hint">
-              Address(es) of the peer's own tunnel interface — one per address the peer holds (IPv4 and/or IPv6).
-              Compiled as the leading <code>AllowedIPs</code> entries (cryptokey routes). Use /32 or /128 per host, or a wider prefix
-              to let the peer serve a whole tunnel subnet.
-            </p>
-          </div>
-        </div>
-
-        <div class="wg-form-row">
-          <div class="wg-form-label">Networks Routed Through Peer<abbr>Peer's LANs</abbr></div>
-          <div class="wg-form-control">
-            <input type="text" name="allowed_ips" id="peerAllowedIPs" class="wg-input wg-input-mono" placeholder="192.168.20.0/24, 172.16.5.0/24, fd00:20::/64" style="max-width:100%;" spellcheck="false">
-            <p class="hint">Any number of CIDRs, comma-separated — every network that should be reachable through this peer. Each wider-than-host entry also gets an explicit route in the interface apply script.</p>
           </div>
         </div>
 
@@ -731,33 +821,34 @@
                 Generate
               </button>
             </div>
-            <p class="hint">Optional symmetric key for post-quantum resistance — identical on both ends. In WireGuard the PSK belongs to a <em>peer</em>, not the interface, so each peer can have its own. Generate one, then paste the same value into the peer's config on the remote end.</p>
+            <p class="hint">
+              Optional symmetric key for post-quantum resistance — identical on both ends. In WireGuard the PSK belongs to a
+              <em>peer</em>, not the interface, so each peer can have its own. Generate one, then paste the same value into the
+              peer's config on the remote end.
+              <br>Left blank on an existing peer, the stored key is kept; left blank on a new peer, the peer inherits its tunnel's
+              default. The current value is never sent to the browser.
+            </p>
           </div>
         </div>
 
-        <div class="wg-form-row">
-          <div class="wg-form-label">Endpoint<abbr>Optional host:port</abbr></div>
-          <div class="wg-form-control">
-            <input type="text" name="endpoint" id="peerEndpoint" class="wg-input wg-input-mono" placeholder="e.g. 203.0.113.5:51820" spellcheck="false">
-            <p class="hint">Fixed endpoint for site-to-site tunnels. Leave blank for road-warrior / dynamic NAT clients.</p>
-          </div>
-        </div>
-
-        <div class="wg-form-row">
-          <div class="wg-form-label">Persistent Keepalive<abbr>Seconds (0 = off)</abbr></div>
-          <div class="wg-form-control">
-            <input type="number" name="keepalive_secs" id="peerKeepalive" class="wg-input wg-input-sm" value="25" min="0" max="3600">
-            <p class="hint">Send keepalive packets every N seconds. 25 is recommended for NAT traversal.</p>
-          </div>
-        </div>
+        <div class="wg-subheader">Address Configuration</div>
 
         <div class="wg-form-row" style="border-bottom:none;">
-          <div class="wg-form-label">Enabled</div>
+          <div class="wg-form-label">Allowed IPs<abbr>Tunnel IP + routed networks</abbr></div>
           <div class="wg-form-control">
-            <div class="wg-toggle">
-              <input type="checkbox" name="enabled" id="peerEnabled" value="1" checked>
-              <span>Peer is active</span>
-            </div>
+            <input type="text" name="allowed_ips" id="peerAllowedIPs" class="wg-input wg-input-mono" placeholder="10.9.0.2/32, 192.168.20.0/24, fd00:20::/64" style="max-width:100%;" spellcheck="false">
+            <p class="hint">
+              Every address or network carried to this peer, comma-separated. There is no separate “peer tunnel address” field:
+              include the peer's own tunnel IP here as a host entry (<code>10.9.0.2/32</code>, <code>fd00::2/128</code>) and it becomes
+              that peer's tunnel address — its <code>AllowedIPs</code> cryptokey route, and the <code>Address =</code> line of the
+              profile you hand out. Any wider entry is a network routed through the peer, and gets an explicit route in the
+              interface apply script.
+            </p>
+            <p class="hint">
+              Allowed IPs entries are saved at their subnet start boundary (<code>192.168.20.77/24</code> →
+              <code>192.168.20.0/24</code>). These entries must be unique between multiple peers on the same tunnel: if two peers
+              claim the same address or network, traffic for it is only routed to the last peer added.
+            </p>
           </div>
         </div>
 
@@ -782,9 +873,6 @@ function copyText(text) {
     setTimeout(function () { el.style.color = orig; }, 900);
   });
 }
-
-// Per-tunnel default PSKs (id → key), used to pre-fill the peer form.
-var wgTunnelPskDefaults = <?= json_encode($tunnelPskDefaults, JSON_UNESCAPED_SLASHES) ?>;
 
 // ── Key / PSK generation (AJAX, works before the record is saved) ──
 function wgSyncCsrf(token) {
@@ -824,10 +912,50 @@ function wgRequestKey(params, button) {
   });
 }
 
+function wgToggleKeyVisibility(inputId, btn) {
+  var input = document.getElementById(inputId);
+  if (!input) return;
+  if (input.type === 'password') {
+    input.type = 'text';
+    btn.innerHTML = '<svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18"/></svg>';
+  } else {
+    input.type = 'password';
+    btn.innerHTML = '<svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>';
+  }
+}
+
+function wgDerivePublicKey(privateKey) {
+  if (!privateKey || privateKey.trim().length < 40) return;
+  var pubEl = document.getElementById('tunPublicKey');
+  if (pubEl && (!pubEl.value || pubEl.value.trim() === '')) {
+    wgRequestKey({ kind: 'pubkey', private_key: privateKey.trim() }).then(function (data) {
+      if (data && data.public_key) {
+        pubEl.value = data.public_key;
+        var origBorder = pubEl.style.borderColor;
+        pubEl.style.borderColor = 'var(--color-emerald)';
+        setTimeout(function () { pubEl.style.borderColor = origBorder; }, 900);
+      }
+    }).catch(function () {});
+  }
+}
+
 function wgGenerateKeypair() {
-  wgRequestKey({ kind: 'keypair' }, document.getElementById('tunGenKeyBtn')).then(function (data) {
-    document.getElementById('tunPrivateKey').value = data.private_key;
-    document.getElementById('tunPublicKey').value  = data.public_key;
+  // Re-keying a saved tunnel invalidates every peer that trusts its public key.
+  if (document.getElementById('tunPrivateKey').dataset.editing === '1'
+      && !confirm('Generate a new keypair for this tunnel?\n\nIts peers are configured with the current public key and will stop handshaking until they are updated.')) {
+    return;
+  }
+  var btn = document.getElementById('tunGenKeyBtn');
+  wgRequestKey({ kind: 'keypair' }, btn).then(function (data) {
+    var privEl = document.getElementById('tunPrivateKey');
+    var pubEl  = document.getElementById('tunPublicKey');
+    privEl.value = data.private_key;
+    pubEl.value  = data.public_key;
+    [privEl, pubEl].forEach(function(el) {
+      var origBorder = el.style.borderColor;
+      el.style.borderColor = 'var(--color-emerald)';
+      setTimeout(function () { el.style.borderColor = origBorder; }, 900);
+    });
   }).catch(function (err) {
     wgNotice('<strong style="color:var(--color-amber);">Could not generate a keypair.</strong> ' + err.message);
   });
@@ -876,9 +1004,17 @@ function openTunnelModal(tunnel) {
   document.getElementById('tunAddresses').value   = addresses;
   document.getElementById('tunListenPort').value  = (tunnel && tunnel.listen_port) || 51820;
   document.getElementById('tunMtu').value         = (tunnel && tunnel.mtu) || 1420;
-  document.getElementById('tunPrivateKey').value  = '';
+  // Key fields always start blank: the stored values never leave the appliance.
+  // Blank means "keep" on update, and the placeholder says so.
+  var privEl = document.getElementById('tunPrivateKey');
+  privEl.value = '';
+  privEl.placeholder = editing ? 'Leave blank to keep the stored key' : 'Paste private key';
+  privEl.dataset.editing = editing ? '1' : '0';
   document.getElementById('tunPublicKey').value   = (tunnel && tunnel.public_key) || '';
-  document.getElementById('tunPresharedKey').value = (tunnel && tunnel.preshared_key) || '';
+  document.getElementById('tunPresharedKey').value = '';
+  document.getElementById('tunPresharedKey').placeholder = editing
+    ? 'Leave blank to keep the stored key'
+    : 'Leave blank to skip';
   document.getElementById('tunDns').value         = (tunnel && tunnel.dns_servers) || '';
   document.getElementById('tunEnabled').checked   = !tunnel || (parseInt(tunnel.enabled) !== 0);
 
@@ -938,14 +1074,31 @@ function openPeerModal(peer) {
   select.value                                     = (peer && peer.tunnel_id) || (select.options.length ? select.options[0].value : '');
   document.getElementById('peerName').value        = (peer && peer.name) || '';
   document.getElementById('peerPublicKey').value   = (peer && peer.public_key) || '';
-  document.getElementById('peerAddress').value     = (peer && peer.peer_address) || '';
-  document.getElementById('peerAllowedIPs').value  = (peer && peer.allowed_ips) || '';
-  // A new peer starts from its tunnel's default PSK; an existing peer keeps its own.
-  document.getElementById('peerPresharedKey').value= (peer && peer.preshared_key)
-    || wgTunnelPskDefaults[select.value] || '';
-  document.getElementById('peerEndpoint').value    = (peer && peer.endpoint) || '';
+
+  // WireGuard stores the endpoint as one "host:port" string; the form shows the
+  // two parts in their own boxes (as pfSense does), so split it on the way in.
+  var endpoint = wgSplitEndpoint(peer && peer.endpoint);
+  document.getElementById('peerEndpointHost').value = endpoint.host;
+  document.getElementById('peerEndpointPort').value = endpoint.port;
+  document.getElementById('peerDynamicEndpoint').checked = !peer || !endpoint.host;
+  wgSyncEndpointState();
+
   document.getElementById('peerKeepalive').value   = (peer && peer.persistent_keepalive) || 25;
   document.getElementById('peerEnabled').checked   = !peer || (parseInt(peer.enabled) !== 0);
+
+  // There is no separate peer-address field: the peer's own tunnel IP is the
+  // first host entry of AllowedIPs, so re-merge the two stored columns to show
+  // exactly what is saved (and let an edit round-trip unchanged).
+  var allowed = [];
+  if (peer && peer.peer_address) { allowed.push(peer.peer_address); }
+  if (peer && peer.allowed_ips)  { allowed.push(peer.allowed_ips); }
+  document.getElementById('peerAllowedIPs').value = allowed.join(', ');
+
+  // The PSK never leaves the appliance: blank keeps the stored key on an update,
+  // and a blank new peer inherits its tunnel's default server-side.
+  var pskEl = document.getElementById('peerPresharedKey');
+  pskEl.value = '';
+  pskEl.placeholder = editing ? 'Leave blank to keep the stored key' : 'Leave blank to skip';
 
   document.getElementById('peerModal').classList.add('active');
   // Reset AFTER display: a hidden scroll container ignores scrollTop.
@@ -958,13 +1111,34 @@ document.getElementById('peerModal').addEventListener('click', function (e) {
   if (e.target === this) closePeerModal();
 });
 
-// Follow the tunnel's default PSK while the peer form is still blank.
-document.getElementById('peerTunnel').addEventListener('change', function () {
-  var field = document.getElementById('peerPresharedKey');
-  if (field.value.trim() === '') {
-    field.value = wgTunnelPskDefaults[this.value] || '';
+// ── Endpoint host/port helpers ──
+function wgSplitEndpoint(value) {
+  var v = (value || '').trim();
+  if (v === '') { return { host: '', port: '' }; }
+
+  // [fd00::1]:51820 — an IPv6 literal needs brackets once a port follows.
+  var m = v.match(/^\[([^\]]+)\]:(\d{1,5})$/);
+  if (m) { return { host: m[1], port: m[2] }; }
+
+  // A single colon means host:port; a bare IPv6 address has several and no port.
+  if (v.indexOf(':') === v.lastIndexOf(':') && v.indexOf('[') === -1) {
+    m = v.match(/^(.+):(\d{1,5})$/);
+    if (m) { return { host: m[1], port: m[2] }; }
   }
-});
+
+  return { host: v, port: '' };
+}
+
+// A dynamic endpoint carries no address, so its boxes are inert (and unsubmitted).
+function wgSyncEndpointState() {
+  var dynamic = document.getElementById('peerDynamicEndpoint').checked;
+  ['peerEndpointHost', 'peerEndpointPort'].forEach(function (id) {
+    var el = document.getElementById(id);
+    if (!el) { return; }
+    el.disabled = dynamic;
+    el.style.opacity = dynamic ? '.5' : '1';
+  });
+}
 
 document.addEventListener('keydown', function (e) {
   if (e.key === 'Escape') { closeTunnelModal(); closePeerModal(); }

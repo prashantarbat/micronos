@@ -800,8 +800,10 @@ cat << EOF > "$TARGET_MNT/etc/fstab"
 UUID=${ROOT_A_UUID}          /                    ext4    defaults,noatime,errors=remount-ro   0      1
 UUID=${EFI_UUID}             /boot/efi            vfat    umask=0077                           0      1
 UUID=${SWAP_UUID}            none                 swap    sw                                   0      0
-UUID=${DATA_UUID}            /var/lib/micron      ext4    defaults,noatime,barrier=1,commit=5,errors=remount-ro 0 2
+UUID=${DATA_UUID}            /var/lib/micron      ext4    defaults,noatime,barrier=1,commit=5,data=ordered,errors=remount-ro 0 2
 UUID=${ROOT_B_UUID}          /mnt/micron-slot-b   ext4    noauto,nofail                        0      0
+tmpfs                        /run                 tmpfs   defaults,noatime,nosuid,nodev,mode=0755,size=256M 0 0
+tmpfs                        /tmp                 tmpfs   defaults,noatime,nosuid,nodev,mode=1777,size=512M 0 0
 EOF
 
 # Generate fstab for Slot B
@@ -810,8 +812,10 @@ cat << EOF > "$TARGET_MNT_B/etc/fstab"
 UUID=${ROOT_B_UUID}          /                    ext4    defaults,noatime,errors=remount-ro   0      1
 UUID=${EFI_UUID}             /boot/efi            vfat    umask=0077                           0      1
 UUID=${SWAP_UUID}            none                 swap    sw                                   0      0
-UUID=${DATA_UUID}            /var/lib/micron      ext4    defaults,noatime,barrier=1,commit=5,errors=remount-ro 0 2
+UUID=${DATA_UUID}            /var/lib/micron      ext4    defaults,noatime,barrier=1,commit=5,data=ordered,errors=remount-ro 0 2
 UUID=${ROOT_A_UUID}          /mnt/micron-slot-a   ext4    noauto,nofail                        0      0
+tmpfs                        /run                 tmpfs   defaults,noatime,nosuid,nodev,mode=0755,size=256M 0 0
+tmpfs                        /tmp                 tmpfs   defaults,noatime,nosuid,nodev,mode=1777,size=512M 0 0
 EOF
 
 # Apply Localization, NumLock & Base System Configuration to both slots
@@ -922,20 +926,65 @@ EOF
 
     # Base Network Configuration (Default Unconfigured, or Preconfigured via Kickstart)
     mkdir -p "$mnt/etc/network" "$mnt/etc/micron"
-    if [ "$KICKSTART_MODE" -eq 1 ] && [ -n "$WAN_IF" ]; then
+
+    # Kickstart interface names are logical (eth0/eth1/wan/lan) while modern
+    # kernels rename NICs by PCI slot (enp0s3, ens18, eno1, ...). Writing an
+    # ifupdown stanza for a device that does not exist makes `ifup -a` fail, which
+    # leaves networking.service in a failed state on every boot, on every machine
+    # whose NIC names differ from the kickstart file. Resolve each requested name
+    # against the devices actually present and emit a stanza only for those.
+    # micron-network owns the data plane anyway and auto-assigns the rest.
+    micron_resolve_if() { # <requested-name> -> resolved device name, or empty
+        local want="${1:-}"
+        [ -n "$want" ] || return 0
+        # Devices we create ourselves (bridge/bond/VLAN) always pass through.
+        case "$want" in
+            br*|bond*|*.*) printf '%s\n' "$want"; return 0 ;;
+        esac
+        [ -e "/sys/class/net/$want" ] && { printf '%s\n' "$want"; return 0; }
+        local phys=() d
+        for d in /sys/class/net/*; do
+            d="$(basename "$d")"
+            case "$d" in lo|virbr*|docker*|veth*|wg*|tun*|br*|bond*) continue ;; esac
+            phys+=("$d")
+        done
+        case "${want,,}" in
+            wan|eth0|eth_wan|wan0)  [ "${#phys[@]}" -ge 1 ] && printf '%s\n' "${phys[0]}" ;;
+            lan|eth1|eth_lan|lan0)  [ "${#phys[@]}" -ge 2 ] && printf '%s\n' "${phys[1]}" ;;
+            *) : ;;
+        esac
+        return 0
+    }
+
+    WAN_IF_DEV="$(micron_resolve_if "${WAN_IF:-}")"
+    LAN_IF_DEV="$(micron_resolve_if "${LAN_IF:-}")"
+    if [ -n "${WAN_IF:-}" ] && [ -z "$WAN_IF_DEV" ]; then
+        echo -e "${YELLOW}[Kickstart] WAN interface '${WAN_IF}' is not present on this hardware; leaving WAN to micron-network auto-detection.${NC}"
+    fi
+    if [ -n "${LAN_IF:-}" ] && [ -z "$LAN_IF_DEV" ]; then
+        echo -e "${YELLOW}[Kickstart] LAN interface '${LAN_IF}' is not present on this hardware; leaving LAN to micron-network auto-detection.${NC}"
+    fi
+
+    if [ "$KICKSTART_MODE" -eq 1 ] && [ -n "$WAN_IF_DEV" ]; then
         cat << EOF > "$mnt/etc/network/interfaces"
 auto lo
 iface lo inet loopback
 
-allow-hotplug $WAN_IF
-iface $WAN_IF inet dhcp
+allow-hotplug $WAN_IF_DEV
+iface $WAN_IF_DEV inet dhcp
 EOF
-        if [ -n "$LAN_IF" ]; then
+        if [ -n "$LAN_IF_DEV" ]; then
+            LAN_IF="$LAN_IF_DEV"
             LAN_IP_ADDR="${LAN_IP:-10.10.10.10}"
             LAN_NM="${LAN_NETMASK:-255.255.255.0}"
             if [ "$LAN_IF" = "br0" ] || [ "${LAN_IS_BRIDGE:-no}" = "yes" ] || [ -n "${BRIDGE_SLAVES:-}" ]; then
                 LAN_DEV="br0"
-                SLAVES="${BRIDGE_SLAVES:-eth1 eth2 eth3}"
+                SLAVES=""
+                # Only enslave member ports that exist on this machine.
+                for sl in ${BRIDGE_SLAVES:-eth1 eth2 eth3}; do
+                    [ -e "/sys/class/net/$sl" ] && SLAVES="${SLAVES:+$SLAVES }$sl"
+                done
+                [ -n "$SLAVES" ] || SLAVES="${LAN_IF_DEV}"
                 cat << EOF >> "$mnt/etc/network/interfaces"
 
 auto $LAN_DEV
@@ -957,7 +1006,7 @@ EOF
                 sl_json=$(printf '["%s"]' "$(echo $SLAVES | sed 's/ /", "/g')")
                 cat << EOF > "$mnt/etc/micron/network_init.json"
 {
-  "wan_interface": "$WAN_IF",
+  "wan_interface": "$WAN_IF_DEV",
   "lan_interface": "$LAN_DEV",
   "lan_is_bridge": true,
   "bridge_slaves": $sl_json,
@@ -967,16 +1016,16 @@ EOF
             else
                 cat << EOF >> "$mnt/etc/network/interfaces"
 
-auto $LAN_IF
-allow-hotplug $LAN_IF
-iface $LAN_IF inet static
+auto $LAN_IF_DEV
+allow-hotplug $LAN_IF_DEV
+iface $LAN_IF_DEV inet static
     address $LAN_IP_ADDR
     netmask $LAN_NM
 EOF
                 cat << EOF > "$mnt/etc/micron/network_init.json"
 {
-  "wan_interface": "$WAN_IF",
-  "lan_interface": "$LAN_IF",
+  "wan_interface": "$WAN_IF_DEV",
+  "lan_interface": "$LAN_IF_DEV",
   "configured": true
 }
 EOF
@@ -1224,15 +1273,39 @@ for mnt in "$TARGET_MNT" "$TARGET_MNT_B"; do
     fi
     mkdir -p "$mnt/etc/modules-load.d"
     echo "pcspkr" > "$mnt/etc/modules-load.d/pcspkr.conf" 2>/dev/null || true
-    if [ -f "$mnt/usr/local/micron/system/os-release" ]; then
-        install -m 0644 "$mnt/usr/local/micron/system/os-release" "$mnt/etc/os-release"
-        cp "$mnt/etc/os-release" "$mnt/usr/lib/os-release" 2>/dev/null || true
+    # Regenerate /etc/os-release from the slot's own VERSION file rather than
+    # copying a checked-in os-release, which had drifted from it (the file said
+    # one release while VERSION and the ISO filename said another).
+    MICRON_OS_VERSION=""
+    [ -f "$mnt/usr/local/micron/VERSION" ] && \
+        MICRON_OS_VERSION=$(head -n1 "$mnt/usr/local/micron/VERSION" 2>/dev/null | tr -d '[:space:]')
+    if [ -z "$MICRON_OS_VERSION" ] && [ -f "$mnt/usr/local/micron/system/os-release" ]; then
+        MICRON_OS_VERSION=$(sed -n 's/^VERSION_ID="\{0,1\}\([^"]*\)"\{0,1\}/\1/p' \
+            "$mnt/usr/local/micron/system/os-release" | head -n1)
     fi
+    [ -n "$MICRON_OS_VERSION" ] || MICRON_OS_VERSION="0.1.23"
+    cat > "$mnt/etc/os-release" << OSRELEASEEOF
+PRETTY_NAME="Micron OS ${MICRON_OS_VERSION} (amd64)"
+NAME="Micron OS"
+VERSION_ID="${MICRON_OS_VERSION}"
+VERSION="${MICRON_OS_VERSION} (amd64)"
+VERSION_CODENAME=trixie
+ID=micronos
+ID_LIKE=debian
+HOME_URL="https://micronos.local/"
+SUPPORT_URL="https://micronos.local/support"
+BUG_REPORT_URL="https://micronos.local/bugs"
+PRIVACY_POLICY_URL="https://micronos.local/privacy"
+BUILD_ID="$(date -u +%Y%m%d)"
+VARIANT="Enterprise Linux Firewall & Network Appliance"
+VARIANT_ID="appliance"
+OSRELEASEEOF
+    cp "$mnt/etc/os-release" "$mnt/usr/lib/os-release" 2>/dev/null || true
 done
 
 # Initialize SQLite database
 if [ -d "$TARGET_MNT/usr/local/micron" ]; then
-    chroot "$TARGET_MNT" bash -c "cd /usr/local/micron && php spark migrate --all && php spark db:seed InitialApplianceSeeder && php spark db:seed RolesPermissionsSeeder && php spark user:reset-admin '${ADMIN_PW}'" || true
+    chroot "$TARGET_MNT" bash -c "cd /usr/local/micron && php spark migrate --all && php spark db:seed InitialApplianceSeeder && php spark db:seed RolesPermissionsSeeder && php spark user:reset-admin '${ADMIN_PW}' && php spark micron:db-resilience --snapshot" || true
     chroot "$TARGET_MNT" chown -R www-data:www-data /usr/local/micron/writable || true
     chroot "$TARGET_MNT" chmod -R 777 /usr/local/micron/writable || true
 fi
@@ -1243,6 +1316,119 @@ if [ -f "$TARGET_MNT/usr/local/micron/writable/micron_config.db" ] && [ -d "$TAR
     chown -R www-data:www-data "$TARGET_MNT_B/usr/local/micron/writable" || true
     chmod -R 777 "$TARGET_MNT_B/usr/local/micron/writable" || true
 fi
+
+# ==============================================================================
+# FIX: Explicitly enable MicronOS Apache virtual host in both installed slots
+# ==============================================================================
+# The rsync copy transfers the live filesystem, but Apache site-enabled symlinks
+# are fragile and 000-default.conf may win on first boot. We write the vhost
+# config fresh and run a2ensite/a2dissite directly inside the chroot to guarantee
+# the MicronOS web UI is served — not the Apache default page.
+echo -e "\n${BOLD}Configuring Apache2 virtual host in installed system...${NC}"
+for mnt in "$TARGET_MNT" "$TARGET_MNT_B"; do
+    # Write the MicronOS vhost config directly (don't rely on rsync copy)
+    mkdir -p "$mnt/etc/apache2/sites-available"
+    cat > "$mnt/etc/apache2/sites-available/micronos.conf" << 'APACHEEOF'
+<VirtualHost *:80>
+    ServerName micronos.local
+    DocumentRoot /usr/local/micron/public
+
+    <Directory /usr/local/micron/public>
+        Options -Indexes +FollowSymLinks
+        AllowOverride All
+        Require all granted
+    </Directory>
+
+    <FilesMatch \.php$>
+        SetHandler "proxy:unix:/run/php/php8.4-fpm.sock|fcgi://localhost"
+    </FilesMatch>
+
+    ErrorLog ${APACHE_LOG_DIR}/micron_error.log
+    CustomLog ${APACHE_LOG_DIR}/micron_access.log combined
+</VirtualHost>
+APACHEEOF
+
+    # Apache2 owns the management GUI on *:80 only. Debian's stock ports.conf
+    # declares `Listen 443` whenever mod_ssl is enabled, which made apache2 bind
+    # 0.0.0.0:443 even though no Apache vhost speaks TLS. Port 443 belongs to the
+    # ZTNA Clientless Gateway (nginx), which micrond starts with `ztna.apply`, so
+    # nginx failed to bind and the gateway never came up on a fresh install:
+    #     nginx: [emerg] bind() to 0.0.0.0:443 failed (98: Address already in use)
+    # Rewrite ports.conf and drop mod_ssl in both slots so apache2 only listens
+    # on 80 and leaves 443 free for nginx.
+    cat > "$mnt/etc/apache2/ports.conf" << 'APACHEPORTS'
+# Micron OS — Apache2 listener configuration
+#
+# The management GUI is plain HTTP on *:80. Port 443 is reserved for the ZTNA
+# Clientless Gateway reverse proxy (nginx, /etc/nginx/sites-available/micron-ztna.conf),
+# which micrond enables on demand through `ztna.apply`.
+#
+# DO NOT re-add `Listen 443` here: apache2 would claim the port before nginx
+# starts and the Clientless Gateway would fail with EADDRINUSE.
+Listen 80
+APACHEPORTS
+
+    # Enable required modules, disable default site, enable MicronOS site
+    chroot "$mnt" bash -c "
+        a2enmod rewrite proxy_fcgi headers deflate 2>/dev/null || true
+        a2dismod ssl 2>/dev/null || true
+        a2dissite 000-default.conf 2>/dev/null || true
+        a2dissite default-ssl.conf 2>/dev/null || true
+        a2ensite micronos.conf 2>/dev/null || true
+        systemctl enable apache2 2>/dev/null || true
+        systemctl enable php8.4-fpm 2>/dev/null || systemctl enable php8.3-fpm 2>/dev/null || true
+    " 2>/dev/null || true
+    echo -e "  ${GREEN}[OK]${NC} Apache2 configured in ${mnt}"
+done
+
+# ==============================================================================
+# FIX: Nginx must never fight Apache2 for port 80
+# ==============================================================================
+# The installed appliance serves the management GUI from apache2 on *:80.
+# Nginx is present only for the ZTNA / Clientless-Gateway reverse proxy on
+# :443. Debian's nginx package ships /etc/nginx/sites-enabled/default with
+# `listen 80 default_server;` and enables nginx.service at boot, so a stock
+# install had nginx and apache2 racing for port 80 on every boot; when apache2
+# lost it failed micron-healthcheck's management probe and the appliance
+# rebooted on every boot. Remove the stock site, install an inert baseline and
+# keep the unit disabled at boot (micrond enables it when ZTNA is turned on).
+echo -e "\n${BOLD}Ensuring nginx does not contend with Apache2 for port 80...${NC}"
+for mnt in "$TARGET_MNT" "$TARGET_MNT_B"; do
+    if [ -f "$mnt/etc/nginx/nginx.conf" ]; then
+        mkdir -p "$mnt/etc/nginx/sites-available" "$mnt/etc/nginx/sites-enabled"
+        rm -f "$mnt/etc/nginx/sites-enabled/default"
+        rm -f "$mnt/etc/nginx/sites-enabled/micron-ztna.conf"
+        cat > "$mnt/etc/nginx/sites-available/micron-ztna.conf" << 'NGINXEOF'
+# Micron OS — ZTNA Clientless Gateway (baseline placeholder)
+#
+# Intentionally inert: no server block, so nginx starts without claiming a port.
+# micrond's `ztna.apply` replaces this with the compiled reverse-proxy config.
+# Do not add a `server { listen 80; }` block: port 80 is the Apache2 GUI.
+NGINXEOF
+        chroot "$mnt" systemctl disable nginx 2>/dev/null || true
+        echo -e "  ${GREEN}[OK]${NC} nginx default site removed in ${mnt}"
+    fi
+done
+
+# ==============================================================================
+# FIX: Unblacklist pcspkr kernel module so boot-ready beeps work
+# ==============================================================================
+# Debian 13 Trixie blacklists pcspkr by default. The micron-ready-beep script
+# calls 'modprobe pcspkr || true' which silently fails when blacklisted.
+# Remove the blacklist entry and ensure the module loads at boot.
+echo -e "\n${BOLD}Enabling pcspkr module for boot-ready beep sound...${NC}"
+for mnt in "$TARGET_MNT" "$TARGET_MNT_B"; do
+    # Remove pcspkr blacklist entries from all modprobe conf files
+    for f in "$mnt/etc/modprobe.d/blacklist.conf" \
+              "$mnt/etc/modprobe.d/blacklist-oss.conf" \
+              "$mnt/etc/modprobe.d/blacklist-framebuffer.conf"; do
+        [ -f "$f" ] && sed -i '/blacklist pcspkr/d' "$f" 2>/dev/null || true
+    done
+    # Ensure pcspkr loads at boot via modules-load.d
+    mkdir -p "$mnt/etc/modules-load.d"
+    echo "pcspkr" > "$mnt/etc/modules-load.d/pcspkr.conf"
+    echo -e "  ${GREEN}[OK]${NC} pcspkr unblacklisted in ${mnt}"
+done
 
 # Cleanup mounts
 sync

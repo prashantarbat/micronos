@@ -19,16 +19,33 @@
 # Configuration (environment, all optional):
 #   MICRON_SLOT_HELPER       path to micron-slot          (default below)
 #   MICRON_MAX_FAILS         attempts before abandoning   (default 3)
-#   MICRON_HEALTHCHECK_REBOOT  1|0 reboot on failure      (default 1)
+#   MICRON_HEALTHCHECK_REBOOT  1|0 reboot on failure      (default 0 — opt-in)
 #   MICRON_HEALTHCHECK_MODE     normal|dry-run            (default normal)
 #   MICRON_HEALTHCHECK_FORCE   ok|fail — lab test seam, skips the probes
 #   MICRON_HEALTHCHECK_REQUIRE comma list of probes that must pass
 #                              (default: management,ipc,dataplane,persistence)
+#
+# REBOOT POLICY (changed deliberately):
+# A failing probe does NOT restart the appliance any more. The previous default
+# (`MICRON_HEALTHCHECK_REBOOT=1`, set by the shipped unit) made this script a
+# machine-wide restart path that fired ~20 s after every boot regardless of what
+# the operator was doing — so an operator sitting in the console menu saw the
+# appliance reboot after *whichever* option they selected, and on a fresh install
+# with a persistently failing probe the box rebooted on every boot on every
+# machine built from the same ISO.
+#
+# Failing a health check is now a REPORTING event: the slot is left marked
+# not-good (so the GRUB selector can move slots on the next boot the operator
+# asks for), a diagnostic report is written, and the appliance keeps running so
+# the operator can read the reason. Auto-failover rebooting is still available,
+# but only when an operator explicitly exports MICRON_HEALTHCHECK_REBOOT=1.
 # ==============================================================================
 
 SLOT_HELPER="${MICRON_SLOT_HELPER:-/usr/local/micron/installer/micron-slot}"
 MAX_FAILS="${MICRON_MAX_FAILS:-3}"
-ALLOW_REBOOT="${MICRON_HEALTHCHECK_REBOOT:-1}"
+ALLOW_REBOOT="${MICRON_HEALTHCHECK_REBOOT:-0}"
+LOG_DIR="${MICRON_HEALTHCHECK_LOG_DIR:-/var/log/micron}"
+REPORT="${MICRON_HEALTHCHECK_REPORT:-/run/micron/healthcheck_last.json}"
 MODE="${MICRON_HEALTHCHECK_MODE:-normal}"
 FORCE="${MICRON_HEALTHCHECK_FORCE:-}"
 REQUIRE="${MICRON_HEALTHCHECK_REQUIRE:-management,ipc,dataplane,persistence}"
@@ -125,6 +142,37 @@ probe_persistence() {
 
 # ── Decision ─────────────────────────────────────────────────────────────────
 
+# Persist what went wrong. A failed boot slot is exactly the case where the
+# evidence must survive, so the report is written before anything else happens.
+write_report() {
+    local slot="$1" count="$2" rc="$3"
+    mkdir -p "$LOG_DIR" 2>/dev/null || true
+
+    {
+        printf 'micron-healthcheck: slot=%s probe_failures=%s attempt=%s/%s uptime=%s reboot_allowed=%s\n' \
+            "$slot" "${#FAILS[@]}" "$count" "$MAX_FAILS" \
+            "$(cut -d. -f1 /proc/uptime 2>/dev/null || echo '?')" "$ALLOW_REBOOT"
+        for f in ${FAILS[@]+"${FAILS[@]}"}; do
+            printf '  FAIL  %s\n' "$f"
+        done
+        for n in ${NOTES[@]+"${NOTES[@]}"}; do
+            printf '  note  %s\n' "$n"
+        done
+    } >> "$LOG_DIR/healthcheck.log" 2>/dev/null || true
+
+    {
+        printf '{\n  "slot": "%s",\n  "failures": %s,\n  "attempt": %s,\n  "max_fails": %s,\n  "reboot_allowed": %s,\n  "reboot_performed": %s,\n  "failed_probes": [' "$slot" "${#FAILS[@]}" "${count:-0}" "$MAX_FAILS" \
+            "$([ "$ALLOW_REBOOT" = '1' ] && echo true || echo false)" \
+            "$([ "$rc" = 'rebooted' ] && echo true || echo false)";
+        sep=''
+        for f in ${FAILS[@]+"${FAILS[@]}"}; do
+            printf '%s"%s"' "$sep" "${f//\"/}"
+            sep=', '
+        done
+        printf ' ]\n}\n'
+    } > "${REPORT}.tmp" 2>/dev/null && mv -f "${REPORT}.tmp" "$REPORT" 2>/dev/null || true
+}
+
 apply_result() {
     local slot count
     slot=$("$SLOT_HELPER" active)
@@ -139,7 +187,13 @@ apply_result() {
     log "slot ${slot}: ${#FAILS[@]} failed probe(s), attempt ${count}/${MAX_FAILS}"
 
     if [ "$ALLOW_REBOOT" != '1' ]; then
-        log "reboot suppressed (MICRON_HEALTHCHECK_REBOOT=${ALLOW_REBOOT})"
+        # Default path: keep the appliance up, keep the logs, tell the operator.
+        log "reboot suppressed (MICRON_HEALTHCHECK_REBOOT=${ALLOW_REBOOT}); appliance left running for inspection"
+        write_report "$slot" "$count" "reported"
+        log "diagnostic report written to ${REPORT} and ${LOG_DIR}/healthcheck.log"
+        if [ "$count" -ge "$MAX_FAILS" ]; then
+            log "slot ${slot}: ${MAX_FAILS} consecutive failures recorded; the slot's good mark is cleared, so the boot selector will move to the other slot the next time the appliance is restarted on purpose"
+        fi
         return 1
     fi
 
@@ -149,14 +203,17 @@ apply_result() {
         # so a permanently unbootable appliance cannot loop forever.
         if [ "$count" -eq "$MAX_FAILS" ]; then
             log "slot ${slot}: attempts exhausted — handing over to the boot selector"
+            write_report "$slot" "$count" "rebooted"
             sync
             reboot
         fi
         log "slot ${slot}: already handed over; not rebooting again (operator action required)"
+        write_report "$slot" "$count" "reported"
         return 1
     fi
 
-    log "slot ${slot}: rebooting to retry"
+    log "slot ${slot}: rebooting to retry (explicitly enabled via MICRON_HEALTHCHECK_REBOOT=1)"
+    write_report "$slot" "$count" "rebooted"
     sync
     reboot
 }

@@ -97,15 +97,35 @@ fi
 [ -n "$MGMT_IP" ] || MGMT_IP="192.168.1.1"
 
 # 4. Detect Active Slot
+#
+# Resolve by the filesystem LABEL of the mounted root, never by partition number.
+# The A/B layout is 1=ESP 2=BIOS-boot 3=swap 4=MICRON_ROOT_A 5=MICRON_ROOT_B
+# 6=MICRON_DATA, so a numbering guess is off by one: the old rule mapped p4 to
+# Slot B and therefore announced "Slot B" on every fresh install, which actually
+# boots MICRON_ROOT_A at p4. micron-slot's GRUB environment is the second
+# authority and the device name is only a last resort.
 ROOT_DEV=$(findmnt -n -o SOURCE / 2>/dev/null || true)
-ACTIVE_SLOT="A"
-if [[ "$ROOT_DEV" =~ sda4|nvme0n1p4|vda4 ]] || [ "$ROOT_DEV" = "/dev/disk/by-label/MICRON_ROOT_B" ]; then
-    ACTIVE_SLOT="B"
-elif [[ "$ROOT_DEV" =~ sda3|nvme0n1p3|vda3 ]] || [ "$ROOT_DEV" = "/dev/disk/by-label/MICRON_ROOT_A" ]; then
-    ACTIVE_SLOT="A"
-elif [ -x /usr/local/micron/installer/micron-slot ]; then
-    s=$(/usr/local/micron/installer/micron-slot active 2>/dev/null || echo "a")
-    ACTIVE_SLOT="${s^^}"
+ROOT_LABEL=$(blkid -s LABEL -o value "$ROOT_DEV" 2>/dev/null || true)
+ACTIVE_SLOT=""
+case "$ROOT_LABEL" in
+    MICRON_ROOT_A) ACTIVE_SLOT="A" ;;
+    MICRON_ROOT_B) ACTIVE_SLOT="B" ;;
+esac
+if [ -z "$ACTIVE_SLOT" ]; then
+    for slot_helper in /usr/local/bin/micron-slot /usr/local/micron/installer/micron-slot; do
+        [ -x "$slot_helper" ] || continue
+        s=$(MICRON_SLOT_ENV=/boot/grub/grubenv "$slot_helper" active 2>/dev/null || true)
+        case "${s,,}" in
+            a) ACTIVE_SLOT="A"; break ;;
+            b) ACTIVE_SLOT="B"; break ;;
+        esac
+    done
+fi
+if [ -z "$ACTIVE_SLOT" ]; then
+    case "$ROOT_DEV" in
+        *MICRON_ROOT_B) ACTIVE_SLOT="B" ;;
+        *)              ACTIVE_SLOT="A" ;;
+    esac
 fi
 SLOT_INFO=" Active Root Slot : Slot ${ACTIVE_SLOT} (Active & Verified)"
 

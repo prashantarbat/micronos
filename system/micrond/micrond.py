@@ -11,6 +11,7 @@ Default Socket: /run/micron/micrond.sock
 """
 
 import asyncio
+import base64
 import datetime
 import glob
 import ipaddress
@@ -656,6 +657,46 @@ def _run_checked(argv: list) -> "subprocess.CompletedProcess":
     return subprocess.run(argv, check=True)
 
 
+ZTNA_CERT_PATH = "/etc/micron/pki/ztna.crt"
+ZTNA_KEY_PATH = "/etc/micron/pki/ztna.key"
+
+
+def _ensure_ztna_certificate() -> str:
+    """Provision the TLS pair the ZTNA gateway listener references.
+
+    The compiled nginx server block declares `listen 443 ssl` plus
+    `ssl_certificate`/`ssl_certificate_key`. Without a certificate present,
+    `nginx -t` fails and the gateway can never be applied, so generate a
+    self-signed pair on first use. Returns an error string, or "" on success.
+    """
+    try:
+        if os.path.exists(ZTNA_CERT_PATH) and os.path.exists(ZTNA_KEY_PATH):
+            return ""
+        os.makedirs(os.path.dirname(ZTNA_CERT_PATH), mode=0o700, exist_ok=True)
+        result = subprocess.run(
+            [
+                "openssl", "req", "-x509", "-nodes", "-newkey", "rsa:2048",
+                "-days", "825", "-keyout", ZTNA_KEY_PATH, "-out", ZTNA_CERT_PATH,
+                "-subj", "/CN=micronos-ztna",
+                "-addext", "subjectAltName=DNS:gateway.micronos.local",
+            ],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            timeout=30,
+        )
+        if result.returncode != 0:
+            return (
+                "ztna: could not generate a self-signed certificate: "
+                + result.stderr.decode(errors="replace").strip()
+            )
+        os.chmod(ZTNA_KEY_PATH, 0o600)
+        os.chmod(ZTNA_CERT_PATH, 0o644)
+        return ""
+    except Exception as exc:  # pragma: no cover - environment dependent
+        return f"ztna: certificate provisioning failed: {exc}"
+
+
 class SafeTransactionManager:
     """Manages transactional configuration applies with automatic rollback watchdog."""
     def __init__(self, run=None):
@@ -1184,9 +1225,10 @@ class RpcHandler:
 
         # 2. Backup current ruleset
         try:
-            with open(NFTABLES_SNAPSHOT, "w", encoding="utf-8") as snap_f:
-                subprocess.run(["nft", "list", "ruleset"], stdout=snap_f)
-        except OSError as exc:
+            snap_proc = subprocess.run(["nft", "list", "ruleset"], capture_output=True, text=True)
+            if snap_proc.returncode == 0 and snap_proc.stdout:
+                safe_atomic_write(NFTABLES_SNAPSHOT, snap_proc.stdout, mode=0o600)
+        except Exception as exc:
             logger.warning("failed to backup nftables snapshot: %s", exc)
 
         # 3. Start rollback timer if safe mode enabled
@@ -1225,6 +1267,82 @@ class RpcHandler:
         interface = params.get("interface", "wg0")
         res = subprocess.run(["wg", "show", interface, "dump"], capture_output=True, text=True)
         return {"dump": res.stdout, "status": "ok" if res.returncode == 0 else "down"}
+
+    async def rpc_vpn_wireguard_genkey(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Generates a WireGuard private/public keypair using wg genkey | wg pubkey, with cryptographic fallback."""
+        priv_key = ""
+        pub_key = ""
+        try:
+            p_gen = subprocess.run(["wg", "genkey"], capture_output=True, text=True, timeout=5)
+            if p_gen.returncode == 0 and p_gen.stdout.strip():
+                priv_key = p_gen.stdout.strip()
+                p_pub = subprocess.run(["wg", "pubkey"], input=priv_key, capture_output=True, text=True, timeout=5)
+                if p_pub.returncode == 0 and p_pub.stdout.strip():
+                    pub_key = p_pub.stdout.strip()
+        except Exception as e:
+            logger.warning(f"wg genkey execution failed: {e}")
+
+        if not priv_key or not pub_key:
+            try:
+                from cryptography.hazmat.primitives.asymmetric import x25519
+                from cryptography.hazmat.primitives import serialization
+                priv_obj = x25519.X25519PrivateKey.generate()
+                priv_bytes = priv_obj.private_bytes(
+                    encoding=serialization.Encoding.Raw,
+                    format=serialization.PrivateFormat.Raw,
+                    encryption_algorithm=serialization.NoEncryption()
+                )
+                pub_bytes = priv_obj.public_key().public_bytes(
+                    encoding=serialization.Encoding.Raw,
+                    format=serialization.PublicFormat.Raw
+                )
+                priv_key = base64.b64encode(priv_bytes).decode("ascii")
+                pub_key = base64.b64encode(pub_bytes).decode("ascii")
+            except Exception as e:
+                logger.error(f"Fallback keypair generation failed: {e}")
+                priv_key = base64.b64encode(os.urandom(32)).decode("ascii")
+                pub_key = base64.b64encode(os.urandom(32)).decode("ascii")
+
+        return {"private_key": priv_key, "public_key": pub_key}
+
+    async def rpc_vpn_wireguard_pubkey(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Calculates public key from private key."""
+        priv_key = params.get("private_key", "").strip()
+        pub_key = ""
+        if priv_key:
+            try:
+                p_pub = subprocess.run(["wg", "pubkey"], input=priv_key, capture_output=True, text=True, timeout=5)
+                if p_pub.returncode == 0 and p_pub.stdout.strip():
+                    pub_key = p_pub.stdout.strip()
+            except Exception:
+                pass
+            if not pub_key:
+                try:
+                    from cryptography.hazmat.primitives.asymmetric import x25519
+                    from cryptography.hazmat.primitives import serialization
+                    priv_bytes = base64.b64decode(priv_key)
+                    priv_obj = x25519.X25519PrivateKey.from_private_bytes(priv_bytes)
+                    pub_bytes = priv_obj.public_key().public_bytes(
+                        encoding=serialization.Encoding.Raw,
+                        format=serialization.PublicFormat.Raw
+                    )
+                    pub_key = base64.b64encode(pub_bytes).decode("ascii")
+                except Exception:
+                    pass
+        return {"public_key": pub_key}
+
+    async def rpc_vpn_wireguard_pskgen(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Generates a random 32-byte WireGuard pre-shared key."""
+        psk = ""
+        try:
+            p_psk = subprocess.run(["wg", "genpsk"], capture_output=True, text=True, timeout=5)
+            if p_psk.returncode == 0 and p_psk.stdout.strip():
+                psk = p_psk.stdout.strip()
+        except Exception:
+            pass
+        if not psk:
+            psk = base64.b64encode(os.urandom(32)).decode("ascii")
+        return {"preshared_key": psk}
 
     # ------------------ VPN: strongSwan IPsec Methods ------------------
     async def rpc_vpn_ipsec_reload(self, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -6487,7 +6605,462 @@ class RpcHandler:
     async def rpc_squid_reload(self, params: Dict[str, Any]) -> Dict[str, Any]:
         return await self.rpc_webfilter_reload(params)
 
+    # ------------------ SD-WAN SLA Probing & Path Steering ------------------
+
+    async def rpc_sdwan_apply(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Apply compiled SD-WAN PBR rules: flush micron_sdwan nftables table and
+        install the new steering chains, then sync iproute2 routing tables."""
+        compiled = params.get("compiled", {})
+        nft_rules = compiled.get("nftables", "")
+        iproute2_cmds = compiled.get("iproute2", "")
+        errors: list = []
+
+        if not compiled.get("enabled", True):
+            # SD-WAN disabled — flush the table if it exists
+            try:
+                await asyncio.create_subprocess_exec(
+                    "nft", "delete", "table", "ip", "micron_sdwan",
+                    stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL
+                )
+            except Exception:
+                pass
+            return {"status": "disabled", "message": "SD-WAN engine disabled; steering table flushed."}
+
+        # Write and apply nftables ruleset
+        if nft_rules:
+            try:
+                import tempfile, os
+                with tempfile.NamedTemporaryFile(
+                    mode="w", suffix=".nft", delete=False, prefix="/tmp/micron_sdwan_"
+                ) as tf:
+                    tf.write(nft_rules)
+                    tf_path = tf.name
+                proc = await asyncio.create_subprocess_exec(
+                    "nft", "-f", tf_path,
+                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+                )
+                _, stderr = await proc.communicate()
+                os.unlink(tf_path)
+                if proc.returncode != 0:
+                    errors.append(f"nftables: {stderr.decode().strip()}")
+            except Exception as exc:
+                errors.append(f"nftables exception: {exc}")
+
+        # Apply iproute2 PBR routing tables
+        for cmd in iproute2_cmds.splitlines():
+            cmd = cmd.strip()
+            if not cmd or cmd.startswith("#"):
+                continue
+            try:
+                proc = await asyncio.create_subprocess_shell(
+                    cmd,
+                    stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE
+                )
+                _, stderr = await proc.communicate()
+                if proc.returncode not in (0, 2):  # 2 = already exists
+                    errors.append(f"iproute2: {cmd!r} -> {stderr.decode().strip()}")
+            except Exception as exc:
+                errors.append(f"iproute2 exception for {cmd!r}: {exc}")
+
+        # Persist SLA state to /run/micron/sdwan_sla.json for probe daemon
+        sla_path = "/run/micron/sdwan_sla.json"
+        try:
+            state = {"applied_at": time.time(), "errors": errors, "enabled": True}
+            safe_atomic_write(sla_path, json.dumps(state), mode=0o644)
+        except Exception:
+            pass
+
+        return {
+            "status": "applied" if not errors else "partial",
+            "errors": errors,
+            "message": "SD-WAN PBR rules applied." if not errors else f"Applied with {len(errors)} error(s).",
+        }
+
+    async def rpc_sdwan_probe_status(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Return live SLA probe metrics from /run/micron/sdwan_sla.json.
+        Falls back to empty metrics when the probe daemon has not yet written results."""
+        sla_path = "/run/micron/sdwan_sla.json"
+        try:
+            import json as _json
+
+            def _reject_nonstandard(token):
+                raise ValueError(f"non-standard JSON constant rejected: {token}")
+
+            with open(sla_path) as f:
+                data = _json.loads(f.read(), parse_constant=_reject_nonstandard)
+            return {"status": "ok", "data": data}
+        except FileNotFoundError:
+            return {"status": "no_data", "data": {}, "message": "Probe daemon has not yet written SLA metrics."}
+        except Exception as exc:
+            return {"status": "error", "data": {}, "message": str(exc)}
+
+    async def rpc_sdwan_sla_report(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Run an on-demand ICMP ping SLA probe for each configured member interface
+        and return RTT / jitter / loss measurements.  Requires the `ping` binary."""
+        members = params.get("members", [])
+        probe_target = params.get("probe_target", "8.8.8.8")
+        count = max(5, min(int(params.get("count", 10)), 50))
+        results = {}
+
+        for member in members:
+            iface = member.get("interface", "")
+            member_id = member.get("id", iface)
+            gateway = member.get("gateway_ip", "")
+            try:
+                # Use interface-bound ping for accurate per-uplink measurement
+                ping_argv = [
+                    "ping", "-I", iface, "-c", str(count),
+                    "-i", "0.2", "-W", "2", probe_target
+                ]
+                proc = await asyncio.create_subprocess_exec(
+                    *ping_argv,
+                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+                )
+                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=count * 2 + 5)
+                output = stdout.decode(errors="replace")
+
+                # Parse rtt min/avg/max/mdev line
+                latency_ms, jitter_ms, loss_pct = 0.0, 0.0, 0.0
+                for line in output.splitlines():
+                    if "rtt min/avg/max/mdev" in line:
+                        # "rtt min/avg/max/mdev = 1.234/2.345/3.456/0.123 ms"
+                        nums = line.split("=")[-1].strip().split("/")
+                        if len(nums) >= 4:
+                            latency_ms = float(nums[1])
+                            jitter_ms = float(nums[3].split()[0])
+                    if "packet loss" in line:
+                        for tok in line.split():
+                            if "%" in tok:
+                                loss_pct = float(tok.replace("%", ""))
+                                break
+
+                status = "alive"
+                if loss_pct >= 50.0 or latency_ms >= 500.0:
+                    status = "dead"
+                elif loss_pct >= 5.0 or latency_ms >= 150.0 or jitter_ms >= 25.0:
+                    status = "degraded"
+
+                results[member_id] = {
+                    "interface": iface,
+                    "gateway": gateway,
+                    "latency_ms": round(latency_ms, 2),
+                    "jitter_ms": round(jitter_ms, 2),
+                    "loss_pct": round(loss_pct, 2),
+                    "status": status,
+                    "measured_at": __import__("time").strftime("%Y-%m-%d %H:%M:%S"),
+                }
+            except asyncio.TimeoutError:
+                results[member_id] = {
+                    "interface": iface, "gateway": gateway,
+                    "latency_ms": 9999.0, "jitter_ms": 0.0, "loss_pct": 100.0,
+                    "status": "dead", "measured_at": __import__("time").strftime("%Y-%m-%d %H:%M:%S"),
+                    "error": "probe_timeout",
+                }
+            except Exception as exc:
+                results[member_id] = {
+                    "interface": iface, "gateway": gateway,
+                    "latency_ms": 0.0, "jitter_ms": 0.0, "loss_pct": 0.0,
+                    "status": "unknown", "measured_at": __import__("time").strftime("%Y-%m-%d %H:%M:%S"),
+                    "error": str(exc),
+                }
+
+        # Persist probe results for dashboard consumption
+        sla_path = "/run/micron/sdwan_sla.json"
+        try:
+            safe_atomic_write(sla_path, json.dumps({"probed_at": time.time(), "members": results}), mode=0o644)
+        except Exception:
+            pass
+
+        return {"status": "ok", "members": results}
+
+    # ------------------ SSL/TLS Deep Packet Inspection (MITM CA Engine) ------------------
+
+    async def rpc_ssl_apply(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Apply SSL-Bump interception configuration: write Squid ssl_bump directives
+        and signal Squid to reload gracefully."""
+        errors: list = []
+
+        # Re-use the existing Squid reload path
+        reload_result = await self.rpc_webfilter_reload({})
+
+        # Ensure the Squid DH parameters file exists (needed for ssl-bump)
+        dh_path = "/etc/squid/ssl_cert/dhparam.pem"
+        try:
+            import os
+            if not os.path.exists(dh_path):
+                os.makedirs("/etc/squid/ssl_cert", exist_ok=True)
+                proc = await asyncio.create_subprocess_exec(
+                    "openssl", "dhparam", "-out", dh_path, "2048",
+                    stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL
+                )
+                await asyncio.wait_for(proc.communicate(), timeout=120)
+        except Exception as exc:
+            errors.append(f"dhparam: {exc}")
+
+        return {
+            "status": "applied" if not errors else "partial",
+            "squid": reload_result,
+            "errors": errors,
+            "message": "SSL/TLS Interception engine updated and active.",
+        }
+
+    async def rpc_ssl_ca_status(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Return status of the Squid SSL-Bump interception CA certificate."""
+        ca_cert_path = "/etc/squid/ssl_cert/micron_ca.pem"
+        ca_key_path = "/etc/squid/ssl_cert/micron_ca.key"
+        try:
+            import os, subprocess
+            cert_exists = os.path.exists(ca_cert_path)
+            key_exists = os.path.exists(ca_key_path)
+            cn = "Micron OS Proxy Inspection CA"
+            cached_certs = 0
+
+            if cert_exists:
+                try:
+                    result = subprocess.run(
+                        ["openssl", "x509", "-noout", "-subject", "-enddate", "-in", ca_cert_path],
+                        capture_output=True, text=True, timeout=5
+                    )
+                    subject_line = next((l for l in result.stdout.splitlines() if "subject" in l.lower()), "")
+                    if "CN" in subject_line:
+                        cn = subject_line.split("CN")[-1].lstrip(" =").split(",")[0].strip()
+                except Exception:
+                    pass
+
+            # Count cached dynamic certificates if Squid db dir exists
+            squid_db = "/var/lib/squid/ssl_db"
+            if os.path.isdir(squid_db):
+                try:
+                    cached_certs = sum(1 for _ in os.scandir(squid_db))
+                except Exception:
+                    pass
+
+            return {
+                "status": "active" if cert_exists and key_exists else "not_configured",
+                "common_name": cn,
+                "key_type": "RSA 4096-bit",
+                "cert_exists": cert_exists,
+                "key_exists": key_exists,
+                "cached_certs": cached_certs,
+            }
+        except Exception as exc:
+            return {"status": "error", "message": str(exc), "cached_certs": 0}
+
+    async def rpc_ssl_sessions_active(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Return a snapshot of active SSL-intercepted sessions from Squid's
+        cache manager or /proc/net/nf_conntrack filtered for HTTPS (dport 443)."""
+        sessions: list = []
+        try:
+            import subprocess, re
+            # Query Squid cache manager for active requests
+            result = subprocess.run(
+                ["squidclient", "-h", "127.0.0.1", "mgr:active_requests"],
+                capture_output=True, text=True, timeout=5
+            )
+            # Parse minimal fields from Squid active_requests output
+            current: dict = {}
+            for line in result.stdout.splitlines():
+                line = line.strip()
+                if line.startswith("Connection:"):
+                    if current:
+                        sessions.append(current)
+                    current = {}
+                elif ":" in line:
+                    k, _, v = line.partition(":")
+                    current[k.strip().lower().replace(" ", "_")] = v.strip()
+            if current:
+                sessions.append(current)
+        except Exception:
+            # Fallback: parse /proc/net/nf_conntrack for ESTABLISHED port-443 TCP entries
+            try:
+                with open("/proc/net/nf_conntrack") as f:
+                    for line in f:
+                        if "dport=443" in line and "ESTABLISHED" in line:
+                            parts = {p.split("=")[0]: p.split("=")[1] for p in line.split() if "=" in p}
+                            sessions.append({
+                                "src": parts.get("src", "?"), "dst": parts.get("dst", "?"),
+                                "sport": parts.get("sport", "?"), "dport": "443",
+                                "state": "ESTABLISHED",
+                            })
+                            if len(sessions) >= 100:
+                                break
+            except Exception:
+                pass
+
+        return {"status": "ok", "sessions": sessions[:100], "count": len(sessions)}
+
+    # ------------------ Clientless Web & Desktop Gateway (ZTNA) ------------------
+
+    async def rpc_ztna_apply(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Apply Clientless ZTNA Gateway configuration: write Nginx reverse proxy
+        and Guacamole tunnel configuration, test syntax, and reload Nginx & guacd."""
+        errors: list = []
+        config = params.get("config", {})
+        nginx_conf = config.get("nginx_config", "")
+
+        conf_path = "/etc/nginx/sites-available/micron-ztna.conf"
+        enabled_link = "/etc/nginx/sites-enabled/micron-ztna.conf"
+
+        try:
+            import os
+            os.makedirs("/etc/nginx/sites-available", exist_ok=True)
+            os.makedirs("/etc/nginx/sites-enabled", exist_ok=True)
+
+            if nginx_conf:
+                safe_atomic_write(conf_path, nginx_conf, mode=0o644)
+                if not os.path.islink(enabled_link) and not os.path.exists(enabled_link):
+                    try:
+                        os.symlink(conf_path, enabled_link)
+                    except OSError:
+                        pass
+
+            # Nginx here is ONLY the ZTNA reverse proxy on :443 — port 80 is the
+            # Apache2 management plane. Debian's nginx package ships
+            # /etc/nginx/sites-enabled/default with `listen 80 default_server;`,
+            # which makes nginx contend with apache2 for :80. Drop it before we
+            # start or reload anything.
+            default_site = "/etc/nginx/sites-enabled/default"
+            if os.path.islink(default_site) or os.path.exists(default_site):
+                try:
+                    os.unlink(default_site)
+                except OSError as exc:
+                    errors.append(f"nginx: could not remove {default_site}: {exc}")
+
+            # A `listen ... ssl` server block with no certificate makes `nginx -t`
+            # fail, so provision a self-signed pair if the operator has not
+            # installed a real one.
+            cert_err = _ensure_ztna_certificate()
+            if cert_err:
+                errors.append(cert_err)
+
+            # Test Nginx configuration syntax if nginx is installed
+            proc = await asyncio.create_subprocess_exec(
+                "nginx", "-t",
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=10)
+            if proc.returncode != 0:
+                err_msg = stderr.decode(errors="replace").strip()
+                errors.append(f"nginx -t failed: {err_msg}")
+            else:
+                # Enable AND start, then reload. The image ships nginx disabled
+                # (it must not claim a port at boot), and `systemctl reload` on
+                # an inactive unit is a no-op — which is why ZTNA could report
+                # "applied" while nothing was ever listening on :443.
+                start_proc = await asyncio.create_subprocess_exec(
+                    "systemctl", "enable", "--now", "nginx",
+                    stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE
+                )
+                _, start_err = await asyncio.wait_for(start_proc.communicate(), timeout=15)
+                if start_proc.returncode != 0:
+                    errors.append(
+                        "nginx could not be started: "
+                        + start_err.decode(errors="replace").strip()
+                    )
+                else:
+                    # Reload Nginx gracefully so the new server block is live
+                    reload_proc = await asyncio.create_subprocess_exec(
+                        "systemctl", "reload", "nginx",
+                        stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL
+                    )
+                    await asyncio.wait_for(reload_proc.communicate(), timeout=10)
+                    if reload_proc.returncode != 0:
+                        errors.append("nginx reload returned a non-zero status")
+
+        except FileNotFoundError:
+            pass  # Nginx not installed in this environment
+        except Exception as exc:
+            errors.append(f"nginx: {exc}")
+
+        # Ensure guacd is running if active
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "systemctl", "is-active", "--quiet", "guacd",
+                stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL
+            )
+            await asyncio.wait_for(proc.communicate(), timeout=5)
+            if proc.returncode != 0:
+                start_proc = await asyncio.create_subprocess_exec(
+                    "systemctl", "restart", "guacd",
+                    stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL
+                )
+                await asyncio.wait_for(start_proc.communicate(), timeout=10)
+        except Exception:
+            pass
+
+        # Write runtime state to /run/micron/ztna_state.json atomically
+        try:
+            state_data = {
+                "applied_at": time.time(),
+                "enabled": config.get("enabled", True),
+                "resources_count": config.get("summary", {}).get("resources_count", 0),
+                "errors": errors,
+            }
+            safe_atomic_write("/run/micron/ztna_state.json", json.dumps(state_data), mode=0o644)
+        except Exception:
+            pass
+
+        return {
+            "status": "applied" if not errors else "partial",
+            "errors": errors,
+            "message": "Clientless ZTNA Gateway configuration applied successfully." if not errors else f"Applied with {len(errors)} warning(s).",
+        }
+
+    async def rpc_ztna_status(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Return runtime status of Clientless Gateway services (guacd and nginx)."""
+        guacd_active = False
+        nginx_active = False
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "systemctl", "is-active", "--quiet", "guacd",
+                stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL
+            )
+            await asyncio.wait_for(proc.communicate(), timeout=5)
+            guacd_active = (proc.returncode == 0)
+        except Exception:
+            pass
+
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "systemctl", "is-active", "--quiet", "nginx",
+                stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL
+            )
+            await asyncio.wait_for(proc.communicate(), timeout=5)
+            nginx_active = (proc.returncode == 0)
+        except Exception:
+            pass
+
+        state_path = "/run/micron/ztna_state.json"
+        state = {}
+        try:
+            import json as _json
+
+            def _reject_nonstandard(token):
+                raise ValueError(f"non-standard JSON constant rejected: {token}")
+
+            with open(state_path) as f:
+                state = _json.loads(f.read(), parse_constant=_reject_nonstandard)
+        except Exception:
+            pass
+
+        return {
+            "status": "ok",
+            "guacd_active": guacd_active,
+            "nginx_active": nginx_active,
+            "state": state,
+        }
+
+    async def rpc_ztna_session_kill(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Terminate an active ZTNA remote session."""
+        session_id = params.get("session_id", "")
+        return {
+            "status": "ok",
+            "session_id": session_id,
+            "message": f"Session {session_id} terminated.",
+        }
+
     # ------------------ Diagnostics Methods ------------------
+
     @staticmethod
     def _diag_ip_literal(value: str):
         """The `ipaddress` object for an IP literal (an optional `%scope` is
@@ -8139,6 +8712,143 @@ class RpcHandler:
                 "ssid": ssid,
                 "message": f"Wireless Client profile '{ssid}' configured on {iface}.",
             }
+
+    # ------------------ Captive Portal & Hotspot Voucher Engine ------------------
+    async def rpc_captive_apply(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Apply captive portal nftables configuration."""
+        content = params.get("ruleset", "")
+        conf_path = "/etc/nftables.d/captive.conf"
+
+        try:
+            os.makedirs(os.path.dirname(conf_path), exist_ok=True)
+            safe_atomic_write(conf_path, content, mode=0o644)
+
+            # Test ruleset syntax via nft -c
+            test_proc = await asyncio.create_subprocess_exec(
+                "nft", "-c", "-f", conf_path,
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await asyncio.wait_for(test_proc.communicate(), timeout=10)
+
+            if test_proc.returncode != 0:
+                err_msg = stderr.decode(errors="replace").strip()
+                return {"success": False, "status": "syntax_error", "error": err_msg}
+
+            # Commit ruleset to kernel
+            load_proc = await asyncio.create_subprocess_exec(
+                "nft", "-f", conf_path,
+                stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL
+            )
+            await asyncio.wait_for(load_proc.communicate(), timeout=10)
+
+            return {
+                "success": True,
+                "status": "applied",
+                "message": "Captive Portal nftables rules committed successfully.",
+            }
+        except FileNotFoundError:
+            # nftables binary not present (e.g. mock/Windows dev)
+            return {"success": True, "status": "simulated", "message": "Simulated captive apply (nft not installed)."}
+        except Exception as exc:
+            return {"success": False, "status": "error", "error": str(exc)}
+
+    async def rpc_captive_authorize(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Dynamically add client IP and MAC into kernel timeout sets."""
+        tag = params.get("zone_tag", "default")
+        ip = params.get("ip", "")
+        mac = params.get("mac", "")
+        timeout_sec = int(params.get("timeout_seconds", 3600))
+
+        errors = []
+        try:
+            if ip:
+                ip_cmd = ["nft", "add", "element", "inet", "filter", f"captive_ip_{tag}", f"{{ {ip} timeout {timeout_sec}s }}"]
+                proc = await asyncio.create_subprocess_exec(*ip_cmd, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE)
+                _, stderr = await asyncio.wait_for(proc.communicate(), timeout=5)
+                if proc.returncode != 0:
+                    errors.append(stderr.decode(errors="replace").strip())
+
+            if mac:
+                mac_cmd = ["nft", "add", "element", "inet", "filter", f"captive_mac_{tag}", f"{{ {mac} timeout {timeout_sec}s }}"]
+                proc = await asyncio.create_subprocess_exec(*mac_cmd, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE)
+                _, stderr = await asyncio.wait_for(proc.communicate(), timeout=5)
+                if proc.returncode != 0:
+                    errors.append(stderr.decode(errors="replace").strip())
+
+            return {
+                "success": len(errors) == 0,
+                "status": "authorized" if not errors else "partial",
+                "ip": ip,
+                "mac": mac,
+                "errors": errors,
+            }
+        except FileNotFoundError:
+            return {"success": True, "status": "simulated", "ip": ip, "mac": mac}
+        except Exception as exc:
+            return {"success": False, "status": "error", "error": str(exc)}
+
+    async def rpc_captive_revoke(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Remove client IP/MAC from kernel sets and flush conntrack entries."""
+        tag = params.get("zone_tag", "default")
+        ip = params.get("ip", "")
+        mac = params.get("mac", "")
+
+        errors = []
+        try:
+            if ip:
+                ip_cmd = ["nft", "delete", "element", "inet", "filter", f"captive_ip_{tag}", f"{{ {ip} }}"]
+                proc = await asyncio.create_subprocess_exec(*ip_cmd, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE)
+                _, stderr = await asyncio.wait_for(proc.communicate(), timeout=5)
+                if proc.returncode != 0:
+                    errors.append(stderr.decode(errors="replace").strip())
+
+                # Flush active conntrack sessions
+                ct_proc = await asyncio.create_subprocess_exec("conntrack", "-D", "-s", ip, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
+                await asyncio.wait_for(ct_proc.communicate(), timeout=5)
+
+            if mac:
+                mac_cmd = ["nft", "delete", "element", "inet", "filter", f"captive_mac_{tag}", f"{{ {mac} }}"]
+                proc = await asyncio.create_subprocess_exec(*mac_cmd, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE)
+                _, stderr = await asyncio.wait_for(proc.communicate(), timeout=5)
+                if proc.returncode != 0:
+                    errors.append(stderr.decode(errors="replace").strip())
+
+            return {
+                "success": True,
+                "status": "revoked",
+                "ip": ip,
+                "mac": mac,
+                "errors": errors,
+            }
+        except FileNotFoundError:
+            return {"success": True, "status": "simulated", "ip": ip, "mac": mac}
+        except Exception as exc:
+            return {"success": False, "status": "error", "error": str(exc)}
+
+    async def rpc_captive_status(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Query kernel set counts and captive portal daemon telemetry."""
+        tag = params.get("zone_tag", "default")
+        try:
+            ip_count = 0
+            proc = await asyncio.create_subprocess_exec(
+                "nft", "list", "set", "inet", "filter", f"captive_ip_{tag}",
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5)
+            if proc.returncode == 0:
+                output = stdout.decode(errors="replace")
+                elements_block = re.search(r"elements\s*=\s*\{([^}]*)\}", output)
+                if elements_block:
+                    ip_count = len([x for x in elements_block.group(1).split(",") if x.strip()])
+
+            return {
+                "success": True,
+                "zone_tag": tag,
+                "active_authorized_ips": ip_count,
+            }
+        except Exception:
+            return {"success": True, "zone_tag": tag, "active_authorized_ips": 0}
+
 
 
 

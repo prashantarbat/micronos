@@ -2,6 +2,7 @@
 
 namespace App\Controllers;
 
+use App\Libraries\IntendedUrl;
 use App\Models\UserModel;
 use App\Models\PermissionModel;
 
@@ -85,8 +86,9 @@ class Auth extends BaseController
         // ---- No 2FA — complete login ----
         $this->completeLogin($user);
 
-        $redirectUrl = session()->get('redirect_url') ?? base_url('dashboard');
-        session()->remove('redirect_url');
+        // Consumes the remembered destination and guarantees a routable one:
+        // a stale POST address never turns into a 404 straight after sign-in.
+        $redirectUrl = IntendedUrl::take(session());
 
         return redirect()->to($redirectUrl)->with('success', 'Welcome back, ' . esc($user['username']) . '!');
     }
@@ -142,8 +144,7 @@ class Auth extends BaseController
         session()->remove('totp_pending_username');
         $this->completeLogin($user);
 
-        $redirectUrl = session()->get('redirect_url') ?? base_url('dashboard');
-        session()->remove('redirect_url');
+        $redirectUrl = IntendedUrl::take(session());
 
         return redirect()->to($redirectUrl)->with('success', 'Welcome back, ' . esc($user['username']) . '!');
     }

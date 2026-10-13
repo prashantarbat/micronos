@@ -51,6 +51,22 @@ class VpnWireguard extends BaseController
 
         $liveData = $this->ipc->getWireguardPeers();
 
+        // Secrets never reach the browser. The interface private key and the
+        // pre-shared keys are only needed by the daemon, and the key fields in
+        // the modals are blank-to-keep: leaving one empty preserves the stored
+        // value, so there is nothing for the page to echo back.
+        $tunnels = array_map(static function (array $tunnel): array {
+            unset($tunnel['private_key'], $tunnel['preshared_key']);
+
+            return $tunnel;
+        }, $tunnels);
+
+        $peers = array_map(static function (array $peer): array {
+            unset($peer['preshared_key']);
+
+            return $peer;
+        }, $peers);
+
         return view('vpn/wireguard', [
             'title'       => 'WireGuard VPN Tunnels — MicronOS',
             'breadcrumb'  => 'WireGuard',
@@ -119,7 +135,7 @@ class VpnWireguard extends BaseController
         // New peers inherit the tunnel's default pre-shared key (per-peer keys win).
         $this->inheritPresharedKey($id, trim((string) ($post['preshared_key'] ?? '')) ?: null);
 
-        $this->sync();
+        $this->sync((string) $post['interface_name']);
 
         return redirect()->to(base_url('vpn/wireguard'))->with('success', 'Tunnel saved and WireGuard reloaded.'
             . ($adopted > 0 ? " {$adopted} pre-existing peer(s) attached to it." : ''));
@@ -173,7 +189,7 @@ class VpnWireguard extends BaseController
         // Peers that never set their own key pick up the tunnel default.
         $this->inheritPresharedKey($id, trim((string) ($post['preshared_key'] ?? '')) ?: null);
 
-        $this->sync();
+        $this->sync($this->compiler->interfaceName($tunnel));
 
         return redirect()->to(base_url('vpn/wireguard'))->with('success', 'Tunnel updated — interface address and peers pushed to the daemon.');
     }
@@ -190,7 +206,7 @@ class VpnWireguard extends BaseController
         $enabled = ((int) $tunnel['enabled'] === 1) ? 0 : 1;
         $db->table('wireguard_tunnels')->where('id', $id)
             ->update(['enabled' => $enabled, 'updated_at' => date('Y-m-d H:i:s')]);
-        $this->sync();
+        $this->sync($this->compiler->interfaceName($tunnel));
 
         return redirect()->to(base_url('vpn/wireguard'))
             ->with('success', 'Tunnel ' . ($enabled ? 'enabled' : 'disabled') . '. Its interface is ' . ($enabled ? 'brought up' : 'torn down') . ' accordingly.');
@@ -202,8 +218,10 @@ class VpnWireguard extends BaseController
         $db = \Config\Database::connect();
         $db->table('wireguard_peers')->where('tunnel_id', $id)->delete();
         $db->table('wireguard_tunnels')->where('id', $id)->delete();
-        $this->sync();
 
+        // Nothing left to sync: the interface this record described no longer
+        // exists, and syncing a default interface name would touch another
+        // tunnel's live peers.
         return redirect()->to(base_url('vpn/wireguard'))->with('success', 'Tunnel and its peers removed.');
     }
 
@@ -243,10 +261,15 @@ class VpnWireguard extends BaseController
             return redirect()->to(base_url('vpn/wireguard'))->with('error', 'Tunnel not found.');
         }
 
-        $result = $this->ipc->call('vpn.wireguard.genkey', ['interface' => $this->compiler->interfaceName($tunnel)])['result'] ?? [];
+        $result = [];
+        try {
+            $result = $this->ipc->call('vpn.wireguard.genkey', ['interface' => $this->compiler->interfaceName($tunnel)])['result'] ?? [];
+        } catch (\Throwable $e) {
+            // Daemon communication failed — fall back to local cryptographic generation
+        }
+
         if (empty($result['private_key']) || empty($result['public_key'])) {
-            return redirect()->to(base_url('vpn/wireguard'))
-                ->with('error', 'The daemon did not return a keypair — generate one with `wg genkey | tee private | wg pubkey` and paste it.');
+            $result = WireguardCompiler::generateKeypair();
         }
 
         \Config\Database::connect()->table('wireguard_tunnels')->where('id', $id)->update([
@@ -254,10 +277,10 @@ class VpnWireguard extends BaseController
             'public_key'  => $result['public_key'],
             'updated_at'  => date('Y-m-d H:i:s'),
         ]);
-        $this->sync();
+        $this->sync($this->compiler->interfaceName($tunnel));
 
         return redirect()->to(base_url('vpn/wireguard'))->with('success', 'New interface keypair generated'
-            . ($this->ipc->isMock() ? ' (mock daemon — replace with a real wg keypair on the appliance).' : '.'));
+            . ($this->ipc->isMock() ? ' (simulated environment).' : '.'));
     }
 
     /**
@@ -268,6 +291,7 @@ class VpnWireguard extends BaseController
      * without needing an id:
      *
      *   kind=keypair → Curve25519 interface keypair (private_key / public_key)
+     *   kind=pubkey  → Curve25519 public key derived from given private_key
      *   kind=psk     → 32-byte pre-shared key (preshared_key)
      *
      * The rotating CSRF token is echoed back so the calling form can keep
@@ -279,28 +303,57 @@ class VpnWireguard extends BaseController
         $csrf = service('security')->getHash();
 
         if ($kind === 'psk') {
-            $psk = $this->ipc->call('vpn.wireguard.pskgen')['result']['preshared_key'] ?? null;
+            $psk = null;
+            try {
+                $psk = $this->ipc->call('vpn.wireguard.pskgen')['result']['preshared_key'] ?? null;
+            } catch (\Throwable $e) {
+                // fall through
+            }
+
             if (! is_string($psk) || $psk === '') {
                 // A PSK is just 32 random bytes — safe to mint locally when the
                 // daemon does not answer (mock mode, or an older micrond).
-                $psk = base64_encode(random_bytes(32));
+                $psk = WireguardCompiler::generatePresharedKey();
             }
 
             return $this->response->setJSON([
-                'ok'           => true,
-                'mock'         => $this->ipc->isMock(),
-                'csrf'         => $csrf,
-                'preshared_key'=> $psk,
+                'ok'            => true,
+                'mock'          => $this->ipc->isMock(),
+                'csrf'          => $csrf,
+                'preshared_key' => $psk,
             ]);
         }
 
-        $result = $this->ipc->call('vpn.wireguard.genkey')['result'] ?? [];
-        if (empty($result['private_key']) || empty($result['public_key'])) {
-            return $this->response->setStatusCode(502)->setJSON([
-                'ok'    => false,
-                'csrf'  => $csrf,
-                'error' => 'The daemon did not return a keypair — generate one with `wg genkey | tee private | wg pubkey` and paste it.',
+        if ($kind === 'pubkey') {
+            $privateKey = trim((string) ($this->request->getPost('private_key') ?? ''));
+            $publicKey  = '';
+            if ($privateKey !== '') {
+                try {
+                    $publicKey = $this->ipc->call('vpn.wireguard.pubkey', ['private_key' => $privateKey])['result']['public_key'] ?? '';
+                } catch (\Throwable $e) {
+                }
+                if ($publicKey === '') {
+                    $publicKey = WireguardCompiler::publicKeyFromPrivateKey($privateKey);
+                }
+            }
+
+            return $this->response->setJSON([
+                'ok'         => true,
+                'mock'       => $this->ipc->isMock(),
+                'csrf'       => $csrf,
+                'public_key' => $publicKey,
             ]);
+        }
+
+        $result = [];
+        try {
+            $result = $this->ipc->call('vpn.wireguard.genkey')['result'] ?? [];
+        } catch (\Throwable $e) {
+            // fall through
+        }
+
+        if (empty($result['private_key']) || empty($result['public_key'])) {
+            $result = WireguardCompiler::generateKeypair();
         }
 
         return $this->response->setJSON([
@@ -336,13 +389,14 @@ class VpnWireguard extends BaseController
             return redirect()->back()->withInput()
                 ->with('error', 'Pick a tunnel first — each peer belongs to one WireGuard interface.');
         }
-        if (! $this->validatePeerAddresses($post)) {
+        if (! $this->validatePeer($post, $tunnel, null)) {
             return redirect()->back()->withInput()
                 ->with('error', implode(' ', $this->validator->getErrors()));
         }
 
-        $db  = \Config\Database::connect();
-        $now = date('Y-m-d H:i:s');
+        $db        = \Config\Database::connect();
+        $now       = date('Y-m-d H:i:s');
+        $addresses = $this->splitAllowedIps((string) ($post['allowed_ips'] ?? ''));
 
         // A peer with no key of its own inherits the tunnel's default.
         $presharedKey = trim((string) ($post['preshared_key'] ?? '')) ?: trim((string) ($tunnel['preshared_key'] ?? ''));
@@ -353,17 +407,17 @@ class VpnWireguard extends BaseController
             'name'                 => trim($post['name']),
             'public_key'           => trim($post['public_key']),
             'preshared_key'        => $presharedKey ?: null,
-            'endpoint'             => trim((string) ($post['endpoint'] ?? '')) ?: null,
-            'peer_address'         => Cidr::normalise((string) ($post['peer_address'] ?? '')) ?: null,
+            'endpoint'             => $this->buildEndpoint($post),
+            'peer_address'         => $addresses['peer_address'],
             // allowed_ips is NOT NULL in the schema; '' means "no extra networks".
-            'allowed_ips'          => Cidr::normalise((string) ($post['allowed_ips'] ?? '')),
-            'persistent_keepalive' => (int) ($post['keepalive_secs'] ?? 25),
+            'allowed_ips'          => $addresses['allowed_ips'],
+            'persistent_keepalive' => $this->keepaliveSeconds($post),
             'enabled'              => isset($post['enabled']) ? 1 : 0,
             'created_at'           => $now,
             'updated_at'           => $now,
         ]);
 
-        $this->sync();
+        $this->sync($this->compiler->interfaceName($tunnel));
 
         return redirect()->to(base_url('vpn/wireguard'))->with('success', 'Peer added and the tunnel interface reloaded with its AllowedIPs.');
     }
@@ -385,10 +439,15 @@ class VpnWireguard extends BaseController
             return redirect()->back()->withInput()
                 ->with('error', implode(' ', $this->validator->getErrors()));
         }
-        if (! $this->validatePeerAddresses($post)) {
+
+        $tunnel = $this->findTunnel((string) ($post['tunnel_id'] ?? $peer['tunnel_id']))
+            ?? $this->findTunnel((string) $peer['tunnel_id']);
+
+        if (! $this->validatePeer($post, $tunnel ?? [], $id)) {
             return redirect()->back()->withInput()
                 ->with('error', implode(' ', $this->validator->getErrors()));
         }
+
         $pick = static function (string $key, $fallback) use ($post) {
             $value = trim((string) ($post[$key] ?? ''));
 
@@ -398,34 +457,65 @@ class VpnWireguard extends BaseController
         // Keep the peer's own key; otherwise fall back to its tunnel's default.
         $presharedKey = trim((string) ($post['preshared_key'] ?? '')) ?: (string) ($peer['preshared_key'] ?? '');
         if ($presharedKey === '') {
-            $targetTunnel = $this->findTunnel((string) ($post['tunnel_id'] ?? $peer['tunnel_id']));
-            $presharedKey = trim((string) ($targetTunnel['preshared_key'] ?? ''));
+            $presharedKey = trim((string) ($tunnel['preshared_key'] ?? ''));
         }
+
+        $addresses = $this->splitAllowedIps((string) ($post['allowed_ips'] ?? ''));
 
         $db->table('wireguard_peers')->where('id', $id)->update([
             'tunnel_id'            => $pick('tunnel_id', $peer['tunnel_id']),
             'name'                 => $pick('name', $peer['name']),
             'public_key'           => $pick('public_key', $peer['public_key']),
             'preshared_key'        => $presharedKey ?: null,
-            'endpoint'             => trim((string) ($post['endpoint'] ?? '')) ?: null,
-            'peer_address'         => Cidr::normalise((string) ($post['peer_address'] ?? '')) ?: null,
+            'endpoint'             => $this->buildEndpoint($post),
+            'peer_address'         => $addresses['peer_address'],
             // allowed_ips is NOT NULL in the schema; '' means "no extra networks".
-            'allowed_ips'          => Cidr::normalise((string) ($post['allowed_ips'] ?? '')),
-            'persistent_keepalive' => (int) ($post['keepalive_secs'] ?? $peer['persistent_keepalive'] ?? 25),
+            'allowed_ips'          => $addresses['allowed_ips'],
+            'persistent_keepalive' => $this->keepaliveSeconds($post, (int) ($peer['persistent_keepalive'] ?? 25)),
             'enabled'              => isset($post['enabled']) ? 1 : 0,
             'updated_at'           => date('Y-m-d H:i:s'),
         ]);
 
-        $this->sync();
+        $this->sync($this->compiler->interfaceName($tunnel ?? []));
 
         return redirect()->to(base_url('vpn/wireguard'))->with('success', 'Peer updated and tunnel synchronized.');
+    }
+
+    /** POST /vpn/wireguard/peers/(:segment)/toggle */
+    public function togglePeer(string $id): \CodeIgniter\HTTP\RedirectResponse
+    {
+        $db   = \Config\Database::connect();
+        $peer = $db->table('wireguard_peers')->where('id', $id)->get()->getRowArray();
+        if (! $peer) {
+            return redirect()->to(base_url('vpn/wireguard'))->with('error', 'Peer not found.');
+        }
+
+        $enabled = ((int) $peer['enabled'] === 1) ? 0 : 1;
+        $db->table('wireguard_peers')->where('id', $id)
+            ->update(['enabled' => $enabled, 'updated_at' => date('Y-m-d H:i:s')]);
+
+        $tunnel = $this->findTunnel((string) $peer['tunnel_id']);
+        $this->sync($this->compiler->interfaceName($tunnel ?? []));
+
+        return redirect()->to(base_url('vpn/wireguard'))->with(
+            'success',
+            'Peer ' . ($enabled ? 'enabled' : 'disabled') . '. '
+                . ($enabled
+                    ? 'Its AllowedIPs are back in the interface configuration.'
+                    : 'Its AllowedIPs were withdrawn — the peer keeps its settings but no traffic is routed to it.')
+        );
     }
 
     /** POST /vpn/wireguard/peers/(:segment)/delete */
     public function deletePeer(string $id): \CodeIgniter\HTTP\RedirectResponse
     {
-        \Config\Database::connect()->table('wireguard_peers')->where('id', $id)->delete();
-        $this->sync();
+        $db   = \Config\Database::connect();
+        $peer = $db->table('wireguard_peers')->where('id', $id)->get()->getRowArray();
+
+        $db->table('wireguard_peers')->where('id', $id)->delete();
+
+        $tunnel = $peer ? $this->findTunnel((string) $peer['tunnel_id']) : null;
+        $this->sync($this->compiler->interfaceName($tunnel ?? []));
 
         return redirect()->to(base_url('vpn/wireguard'))->with('success', 'Peer deleted.');
     }
@@ -440,6 +530,18 @@ class VpnWireguard extends BaseController
         }
 
         $tunnel = $this->findTunnel((string) $peer['tunnel_id']) ?? [];
+
+        // The profile's [Interface] Address is the peer's own tunnel IP — the
+        // /32 (or /128) entry from its AllowedIPs. Without it there is nothing
+        // meaningful to hand out, and inventing an address would produce a
+        // profile that silently cannot route.
+        if (trim((string) ($peer['peer_address'] ?? '')) === '') {
+            return redirect()->to(base_url('vpn/wireguard'))->with(
+                'error',
+                'Peer \'' . $peer['name'] . '\' has no tunnel address of its own, so it has no client profile yet. '
+                    . 'Add its tunnel IP as a /32 (IPv4) or /128 (IPv6) entry to its Allowed IPs, then download again.'
+            );
+        }
 
         // Split tunnel by default: the client routes the tunnel network (so it can
         // reach the gateway and sibling peers). Widen AllowedIPs to 0.0.0.0/0 in
@@ -460,9 +562,19 @@ class VpnWireguard extends BaseController
      * Internals
      * ---------------------------------------------------------------- */
 
-    private function sync(): void
+    /**
+     * Push one tunnel's configuration to the daemon.
+     *
+     * The interface name is always sent: the daemon otherwise defaults to wg0,
+     * so a change on wg2 would reload the wrong interface's peers.
+     */
+    private function sync(string $interface): void
     {
-        $this->ipc->call('vpn.wireguard.sync');
+        if (trim($interface) === '') {
+            return;
+        }
+
+        $this->ipc->call('vpn.wireguard.sync', ['interface' => $interface]);
     }
 
     /**
@@ -486,32 +598,268 @@ class VpnWireguard extends BaseController
     }
 
     /**
-     * A peer may declare several tunnel addresses (dual stack) and several
-     * networks. Both lists are validated entry by entry.
+     * Validates a peer submission: the AllowedIPs list, the endpoint split into
+     * its own boxes, and the two address conflicts that silently break routing —
+     * reusing this appliance's own tunnel address, or reusing an address that
+     * another peer on the same tunnel already holds.
      *
      * @param array<string, mixed> $post
+     * @param array<string, mixed> $tunnel the peer's tunnel (empty when unknown)
      */
-    private function validatePeerAddresses(array $post): bool
+    private function validatePeer(array $post, array $tunnel, ?string $peerId): bool
     {
         // service('validation') rather than $this->validator: update paths may not
         // have populated the controller property yet.
         $validation = service('validation');
 
-        foreach (['peer_address' => 'Peer tunnel address', 'allowed_ips' => 'Network'] as $field => $label) {
-            $raw = trim((string) ($post[$field] ?? ''));
-            if ($raw === '') {
-                continue;
-            }
-            if (! Cidr::isValidList($raw)) {
-                $bad = array_values(array_filter(Cidr::split($raw), static fn ($entry) => ! Cidr::isValid($entry)));
-                $validation->setError($field, $label . ' list contains an invalid entry: ' . implode(', ', $bad)
-                    . ' — use CIDR notation and separate multiple entries with commas.');
+        $raw = trim((string) ($post['allowed_ips'] ?? ''));
+        if ($raw !== '' && ! Cidr::isValidList($raw)) {
+            $bad = array_values(array_filter(Cidr::split($raw), static fn ($entry) => ! Cidr::isValid($entry)));
+            $validation->setError('allowed_ips', 'Allowed IPs contains an invalid entry: ' . implode(', ', $bad)
+                . ' — use CIDR notation and separate multiple entries with commas.');
+
+            return false;
+        }
+
+        if (! $this->validateEndpoint($post, $validation)) {
+            return false;
+        }
+
+        $addresses = $this->splitAllowedIps($raw);
+        $peerIp    = $addresses['peer_address']; // e.g. 10.9.0.2/32
+
+        if ($peerIp === '') {
+            return true; // a peer with no tunnel IP of its own is legitimate
+        }
+
+        // 1. This appliance's own tunnel address can never belong to a peer:
+        //    the cryptokey route would send the interface's own traffic to it.
+        $own = $this->compiler->tunnelCidrs($tunnel);
+        foreach ($own as $cidr) {
+            if (Cidr::addressOf($cidr) === Cidr::addressOf($peerIp)) {
+                $validation->setError('allowed_ips', Cidr::addressOf($peerIp) . ' is this appliance\'s own tunnel address — '
+                    . 'give the peer a different host address inside the tunnel subnet (e.g. ' . $this->suggestPeerAddress($tunnel, $peerId) . ').');
 
                 return false;
             }
         }
 
+        // 2. Two peers cannot hold the same tunnel address: the last AllowedIPs
+        //    entry wins, so one of them would silently receive no traffic.
+        $tunnelId = (string) ($tunnel['id'] ?? ($post['tunnel_id'] ?? ''));
+        if ($tunnelId !== '') {
+            $builder = \Config\Database::connect()->table('wireguard_peers')
+                ->select('name, peer_address')
+                ->where('tunnel_id', $tunnelId);
+            if ($peerId !== null) {
+                $builder->where('id !=', $peerId);
+            }
+
+            foreach ($builder->get()->getResultArray() as $other) {
+                foreach (Cidr::split((string) ($other['peer_address'] ?? '')) as $existing) {
+                    if (Cidr::addressOf($existing) === Cidr::addressOf($peerIp)) {
+                        $validation->setError('allowed_ips', Cidr::addressOf($peerIp) . ' is already used by peer \''
+                            . $other['name'] . '\' on this tunnel — every peer needs its own tunnel address.');
+
+                        return false;
+                    }
+                }
+            }
+        }
+
         return true;
+    }
+
+    /**
+     * Validates the Endpoint boxes. A dynamic endpoint carries no address, so
+     * whatever is typed there is ignored.
+     *
+     * @param array<string, mixed> $post
+     */
+    private function validateEndpoint(array $post, $validation): bool
+    {
+        if (! empty($post['dynamic_endpoint'])) {
+            return true;
+        }
+
+        $host = trim((string) ($post['endpoint_host'] ?? ''));
+        $port = trim((string) ($post['endpoint_port'] ?? ''));
+
+        if ($host === '' && $port === '') {
+            return true;
+        }
+
+        if ($host === '') {
+            $validation->setError('endpoint_host', 'An endpoint port was given without an address — enter the peer\'s hostname or IP, or tick Dynamic Endpoint.');
+
+            return false;
+        }
+
+        $isAddress  = filter_var($host, FILTER_VALIDATE_IP) !== false;
+        $isHostname = preg_match('/^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/', $host) === 1;
+
+        if (! $isAddress && ! $isHostname) {
+            $validation->setError('endpoint_host', 'Endpoint \'' . $host . '\' is not a hostname, IPv4 or IPv6 address — enter only the address, not host:port or a URL.');
+
+            return false;
+        }
+
+        if ($port !== '' && (preg_match('/^\d+$/', $port) !== 1 || (int) $port < 1 || (int) $port > 65535)) {
+            $validation->setError('endpoint_port', 'Endpoint port must be a number between 1 and 65535 (leave it blank for the WireGuard default, 51820).');
+
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Joins the Endpoint boxes into the single value WireGuard stores.
+     *
+     * An empty result means "dynamic" — the peer is expected to talk first and
+     * the kernel learns its address from the incoming handshake.
+     *
+     * @param array<string, mixed> $post
+     */
+    private function buildEndpoint(array $post): ?string
+    {
+        if (! empty($post['dynamic_endpoint'])) {
+            return null;
+        }
+
+        $host = trim((string) ($post['endpoint_host'] ?? ''));
+        $port = trim((string) ($post['endpoint_port'] ?? ''));
+
+        if ($host === '') {
+            return null;
+        }
+
+        if ($port === '') {
+            return $host;
+        }
+
+        // An IPv6 literal needs brackets once a port is appended.
+        if (filter_var($host, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) !== false) {
+            $host = '[' . $host . ']';
+        }
+
+        return $host . ':' . $port;
+    }
+
+    /**
+     * Splits the peer's Allowed IPs into the two columns the compiler consumes:
+     * its own tunnel address (the first host entry) and the networks routed
+     * through it.
+     *
+     * WireGuard has no peer-address keyword: the leading host entry of
+     * AllowedIPs IS the peer's tunnel address, which is why the form asks for a
+     * single list instead of a separate field.
+     *
+     * Networks are stored at their subnet start boundary (`192.168.20.77/24` →
+     * `192.168.20.0/24`), the same normalisation pfSense applies before saving.
+     * Host entries are left exactly as typed, because `/32` (or `/128`) is what
+     * makes them the peer's address rather than a routed network.
+     *
+     * @return array{peer_address: ?string, allowed_ips: string}
+     */
+    private function splitAllowedIps(string $raw): array
+    {
+        $peerAddress = null;
+        $networks    = [];
+
+        foreach (Cidr::split($raw) as $entry) {
+            if (! Cidr::isValid($entry)) {
+                continue;
+            }
+
+            if ($peerAddress === null && ! Cidr::isNetwork($entry)) {
+                $peerAddress = Cidr::withHostPrefix($entry);
+                continue;
+            }
+
+            $networks[] = Cidr::networkOf($entry) ?: $entry;
+        }
+
+        return [
+            'peer_address' => $peerAddress,
+            'allowed_ips'  => implode(', ', array_values(array_unique($networks))),
+        ];
+    }
+
+    /**
+     * The next free host address in the tunnel subnet, offered in validation
+     * messages so the operator does not have to work it out.
+     */
+    private function suggestPeerAddress(array $tunnel, ?string $peerId): string
+    {
+        $cidr = $this->compiler->tunnelCidr($tunnel);
+        if ($cidr === '') {
+            return '10.9.0.2/32';
+        }
+
+        $address = Cidr::addressOf($cidr);
+        $prefix  = Cidr::prefixOf($cidr);
+
+        if (Cidr::family($cidr) === 'ipv6') {
+            $packed = @inet_pton($address);
+            if ($packed === false) {
+                return 'fd00::2/128';
+            }
+            $packed[15] = chr(ord($packed[15]) + 1);
+
+            return @inet_ntop($packed) . '/128';
+        }
+
+        $network = Cidr::networkOf($cidr);
+        $base    = ip2long(Cidr::addressOf($network === '' ? $cidr : $network));
+        if ($base === false) {
+            return '10.9.0.2/32';
+        }
+
+        $own     = ip2long($address);
+        $builder = \Config\Database::connect()->table('wireguard_peers')->select('peer_address')
+            ->where('tunnel_id', (string) ($tunnel['id'] ?? ''));
+        if ($peerId !== null) {
+            $builder->where('id !=', $peerId);
+        }
+
+        $taken = [(string) ($own === false ? 0 : $own)];
+        foreach ($builder->get()->getResultArray() as $row) {
+            foreach (Cidr::split((string) ($row['peer_address'] ?? '')) as $existing) {
+                $long = ip2long(Cidr::addressOf($existing));
+                if ($long !== false) {
+                    $taken[] = (string) $long;
+                }
+            }
+        }
+
+        // Host 0 of the subnet is the network; the appliance owns the first
+        // usable host, so peers start one beyond it.
+        $usable = $prefix >= 31 ? 1 : min(254, (2 ** (32 - $prefix)) - 2);
+
+        for ($host = 1; $host <= $usable; $host++) {
+            $candidate = $base + $host;
+            if (! in_array((string) $candidate, $taken, true)) {
+                return long2ip($candidate) . '/32';
+            }
+        }
+
+        return long2ip($base + 1) . '/32';
+    }
+
+    /**
+     * Persistent keepalive, clamped to the range the form offers.
+     *
+     * @param array<string, mixed> $post
+     */
+    private function keepaliveSeconds(array $post, int $fallback = 25): int
+    {
+        $value = trim((string) ($post['keepalive_secs'] ?? ''));
+        if ($value === '') {
+            return $fallback;
+        }
+
+        return max(0, min(3600, (int) $value));
     }
 
     private function findTunnel(string $id): ?array

@@ -10,6 +10,12 @@ use App\Models\SdwanSettingsModel;
 /**
  * SdwanCompiler — Compiles Dynamic SD-WAN SLA path steering rules
  * into Linux Policy-Based Routing (PBR) and nftables policy marks.
+ *
+ * The compiler is SLA-aware: when member SLA metrics are present in the
+ * database (populated by SdwanEngine::probeAll() or the live IPC probe),
+ * it uses SdwanEngine::resolveSteeringDecision() to select the actual
+ * preferred uplink per profile, not just the static configuration value.
+ * This makes nftables marks automatically reflect real-time path quality.
  */
 class SdwanCompiler
 {
@@ -58,6 +64,7 @@ class SdwanCompiler
             $profMap[$p['id']] = $p;
         }
 
+        // Build member map with PBR table IDs and nftables hex marks
         $memMap = [];
         $tableBaseId = 101;
         $iprouteCommands = [];
@@ -70,9 +77,18 @@ class SdwanCompiler
             $iprouteCommands[] = "ip rule add fwmark {$memMap[$m['id']]['mark_hex']} table {$tableId} priority 1000 2>/dev/null || true";
         }
 
+        // Use SdwanEngine to compute live steering decisions per profile (SLA-driven)
+        $engine    = new SdwanEngine($this->memberModel, $this->profileModel, $this->ruleModel, $this->settingsModel);
+        $decisions = [];
+        foreach ($profiles as $p) {
+            $decision = $engine->resolveSteeringDecision($p, $members);
+            $decisions[$p['id']] = $decision;
+        }
+
         // Generate nftables policy routing rules
         $nft = [];
         $nft[] = "# === Micron OS Dynamic SD-WAN Policy Steering Table ===";
+        $nft[] = "# Generated: " . date('Y-m-d H:i:s') . " | Active members: " . count($members);
         $nft[] = "table ip micron_sdwan {";
         $nft[] = "    chain prerouting_steering {";
         $nft[] = "        type filter hook prerouting priority mangle; policy accept;";
@@ -83,17 +99,23 @@ class SdwanCompiler
             $prof = $profMap[$r['sdwan_profile_id']] ?? null;
             if (!$prof) continue;
 
-            $prefMem = $memMap[$prof['preferred_member_id']] ?? (reset($memMap) ?: null);
+            // Use live SLA decision if available; fall back to static preferred member
+            $decision  = $decisions[$prof['id']] ?? null;
+            $activeMem = $decision['selected_member'] ?? null;
+            $prefMem   = ($activeMem && isset($memMap[$activeMem['id']]))
+                ? $memMap[$activeMem['id']]
+                : ($memMap[$prof['preferred_member_id']] ?? (reset($memMap) ?: null));
+
             if (!$prefMem) continue;
 
-            $mark = $prefMem['mark_hex'];
-            $srcMatch = ($r['source_subnet'] !== '0.0.0.0/0') ? "ip saddr {$r['source_subnet']} " : "";
-            $dstMatch = ($r['destination_subnet'] !== '0.0.0.0/0') ? "ip daddr {$r['destination_subnet']} " : "";
-
-            $apps = json_decode($prof['assigned_applications'] ?? '[]', true) ?: [];
+            $mark      = $prefMem['mark_hex'];
+            $srcMatch  = ($r['source_subnet'] !== '0.0.0.0/0') ? "ip saddr {$r['source_subnet']} " : "";
+            $dstMatch  = ($r['destination_subnet'] !== '0.0.0.0/0') ? "ip daddr {$r['destination_subnet']} " : "";
+            $slaNote   = ($decision && !$decision['sla_compliant']) ? " [FAILOVER: {$decision['reason']}]" : "";
+            $apps      = json_decode($prof['assigned_applications'] ?? '[]', true) ?: [];
             $appComment = !empty($apps) ? " # Apps: " . implode(', ', $apps) : "";
 
-            $nft[] = "        # Rule [{$r['priority']}]: {$r['name']} (Profile: {$prof['name']})";
+            $nft[] = "        # Rule [{$r['priority']}]: {$r['name']} (Profile: {$prof['name']}){$slaNote}";
             $nft[] = "        {$srcMatch}{$dstMatch}meta mark set {$mark} accept;{$appComment}";
         }
 
@@ -112,3 +134,4 @@ class SdwanCompiler
         ];
     }
 }
+

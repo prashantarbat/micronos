@@ -282,10 +282,12 @@ To bake this capability into the upcoming release, the following packages must b
 nginx                       # Full Nginx replacing nginx-light (provides ngx_http_auth_request_module)
 
 # 2. Apache Guacamole Native Proxy Daemon
-guacd                       # Native C protocol translation daemon
-libguac-client-rdp0         # High-speed FreeRDP client plugin
-libguac-client-ssh0         # SSH terminal client plugin
-libguac-client-vnc0         # VNC client plugin
+# Note: Debian 12 & 13 do not ship guacd in official main repos.
+# guacd is deployed via standalone container or native build.
+# guacd
+# libguac-client-rdp0
+# libguac-client-ssh0
+# libguac-client-vnc0
 libfreerdp2-2               # RDP protocol implementation
 libssh2-1                   # SSH2 transport library
 libvncclient1               # VNC protocol library

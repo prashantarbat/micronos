@@ -80,8 +80,12 @@ class Filters extends BaseFilters
             'csrf' => ['except' => [
                 'wpad.dat', 'wpad.da', 'proxy.pac', 'wpad.pac',
                 'auth/sso/saml/acs*',
+                'portal/*',
+                'hotspot-detect.html', 'canonical.html',
+                'generate_204', 'gen_204',
+                'connecttest.txt', 'success.txt', 'ncsi.txt',
             ]],
-            // Auth filter applied globally — excludes public auth and WPAD discovery routes.
+            // Auth filter applied globally — excludes public auth, guest portal, CNA probes, and WPAD discovery routes.
             //
             // `.well-known/acme-challenge/*` is here for the same reason WPAD is:
             // the client that fetches it has no session and never will. An ACME CA
@@ -95,6 +99,10 @@ class Filters extends BaseFilters
                 '/',
                 'auth/*', 'auth/login', 'auth/logout',
                 'vpn/clientless-gateway/verify-auth*',
+                'portal', 'portal/*',
+                'hotspot-detect.html', 'canonical.html',
+                'generate_204', 'gen_204',
+                'connecttest.txt', 'success.txt', 'ncsi.txt',
                 'wpad.dat', 'wpad.da', 'proxy.pac', 'wpad.pac',
                 '.well-known/acme-challenge/*',
             ]],

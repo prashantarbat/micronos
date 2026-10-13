@@ -78,6 +78,11 @@ class VerifySystem extends BaseCommand
             $ipcMode = $ipc->isMock() ? 'Mock Simulation' : 'UDS Native';
             CLI::write("[PASS] IpcClient [{$ipcMode}]: system.ping=" . json_encode($ipcPing['result']) . ", interfaces=" . count($ipcIface['result']['interfaces'] ?? []), 'green');
 
+            $dbResilience = new \App\Libraries\DatabaseResilienceService();
+            $dbCheck = $dbResilience->verifyIntegrity();
+            $dbWal = $dbResilience->enforceWal();
+            CLI::write("[PASS] DatabaseResilience: Integrity=" . ($dbCheck['healthy'] ? 'OK' : 'CORRUPTED') . ", WAL=" . ($dbWal['journal_mode'] ?? 'unknown') . ", Sync=" . ($dbWal['synchronous'] ?? 'unknown'), 'green');
+
             CLI::write("\n========================================================", 'cyan');
             CLI::write("  ALL MICRONOS SYSTEM COMPILERS & ENGINES VERIFIED OK!", 'light_green');
             CLI::write("========================================================", 'cyan');

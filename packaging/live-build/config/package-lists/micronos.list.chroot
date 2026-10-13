@@ -115,3 +115,6 @@ python3-setuptools
 python3-pyroute2
 python3-systemd
 python3-psutil
+
+# ZTNA & Clientless Gateway Daemons
+nginx

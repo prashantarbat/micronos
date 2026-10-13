@@ -145,4 +145,25 @@ final class ZtnaGatewayTest extends BaseTestCase
         $this->assertStringContainsString('location /tunnel', $output['nginx_config']);
         $this->assertStringContainsString('Upgrade $http_upgrade', $output['nginx_config']);
     }
+
+    public function testApplyAndStatusEndpoints(): void
+    {
+        $tokenName = config(SecurityConfig::class)->tokenName;
+
+        // Test Apply endpoint
+        $applyResult = $this->withSession($this->sessionData())->post('vpn/clientless-gateway/apply', [
+            $tokenName => $this->csrfToken,
+        ]);
+        $applyResult->assertOK();
+        $applyJson = json_decode($applyResult->getJSON(), true);
+        $this->assertTrue($applyJson['success'] ?? false);
+        $this->assertTrue($applyJson['compiled']['enabled'] ?? false);
+
+        // Test Status endpoint
+        $statusResult = $this->withSession($this->sessionData())->get('vpn/clientless-gateway/status');
+        $statusResult->assertOK();
+        $statusJson = json_decode($statusResult->getJSON(), true);
+        $this->assertTrue($statusJson['success'] ?? false);
+        $this->assertArrayHasKey('active_sessions', $statusJson);
+    }
 }

@@ -98,13 +98,13 @@ $docs = [
         'label' => 'Hyper-V &amp; AI Dev Guide',
         'icon' => '<rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>'
     ],
-    'POWER_LOSS_RESILIENCE_AND_RECOVERY_ENGINEERING_SPECIFICATION' => [
-        'md' => __DIR__ . '/POWER_LOSS_RESILIENCE_AND_RECOVERY_ENGINEERING_SPECIFICATION.md',
-        'html' => __DIR__ . '/POWER_LOSS_RESILIENCE_AND_RECOVERY_ENGINEERING_SPECIFICATION.html',
-        'title' => 'Micron Firewall OS (MicronOS) — Power-Loss Resilience & Recovery Engineering Specification',
-        'subtitle' => 'Filesystem Durability, Application-Level Consistency, Pre-Boot LKGC Recovery, and Automated Failover',
-        'label' => 'Power Resilience &amp; LKGC Spec',
-        'icon' => '<path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/>'
+    'MICRONOS_SYSTEM_RESILIENCE_AND_SELF_HEALING_SPECIFICATION' => [
+        'md' => __DIR__ . '/MICRONOS_SYSTEM_RESILIENCE_AND_SELF_HEALING_SPECIFICATION.md',
+        'html' => __DIR__ . '/MICRONOS_SYSTEM_RESILIENCE_AND_SELF_HEALING_SPECIFICATION.html',
+        'title' => 'Micron OS — Inherent System Resilience & Self-Healing Architecture Specification',
+        'subtitle' => 'Immutable Storage, Application & Database Durability, A/B Boot Arbitration, LKGC Recovery, and Disaster Self-Healing',
+        'label' => 'System Resilience Spec',
+        'icon' => '<path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>'
     ],
     'MICRONOS_BONDING_AND_WIRELESS_GUIDE' => [
         'md' => __DIR__ . '/MICRONOS_BONDING_AND_WIRELESS_GUIDE.md',
@@ -137,6 +137,54 @@ $docs = [
         'subtitle' => 'Modular pfSense/FortiGate Dashboard Cards, Interactive Live Physical Interface Faceplate, and Modern NOC/SOC Design System',
         'label' => 'UI/UX Modernization Plan',
         'icon' => '<rect x="3" y="3" width="18" height="18" rx="2" stroke-linecap="round" stroke-linejoin="round"/><path stroke-linecap="round" stroke-linejoin="round" d="M3 9h18M9 21V9"/>'
+    ],
+    'MICRONOS_CAPTIVE_PORTAL_AND_HOTSPOT_SPECIFICATION' => [
+        'md' => __DIR__ . '/MICRONOS_CAPTIVE_PORTAL_AND_HOTSPOT_SPECIFICATION.md',
+        'html' => __DIR__ . '/MICRONOS_CAPTIVE_PORTAL_AND_HOTSPOT_SPECIFICATION.html',
+        'title' => 'Micron Firewall OS (Micron OS) — Captive Portal & Hotspot Voucher Engine Architecture Specification',
+        'subtitle' => 'Enterprise Guest WLAN, Voucher Billing, Walled Garden & Netfilter Redirection Blueprint',
+        'label' => 'Captive Portal Spec',
+        'icon' => '<path stroke-linecap="round" stroke-linejoin="round" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/>'
+    ],
+    'MICRONOS_COMPLETION_MASTER_PROMPT' => [
+        'md' => __DIR__ . '/MICRONOS_COMPLETION_MASTER_PROMPT.md',
+        'html' => __DIR__ . '/MICRONOS_COMPLETION_MASTER_PROMPT.html',
+        'title' => 'Micron Firewall OS (MicronOS) — Completion Master Prompt',
+        'subtitle' => 'The paste-ready instruction set for finishing the platform: UI revamp, IPC/RPC/CLI alignment, diagnostic toolkit, plugin workspaces, and proof',
+        'label' => 'Completion Master Prompt',
+        'icon' => '<path stroke-linecap="round" stroke-linejoin="round" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>'
+    ],
+    'MICRONOS_COMPLETION_PROGRAMME' => [
+        'md' => __DIR__ . '/MICRONOS_COMPLETION_PROGRAMME.md',
+        'html' => __DIR__ . '/MICRONOS_COMPLETION_PROGRAMME.html',
+        'title' => 'Micron Firewall OS (MicronOS) — Completion Programme',
+        'subtitle' => 'Audited current state, gap register, workstreams, milestones, test matrix and definition of done',
+        'label' => 'Completion Programme',
+        'icon' => '<path stroke-linecap="round" stroke-linejoin="round" d="M9 11l3 3L22 4M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/>'
+    ],
+    'MICRONOS_IPC_RPC_CLI_CONTRACT' => [
+        'md' => __DIR__ . '/MICRONOS_IPC_RPC_CLI_CONTRACT.md',
+        'html' => __DIR__ . '/MICRONOS_IPC_RPC_CLI_CONTRACT.html',
+        'title' => 'Micron Firewall OS (MicronOS) — IPC / RPC / CLI Alignment Contract',
+        'subtitle' => 'The wire contract, the method catalogue, the trust model, and the tests that stop the three surfaces from drifting apart',
+        'label' => 'IPC / RPC / CLI Contract',
+        'icon' => '<path stroke-linecap="round" stroke-linejoin="round" d="M8 4H6a2 2 0 00-2 2v12a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-2M9 4a2 2 0 002 2h2a2 2 0 002-2M9 4a1 1 0 011-1h4a1 1 0 011 1M9 12h6m-6 4h6"/>'
+    ],
+    'MICRONOS_DIAGNOSTIC_TOOLKIT_SPECIFICATION' => [
+        'md' => __DIR__ . '/MICRONOS_DIAGNOSTIC_TOOLKIT_SPECIFICATION.md',
+        'html' => __DIR__ . '/MICRONOS_DIAGNOSTIC_TOOLKIT_SPECIFICATION.html',
+        'title' => 'Micron Firewall OS (MicronOS) — Diagnostic & Network Utility Toolkit',
+        'subtitle' => 'telnet/nc, nmap, mtr, whois, dig, arping, ss, TLS and HTTP probes, iperf3 — safety model, RBAC, RPC, CLI and tests',
+        'label' => 'Diagnostic Toolkit Spec',
+        'icon' => '<path stroke-linecap="round" stroke-linejoin="round" d="M11 19a8 8 0 100-16 8 8 0 000 16zm10 2l-4.35-4.35"/>'
+    ],
+    'MICRONOS_PLUGIN_WORKSPACE_SPECIFICATION' => [
+        'md' => __DIR__ . '/MICRONOS_PLUGIN_WORKSPACE_SPECIFICATION.md',
+        'html' => __DIR__ . '/MICRONOS_PLUGIN_WORKSPACE_SPECIFICATION.html',
+        'title' => 'Micron Firewall OS (MicronOS) — Plugin Workspace Specification',
+        'subtitle' => 'Turning every installed plugin into a working menu destination: status, configuration, logs, lifecycle and enforced menu semantics',
+        'label' => 'Plugin Workspaces',
+        'icon' => '<path stroke-linecap="round" stroke-linejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>'
     ]
 ];
 

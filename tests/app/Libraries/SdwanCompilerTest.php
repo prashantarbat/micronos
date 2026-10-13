@@ -65,4 +65,55 @@ final class SdwanCompilerTest extends BaseTestCase
         $degradedMember = array_merge($healthyMember, ['current_jitter' => 18.0]);
         $this->assertFalse($engine->meetsSla($degradedMember, $strictProfile));
     }
+
+    public function testEngineFailsOverToBackupWhenPreferredViolatesSla(): void
+    {
+        $engine = new SdwanEngine();
+
+        $preferredDegraded = [
+            'id' => 'mem_wan1', 'name' => 'WAN1', 'enabled' => 1, 'status' => 'degraded',
+            'current_loss' => 10.0, 'current_latency' => 200.0, 'current_jitter' => 30.0,
+        ];
+        $backup = [
+            'id' => 'mem_wan2', 'name' => 'WAN2 Backup', 'enabled' => 1, 'status' => 'alive',
+            'current_loss' => 0.0, 'current_latency' => 25.0, 'current_jitter' => 3.0,
+        ];
+        $profile = [
+            'preferred_member_id' => 'mem_wan1',
+            'backup_member_id'    => 'mem_wan2',
+            'sla_max_loss_pct'    => 1.0,
+            'sla_max_latency_ms'  => 100.0,
+            'sla_max_jitter_ms'   => 10.0,
+        ];
+
+        $decision = $engine->resolveSteeringDecision($profile, [$preferredDegraded, $backup]);
+
+        $this->assertNotNull($decision);
+        $this->assertSame('mem_wan2', $decision['selected_member']['id'],
+            'Engine must steer to backup when preferred member violates SLA thresholds.'
+        );
+        $this->assertFalse($decision['sla_compliant'],
+            'When preferred is violated but backup is compliant, sla_compliant must reflect actual preferred state.'
+        );
+    }
+
+    public function testCompilerDisabledReturnsDisabledArtifact(): void
+    {
+        // Directly test the disabled branch
+        $settingsModel = $this->createMock(SdwanSettingsModel::class);
+        $settingsModel->method('getSettings')->willReturn(['enabled' => 0]);
+
+        $compiler = new SdwanCompiler(
+            new SdwanMemberModel(),
+            new SdwanProfileModel(),
+            new SdwanRuleModel(),
+            $settingsModel
+        );
+
+        $output = $compiler->compile();
+
+        $this->assertFalse($output['enabled']);
+        $this->assertStringContainsString('DISABLED', $output['nftables']);
+        $this->assertSame(0, $output['summary']['rules_count']);
+    }
 }

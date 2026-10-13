@@ -310,4 +310,22 @@ class ZtnaGateway extends BaseController
             'compiled' => $compiled,
         ]);
     }
+
+    /**
+     * Get runtime daemon and session status.
+     */
+    public function status()
+    {
+        $ipcRes = $this->ipc->call('ztna.status', []);
+        $activeSessions = $this->sessionModel->where('status', 'active')->countAllResults();
+
+        return $this->response->setJSON([
+            'success'         => true,
+            'guacd_active'    => $ipcRes['result']['guacd_active'] ?? false,
+            'nginx_active'    => $ipcRes['result']['nginx_active'] ?? false,
+            'active_sessions' => $activeSessions,
+            'state'           => $ipcRes['result']['state'] ?? [],
+        ]);
+    }
 }
+

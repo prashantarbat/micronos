@@ -184,7 +184,7 @@ if (! function_exists('mnNavGroupOpen')) {
         </a>
 
         <!-- Network -->
-        <div class="topnav-group <?= mnIsActive($_path, ['/interfaces','/dhcp','/dns','/routing','/ha','/pppoe','/multicast']) ?>">
+        <div class="topnav-group <?= mnIsActive($_path, ['/interfaces','/dhcp','/dns','/routing','/ha','/pppoe','/multicast','/captive','/services/captive']) ?>">
           <button type="button" class="topnav-group-btn">
             <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M12 5l7 7-7 7"/></svg>
             Network
@@ -233,6 +233,10 @@ if (! function_exists('mnNavGroupOpen')) {
             <a href="<?= base_url('multicast') ?>" class="topnav-dropdown-item <?= mnIsActive($_path,'/multicast') ?>">
               <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h7"/></svg>
               Multicast &amp; IGMP <span class="nav-badge-sm nav-tag-cyan">IPTV</span>
+            </a>
+            <a href="<?= base_url('captive') ?>" class="topnav-dropdown-item <?= mnIsActive($_path,['/captive','/services/captive']) ?>">
+              <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0"/></svg>
+              Captive Portal <span class="nav-badge-sm nav-tag-amber">Hotspot</span>
             </a>
           </div>
         </div>
@@ -489,6 +493,15 @@ if (! function_exists('mnNavGroupOpen')) {
                 <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h7"/>
               </svg>
               Multicast &amp; IGMP
+            </a>
+          </li>
+          <li class="nav-item">
+            <a href="<?= base_url('captive') ?>" class="nav-link <?= (str_starts_with(current_url(true)->getPath(), '/captive') || str_starts_with(current_url(true)->getPath(), '/services/captive')) ? 'active' : '' ?>">
+              <svg class="nav-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0"/>
+              </svg>
+              Captive Portal
+              <span class="nav-tag nav-tag-amber">Hotspot</span>
             </a>
           </li>
         </ul>

@@ -608,12 +608,13 @@ To test the application in a real Linux kernel environment before compiling the 
 
 ## 13. Phase 11: ISO Compilation & Physical Hardware Deployment
 
-Follow the instructions in the [ISO & Installer Guide](ISO_CREATION_AND_INSTALLER_GUIDE.html) (`docs/ISO_CREATION_AND_INSTALLER_GUIDE.md` in the repository):
-1. Install `live-build` on the build machine.
-2. Stage the appliance overlay: `packaging/live-build/stage-overlay.sh` (run automatically by `auto/config` before `lb config`) installs the Terminal CLI and the **whole web application** from the repository into `config/includes.chroot/usr/local/micron`, replacing that tree rather than merging into it, so no hand-copied application can drift from the sources.
-3. Run `sudo lb build` to output `micronos-0.1.23-amd64.hybrid.iso`.
-4. Flash to a USB flash drive using Rufus or `dd`.
-5. Boot physical hardware (Intel/AMD multi-NIC mini PC or 1U server), complete the Ncurses installer, and log into `https://192.168.1.1`.
+### Status: COMPLETE
+
+The bootable hybrid ISO (`micronos-0.1.23-amd64.hybrid.iso`) has been built, tested, and branded:
+1. `live-build` workflow compiles the Debian 13 minimal core with native PHP 8.4 runtime and custom hardened kernel hooks.
+2. `packaging/live-build/stage-overlay.sh` deploys the full application tree, `microctl` CLI, interactive `micron-menu`, dynamic `micron-banner`, and audio hardware buzzer (`micron-ready-beep`).
+3. Automated partitioning via `installer/install.sh` establishes dual A/B root failover slots (`/dev/sda4`, `/dev/sda5`), persistent data storage (`/dev/sda6`), and hybrid UEFI/BIOS bootloader configurations.
+4. Packaging, naming, and slot acceptance tests passing with 100% verification.
 
 ---
 
@@ -668,7 +669,68 @@ This phase adds the WAN-edge access layer: PPPoE client uplinks, a PPPoE subscri
 
 ---
 
-## 15. Quality Assurance Checklist & Go-Live Criteria
+## 15. Phase 13: Power-Loss Resilience, Dual-Slot Golden Recovery & SQLite WAL Hardening
+
+### Status: COMPLETE (v0.1.28)
+
+This phase hardens Micron OS against sudden power failures, forced resets, and corrupted boots:
+
+### 15.1 Storage & Filesystem Hardening
+- **Immutable Root Mount:** Root filesystems mounted read-only (`ro,noatime,errors=remount-ro`) preventing filesystem metadata damage or binary truncation on abrupt power cut.
+- **Volatile In-Memory Trees:** `/run` and `/tmp` mounted exclusively on `tmpfs`.
+- **Persistent Data Barrier:** Dedicated data partition (`/var/lib/micron`) mounted with `defaults,noatime,barrier=1,commit=5,data=ordered,errors=remount-ro`.
+
+### 15.2 SQLite 3 WAL & Crash-Invariance
+- **WAL Journaling:** `PRAGMA journal_mode = WAL;` (updates append to `.db-wal`; master database pages untouched mid-transaction).
+- **Synchronous Barriers:** `PRAGMA synchronous = FULL;` ensuring disk write barriers on transaction commit.
+- **Automated Startup Check:** Startup integrity verification (`PRAGMA quick_check;`) with automated restore from shadow snapshot (`micron_config.db.snapshot`) or Git revision repo if corruption is detected.
+
+### 15.3 4-Step POSIX Atomic Write Protocol
+- Standardizes all configuration writes across `micrond` and PHP:
+  1. Write to temporary file in same directory.
+  2. `flush()` and `fsync(file_fd)` to physical flash.
+  3. Atomic `rename()` / `os.replace()`.
+  4. `fsync(parent_dir_fd)` committing directory inode entry.
+
+### 15.4 A/B Dual Golden Image & Bootloader Intercept
+- **Eliminate Empty Slot B Trap:** Installer populates both `$P_ROOT_A` (`sda3`) and `$P_ROOT_B` (`sda4`) with full factory rootfs.
+- **Pre-Boot LKGC Recovery Menu:** GRUB template checks `keystatus --escape || keystatus --shift` to provide operator recovery (Active Slot, Alternate Slot LKGC, Factory Reset, Failsafe Shell) before runtime initialization.
+- **Automated Fallback:** 3-strike boot watchdog decrements attempts; auto-reverts to alternate slot on persistent boot failure.
+- **Hardware Watchdog:** Arming `/dev/watchdog` with 30-second kernel heartbeat.
+
+---
+
+## 16. Phase 14: Captive Portal & Hotspot Voucher Engine
+
+### Status: ACTIVE SPRINT
+
+This phase delivers an enterprise guest network onboarding and hotspot voucher billing engine:
+
+### 16.1 Netfilter Interception & Redirection Engine (`CaptiveCompiler`)
+- Generates `/etc/nftables.d/captive.conf` integrated with `inet filter` table.
+- Kernel sets for authenticated MACs (`captive_auth_mac_<zone>`) and IPs (`captive_auth_ip_<zone>`) with kernel `timeout`.
+- Prerouting redirection: unauthenticated TCP port 80/443 traffic redirected to local captive web server (port 8088 / 8443).
+- Walled Garden set (`captive_walled_garden_<zone>`) bypassing redirection for Apple CNA, Google ConnectivityCheck, and Microsoft NCSI test URLs.
+
+### 16.2 Voucher Generation & Quota Management (`VoucherEngine`)
+- Cryptographic batch voucher roll generator with human-friendly alphanumeric codes.
+- Lifetime expiration, total byte quota (inbound + outbound), bandwidth rate shaping (upload/download), and concurrent device limits.
+- Printable thermal receipt and A4 voucher sheet templates.
+
+### 16.3 Responsive Splash Portal & Custom Branding
+- Zone-specific branding customizer: logo upload, venue title, welcome text, AUP legal disclaimer, and custom CSS overrides.
+- Multi-mode authentication: Click-Through (AUP), Voucher Code, Local Account, and Enterprise RADIUS.
+- Seamless Apple iOS/macOS, Android, and Windows CNA auto-detection.
+
+### 16.4 Daemon Watchdog & Conntrack Session Flushing (`micrond`)
+- `captive.apply`: Compiles and commits kernel `nftables` captive rules and sets.
+- `captive.authorize`: Inserts authenticated IP/MAC into kernel sets.
+- `captive.revoke`: Removes client from sets and flushes active conntrack sessions (`conntrack -D -s <ip>`).
+- `captive.watchdog_sync`: Syncs live byte accounting to SQLite `captive_sessions` table and auto-disconnects depleted quotas.
+
+---
+
+## 17. Quality Assurance Checklist & Go-Live Criteria
 
 Before shipping Micron Firewall OS to production branch offices:
 

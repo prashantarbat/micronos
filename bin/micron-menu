@@ -6,10 +6,28 @@
 # mirroring enterprise appliances (pfSense, OPNsense, FortiOS).
 # Open Source under Apache License 2.0
 # ==============================================================================
-set -e
+#
+# DELIBERATELY NO `set -e`.
+#
+# This is an interactive menu. Under `set -e` the first command that returns
+# non-zero anywhere in a handler — a `systemctl stop` on an already-stopped
+# unit, a `microctl` call that reports a validation error, `htop` exiting with
+# a status, or `read` hitting EOF — silently terminated the whole menu script.
+# Because /etc/profile.d/micron-menu.sh is the last thing the login shell does,
+# terminating the script also ended the console session: agetty respawned the
+# autologin, cleared the screen and redrew the banner and menu. Operators read
+# that as "the appliance restarted whatever option I picked".
+#
+# A failure inside a menu action must be reported to the operator and return to
+# the menu. It must never abort the menu and it must NEVER reboot the machine.
+# ==============================================================================
 
 # Prevent re-entrant menu loops in child shells
 export IN_MICRON_MENU=1
+
+# Ctrl+C / SIGTERM inside the menu must return to the menu, not kill the session.
+# (Defined after the main loop; see the bottom of this file.)
+MENU_QUIT=0
 
 # Terminal colors
 BOLD='\033[1m'
@@ -156,16 +174,37 @@ get_network_info() {
     fi
     [ -n "$MGMT_IP" ] || MGMT_IP="10.10.10.10"
 
-    # 7. Slot Info (examine current mounted root partition)
+    # 7. Slot Info (resolve from the volume label of the mounted root)
+    #
+    # Resolve by filesystem LABEL, never by partition number. The A/B layout is
+    #   1=ESP  2=BIOS-boot  3=swap  4=MICRON_ROOT_A  5=MICRON_ROOT_B  6=MICRON_DATA
+    # so Slot A is p4, not p3, and the letter is identical on sda/sdb/vda/nvme0n1/
+    # mmcblk0. A numbering-based guess reported the wrong slot on every fresh
+    # install (it read p4 as "B"). micron-slot's GRUB environment is the second
+    # authority; the raw device name is only a last-resort fallback.
     ROOT_DEV=$(findmnt -n -o SOURCE / 2>/dev/null || true)
-    ACTIVE_SLOT="A"
-    if [[ "$ROOT_DEV" =~ sda4|nvme0n1p4|vda4 ]] || [ "$ROOT_DEV" = "/dev/disk/by-label/MICRON_ROOT_B" ]; then
-        ACTIVE_SLOT="B"
-    elif [[ "$ROOT_DEV" =~ sda3|nvme0n1p3|vda3 ]] || [ "$ROOT_DEV" = "/dev/disk/by-label/MICRON_ROOT_A" ]; then
-        ACTIVE_SLOT="A"
-    elif [ -x /usr/local/micron/installer/micron-slot ]; then
-        s=$(/usr/local/micron/installer/micron-slot active 2>/dev/null || echo "a")
-        ACTIVE_SLOT="${s^^}"
+    ROOT_LABEL=$(blkid -s LABEL -o value "$ROOT_DEV" 2>/dev/null || true)
+    ACTIVE_SLOT=""
+    case "$ROOT_LABEL" in
+        MICRON_ROOT_A) ACTIVE_SLOT="A" ;;
+        MICRON_ROOT_B) ACTIVE_SLOT="B" ;;
+    esac
+    if [ -z "$ACTIVE_SLOT" ]; then
+        for slot_helper in /usr/local/bin/micron-slot /usr/local/micron/installer/micron-slot; do
+            [ -x "$slot_helper" ] || continue
+            s=$(MICRON_SLOT_ENV=/boot/grub/grubenv "$slot_helper" active 2>/dev/null || true)
+            case "${s,,}" in
+                a) ACTIVE_SLOT="A"; break ;;
+                b) ACTIVE_SLOT="B"; break ;;
+            esac
+        done
+    fi
+    if [ -z "$ACTIVE_SLOT" ]; then
+        case "$ROOT_DEV" in
+            *p5|*5) ACTIVE_SLOT="B" ;;
+            *p4|*4) ACTIVE_SLOT="A" ;;
+            *)      ACTIVE_SLOT="A" ;;
+        esac
     fi
 
     SLOT_STATUS="Healthy"
@@ -237,7 +276,47 @@ BANNER
 
 pause() {
     echo ""
-    read -r -p "Press [Enter] to return to main menu..."
+    read -r -p "Press [Enter] to return to main menu..." || true
+    return 0
+}
+
+# ------------------------------------------------------------------------------
+# Guard rails — the menu must never abort, and must never restart on its own
+# ------------------------------------------------------------------------------
+# Only menu_reboot() and menu_poweroff() below are permitted to take the
+# appliance down, and they are reachable ONLY from the two options the operator
+# selects deliberately (5 and 6). Every other handler reports its own failure
+# and falls back through pause() to the main loop.
+
+# Ctrl+C / SIGTERM during an action returns to the menu instead of ending the
+# console session (which agetty would respawn, looking like a reboot).
+menu_on_interrupt() {
+    echo ""
+    echo -e "${YELLOW}[i] Interrupted — returning to the main menu. Nothing was rebooted.${NC}"
+    sleep 1
+}
+
+menu_reboot() {
+    echo -e "${YELLOW}Rebooting appliance...${NC}"
+    sync 2>/dev/null || true
+    # Graceful first: systemd runs the full shutdown/stop job graph and the
+    # journal records why the appliance went down. The forced paths are only a
+    # fallback for a wedged PID 1.
+    if run_root systemctl reboot 2>/dev/null; then
+        return 0
+    fi
+    run_root reboot 2>/dev/null || run_root reboot -f 2>/dev/null || true
+    return 0
+}
+
+menu_poweroff() {
+    echo -e "${YELLOW}Shutting down appliance...${NC}"
+    sync 2>/dev/null || true
+    if run_root systemctl poweroff 2>/dev/null; then
+        return 0
+    fi
+    run_root poweroff 2>/dev/null || run_root poweroff -f 2>/dev/null || true
+    return 0
 }
 
 # ------------------------------------------------------------------------------
@@ -610,7 +689,11 @@ manage_bridges_menu() {
         echo "  5) Delete Bridge Interface"
         echo "  r) Return to Main Menu"
         echo ""
-        read -r -p "Enter action [1-5, r]: " BR_ACT
+        # A closed stdin must leave the submenu, not spin on an invalid choice.
+        if ! read -r -p "Enter action [1-5, r]: " BR_ACT; then
+            echo ""
+            return 0
+        fi
 
         case "$BR_ACT" in
             1)
@@ -853,7 +936,11 @@ manage_dhcp_menu() {
         echo " 2) Disable DHCP"
         echo " 3) Return to Main Menu"
         echo ""
-        read -r -p "Enter choice [3]: " DHCP_CHOICE
+        # A closed stdin must leave the submenu rather than default-loop.
+        if ! read -r -p "Enter choice [3]: " DHCP_CHOICE; then
+            echo ""
+            return 0
+        fi
         DHCP_CHOICE=${DHCP_CHOICE:-3}
 
         case "$DHCP_CHOICE" in
@@ -967,9 +1054,19 @@ EOF"
 # ------------------------------------------------------------------------------
 # Main Interactive Loop
 # ------------------------------------------------------------------------------
+# Return to the menu on interrupt instead of tearing down the console session.
+trap 'menu_on_interrupt' INT TERM
+
 while true; do
     print_header
-    read -r -p "Enter an option: " OPTION
+    # EOF (^D) or a closed stdin means the operator's session is gone (an SSH
+    # channel that dropped, a pipe that closed). Leave cleanly — never reboot,
+    # and never spin: re-reading a closed stdin would busy-loop forever.
+    if ! read -r -p "Enter an option: " OPTION; then
+        echo ""
+        echo "Input closed — leaving the Micron OS console menu."
+        exit 0
+    fi
 
     case "$OPTION" in
         0)
@@ -1108,16 +1205,18 @@ while true; do
 
         3)
             echo -e "\n${BOLD}=== 3) Reset Web GUI Password ===${NC}"
-            read -r -p "Enter new password for Ministrator [M1Cr0N]: " NEW_PW
+            read -r -p "Enter new password for Ministrator [M1Cr0N]: " NEW_PW || true
             NEW_PW=${NEW_PW:-M1Cr0N}
             if [ -x /usr/local/bin/microctl ]; then
-                run_root /usr/local/bin/microctl admin reset-password "$NEW_PW"
+                if ! run_root /usr/local/bin/microctl admin reset-password "$NEW_PW"; then
+                    echo -e "${RED}[ERROR] microctl could not reset the application password.${NC}"
+                    echo -e "${YELLOW}The OS account password was still updated below.${NC}"
+                fi
             else
                 echo -e "${YELLOW}microctl not found; executing direct password reset...${NC}"
-                echo "ministrator:${NEW_PW}" | run_root chpasswd
             fi
             echo "ministrator:${NEW_PW}" | run_root chpasswd 2>/dev/null || true
-            echo -e "${GREEN}[OK] Ministrator password updated to: ${NEW_PW}${NC}"
+            echo -e "${GREEN}[OK] Ministrator OS account password updated.${NC}"
             echo -e "${GREEN}[OK] Two-factor authentication (TOTP) reset for administrative access.${NC}"
             pause
             ;;
@@ -1147,25 +1246,20 @@ while true; do
             echo -e "\n${BOLD}=== 5) Reboot System ===${NC}"
             read -r -p "Reboot Micron OS appliance now? (y/N): " CONFIRM_RB
             if [ "$CONFIRM_RB" = "y" ] || [ "$CONFIRM_RB" = "Y" ]; then
-                echo -e "${YELLOW}Rebooting system...${NC}"
-                sync 2>/dev/null || true
-                echo 1 | run_root tee /proc/sys/kernel/sysrq >/dev/null 2>&1 || true
-                echo s | run_root tee /proc/sysrq-trigger >/dev/null 2>&1 || true
-                echo u | run_root tee /proc/sysrq-trigger >/dev/null 2>&1 || true
-                echo b | run_root tee /proc/sysrq-trigger >/dev/null 2>&1 || true
-                run_root systemctl reboot -f 2>/dev/null || run_root reboot -f 2>/dev/null || true
+                menu_reboot
                 exit 0
             fi
+            echo "Reboot cancelled."
             ;;
 
         6)
             echo -e "\n${BOLD}=== 6) Halt System (Power Off) ===${NC}"
             read -r -p "Power off Micron OS appliance now? (y/N): " CONFIRM_HL
             if [ "$CONFIRM_HL" = "y" ] || [ "$CONFIRM_HL" = "Y" ]; then
-                echo -e "${YELLOW}Shutting down system...${NC}"
-                run_root systemctl poweroff 2>/dev/null || run_root poweroff
+                menu_poweroff
                 exit 0
             fi
+            echo "Power off cancelled."
             ;;
 
         7)
@@ -1292,29 +1386,29 @@ EOF
             case "$SLOT_ACT" in
                 1)
                     if [ -x /usr/local/bin/micron-slot-rescue ]; then
-                        run_root /usr/local/bin/micron-slot-rescue a
+                        run_root /usr/local/bin/micron-slot-rescue a || true
                     elif [ -x /usr/local/micron/installer/micron-slot-rescue ]; then
-                        run_root /usr/local/micron/installer/micron-slot-rescue a
+                        run_root /usr/local/micron/installer/micron-slot-rescue a || true
                     elif [ -x /usr/local/micron/installer/micron-slot ]; then
-                        run_root /usr/local/micron/installer/micron-slot activate a
+                        run_root /usr/local/micron/installer/micron-slot activate a || true
                     fi
                     echo -e "${GREEN}[OK] Slot A is configured as the permanent primary boot target.${NC}"
                     ;;
                 2)
                     if [ -x /usr/local/bin/micron-slot-rescue ]; then
-                        run_root /usr/local/bin/micron-slot-rescue b
+                        run_root /usr/local/bin/micron-slot-rescue b || true
                     elif [ -x /usr/local/micron/installer/micron-slot-rescue ]; then
-                        run_root /usr/local/micron/installer/micron-slot-rescue b
+                        run_root /usr/local/micron/installer/micron-slot-rescue b || true
                     elif [ -x /usr/local/micron/installer/micron-slot ]; then
-                        run_root /usr/local/micron/installer/micron-slot activate b
+                        run_root /usr/local/micron/installer/micron-slot activate b || true
                     fi
                     echo -e "${GREEN}[OK] Slot B is configured as the permanent primary boot target.${NC}"
                     ;;
                 3)
                     if [ -x /usr/local/bin/micron-slot-rescue ]; then
-                        run_root /usr/local/bin/micron-slot-rescue
+                        run_root /usr/local/bin/micron-slot-rescue || true
                     elif [ -x /usr/local/micron/installer/micron-slot-rescue ]; then
-                        run_root /usr/local/micron/installer/micron-slot-rescue
+                        run_root /usr/local/micron/installer/micron-slot-rescue || true
                     fi
                     ;;
                 *)
@@ -1342,10 +1436,13 @@ EOF
 
         15)
             echo -e "\n${BOLD}=== 15) Restore Configuration Backup ===${NC}"
-            read -r -p "Enter path to configuration backup file (.mbk): " BK_PATH
+            read -r -p "Enter path to configuration backup file (.mbk): " BK_PATH || true
             if [ -f "$BK_PATH" ] && [ -x /usr/local/bin/microctl ]; then
-                run_root /usr/local/bin/microctl backup restore "$BK_PATH"
-                echo -e "${GREEN}[OK] Configuration restore completed.${NC}"
+                if run_root /usr/local/bin/microctl backup restore "$BK_PATH"; then
+                    echo -e "${GREEN}[OK] Configuration restore completed.${NC}"
+                else
+                    echo -e "${RED}[ERROR] Configuration restore FAILED. No changes were rebooted; review the output above.${NC}"
+                fi
             else
                 echo -e "${RED}Backup file not found at $BK_PATH${NC}"
             fi
@@ -1364,11 +1461,11 @@ EOF
         17)
             echo -e "\n${BOLD}=== 17) A/B Boot Slot Rescue & Switch ===${NC}"
             if [ -x /usr/local/bin/micron-slot-rescue ]; then
-                run_root /usr/local/bin/micron-slot-rescue
+                run_root /usr/local/bin/micron-slot-rescue || true
             elif [ -x /usr/local/micron/installer/micron-slot-rescue ]; then
-                run_root /usr/local/micron/installer/micron-slot-rescue
+                run_root /usr/local/micron/installer/micron-slot-rescue || true
             elif [ -x "$app_root/installer/micron-slot-rescue" ]; then
-                run_root "$app_root/installer/micron-slot-rescue"
+                run_root "$app_root/installer/micron-slot-rescue" || true
             else
                 echo -e "${RED}micron-slot-rescue utility not found.${NC}"
             fi
@@ -1377,11 +1474,11 @@ EOF
             ;;
 
         18)
-            manage_bridges_menu
+            manage_bridges_menu || true
             ;;
 
         19)
-            manage_dhcp_menu
+            manage_dhcp_menu || true
             ;;
 
         "")
@@ -1394,4 +1491,7 @@ EOF
             sleep 1
             ;;
     esac
+
+    # A handler must never be able to end the menu (and, on tty1, the session).
+    # Every option falls through to here and back to print_header().
 done
