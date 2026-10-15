@@ -1,36 +1,211 @@
-# Micron Firewall OS (MicronOS)
-## Enterprise Linux Network Security Appliance & Routing Platform
+<p align="center">
+  <h1 align="center">Micron Firewall OS (MicronOS)</h1>
+  <p align="center"><strong>A Modern, Resilient, Debian-Based Linux Network Security Appliance & Next-Gen Routing Platform</strong></p>
+  <p align="center">
+    <a href="https://debian.org"><img src="https://img.shields.io/badge/Base-Debian_13_Trixie-A81D33.svg?logo=debian&logoColor=white" alt="Debian Base"></a>
+    <a href="https://netfilter.org/projects/nftables/"><img src="https://img.shields.io/badge/Firewall-Linux_nftables-FFA500.svg" alt="nftables"></a>
+    <a href="https://frrouting.org"><img src="https://img.shields.io/badge/Routing-FRRouting_(BGP%2FOSPF)-1E90FF.svg" alt="FRR"></a>
+    <a href="https://www.wireguard.com"><img src="https://img.shields.io/badge/VPN-WireGuard_%26_IPsec-88171A.svg?logo=wireguard&logoColor=white" alt="WireGuard"></a>
+    <a href="https://codeigniter.com"><img src="https://img.shields.io/badge/Control_Plane-PHP_8.4_%7C_CI4-EF4423.svg?logo=codeigniter&logoColor=white" alt="CodeIgniter"></a>
+    <a href="LICENSE.md"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License"></a>
+  </p>
+</p>
 
 ---
 
-### Documentation Hub
+## 📖 A Note From The Creator: Why MicronOS Exists
 
-The guides are rendered **inside the management console** as PHP views — Admin → Documentation, or directly:
+> *"Sometimes the best tools aren't born in Silicon Valley boardrooms or venture-funded labs. They are born out of sheer frustration, real-world battle scars, and the desperate need to solve a problem that keeps an engineer awake on Sunday night."*
 
-| Guide | In-appliance URL | Source |
-| :--- | :--- | :--- |
-| System Architecture Specification | `/docs` (or `/docs/architecture`) | [`docs/MICRON_FIREWALL_OS_ARCHITECTURE.md`](docs/MICRON_FIREWALL_OS_ARCHITECTURE.md) |
-| Step-by-Step Implementation Plan | `/docs/plan` | [`docs/STEP_BY_STEP_IMPLEMENTATION_PLAN.md`](docs/STEP_BY_STEP_IMPLEMENTATION_PLAN.md) |
-| Appliance ISO Creation & Installer Guide | `/docs/iso` | [`docs/ISO_CREATION_AND_INSTALLER_GUIDE.md`](docs/ISO_CREATION_AND_INSTALLER_GUIDE.md) |
+Hello world, I am **Prashant Arbat**, writing to you from **India**.
 
-Each page shows a filterable table of contents beside one card per section, so the guides read like an operator manual. The Markdown files stay the single source of truth; the Markdown and standalone HTML portals listed below remain for offline reading and hand-off.
+Before you look at the code, let me be completely frank and humble with you: **I am not a professional software developer.** 
 
-All detailed technical documentation, engineering blueprints, implementation execution plans, database DDL schemas, and ISO creation guides are located in the [`docs/`](docs/) directory:
+By trade, I am a **Network and Information (Cyber) Security GRC Professional**. As of 2026, I have spent over **22 years** in the trenches of IT and network infrastructure. Over those two decades, I have physically racked, cabled, configured, and troubleshot thousands of enterprise routers, switches, and firewalls across corporate data centers, remote branches, factories, and rural outposts.
 
-1. **System Architecture Specification:**
-   - 📄 Markdown: [`docs/MICRON_FIREWALL_OS_ARCHITECTURE.md`](docs/MICRON_FIREWALL_OS_ARCHITECTURE.md)
-   - 🌐 Interactive HTML Portal: [`docs/MICRON_FIREWALL_OS_ARCHITECTURE.html`](docs/MICRON_FIREWALL_OS_ARCHITECTURE.html)
-   - *Covers: Linux Kernel Data Plane, CI4 Control Plane, SQLite & MySQL Dual Strategy, 2FA/LDAP, OpenVPN & WireGuard Road Warrior 2FA, Squid TPROXY Web Filtering, Unbound DNS Resolver (DNSBL plus local host & domain overrides), FRRouting (BGP/OSPF), Keepalived + conntrackd HA, and Encrypted Backup/Restore Engine.*
+The only programming language I ever managed to learn and master is **PHP with an MVC framework (CodeIgniter)**. Throughout my entire career, simple scripts and lightweight MVC apps have saved my job, my time, and my sanity in hundreds of critical operational crises.
 
-2. **Step-by-Step Implementation Execution Plan:**
-   - 📄 Markdown: [`docs/STEP_BY_STEP_IMPLEMENTATION_PLAN.md`](docs/STEP_BY_STEP_IMPLEMENTATION_PLAN.md)
-   - 🌐 Interactive HTML Portal: [`docs/STEP_BY_STEP_IMPLEMENTATION_PLAN.html`](docs/STEP_BY_STEP_IMPLEMENTATION_PLAN.html)
-   - *Covers: Local Laragon/Windows workspace setup, CodeIgniter 4 scaffolding, SQLite migrations, JSON-RPC IPC bridge mocking, nftables compiler, Squid proxy, and virtual lab verification.*
+---
 
-3. **Appliance ISO Creation & Installer Engineering Guide:**
-   - 📄 Markdown: [`docs/ISO_CREATION_AND_INSTALLER_GUIDE.md`](docs/ISO_CREATION_AND_INSTALLER_GUIDE.md)
-   - 🌐 Interactive HTML Portal: [`docs/ISO_CREATION_AND_INSTALLER_GUIDE.html`](docs/ISO_CREATION_AND_INSTALLER_GUIDE.html)
-   - *Covers: Hybrid BIOS/UEFI ISO compilation via Debian `live-build`, Ncurses Dialog interactive installer, A/B dual partitioning, first-boot NIC auto-detection, and automated QEMU/Proxmox deployment.*
+### The Pain That Started It All
 
-4. **Documentation Hub Launchpad:**
-   - 🌐 Browser Launchpad: [`docs/index.html`](docs/index.html)
+For years, we managed branch office networks with **VyOS**. Later, we replaced several branch appliances with **pfSense** to give non-CLI administrators an accessible web GUI. 
+
+That is when reality hit hard.
+
+In India and many developing regions, power infrastructure outside Tier-1 city centers is brutal. Sudden power cuts, voltage fluctuations, brownouts, and brief blackouts happen regularly—often at remote branch locations operating without expensive UPS batteries or generator failover.
+
+Under these real-world conditions, we discovered a painful truth: **FreeBSD repeatedly struggled with sudden, violent power loss.** Month after month, across nearly three years:
+* 3 to 4 remote branch firewalls would get corrupted every single month.
+* Root filesystems became read-only or dropped into single-user recovery prompts.
+* Background `php-fpm` and web services silently broke or lost state configurations.
+* My weekends were spent driving out to branch offices or guiding remote junior techs to re-flash USB drives and rebuild firewall appliances from scratch.
+
+I reached a point of complete exhaustion and frustration.
+
+### The Missing Piece in Open Source
+
+I started searching for alternatives across the open-source landscape:
+* **pfSense & OPNsense:** Brilliant, mature projects with great communities—but both are built on **FreeBSD**, inheriting the same filesystem and driver behavior under hard power cuts on commodity hardware.
+* **IPFire:** A Linux-based firewall, but its ecosystem and modernization pace felt detached from current kernel advancements (its latest release was Update 204 from October 14).
+* **VyOS:** An absolute tank under power cuts because it is built on **Debian GNU/Linux**. But VyOS lacked a native, modern, responsive web GUI out of the box and had shifted away from free pre-built rolling ISOs for production appliances.
+
+I asked myself a simple question:
+
+> **Why is there no modern, actively maintained, Debian-based Linux firewall OS with a beautiful Web GUI, zero paywalls, and true enterprise resilience?**
+
+Debian's Linux kernel with journaled `ext4` and modern overlays simply shrugs off sudden power cuts. When power cuts, Linux reboots cleanly. No filesystem panic. No corrupted web daemons. It just works.
+
+### The 60% / 40% Collaboration
+
+Because I am a network security engineer and not a full-time software architect, building an entire operating system from scratch felt impossible for years.
+
+Then came the emergence of modern generative AI (2024–2026). For the first time, I had a tireless pair-programmer by my side.
+
+I want to be 100% transparent with the open-source community about how MicronOS was created:
+* **60% Human Domain Expertise (Me):** 22 years of networking architecture, firewall packet-flow design, RFC compliance, routing topologies, security policies, hardware testing in live labs, and battle-testing against power cuts.
+* **40% AI Pair-Programming:** Helping translate high-level network contracts into low-level Python 3 system IPC daemons, compiling complex `nftables` syntax checkers, scaffolding unit tests, and writing automated Debian `live-build` installer hooks.
+
+Together, we turned 22 years of real-world pain into **MicronOS**.
+
+### The Wonder of Debian Linux
+
+On this journey, I fell in love with modern Debian all over again. What Linux offers today is nothing short of breathtaking:
+* **Linux `nftables`:** Sub-millisecond atomic ruleset evaluation, connection tracking, and zero packet overhead.
+* **FRRouting (FRR):** True carrier-grade dynamic routing (BGP, OSPFv2, OSPFv3, BFD, PIM multicast).
+* **WireGuard & strongSwan IPsec:** Native in-kernel cryptography that saturates gigabit uplinks effortlessly.
+* **Zero Trust Network Access (ZTNA):** Clientless HTML5 browser gateway powered by Apache Guacamole and Nginx reverse proxy—no local VPN clients needed to securely access remote RDP/SSH desktops.
+* **Dual-Plane Architecture:** A decoupled PHP 8.4 Web Control Plane that talks to a hardened Python 3 IPC daemon (`micrond`) over local UNIX domain sockets (`/run/micron/micrond.sock`).
+* **Power-Loss Immune:** A/B dual root partitioning, transactional SQLite state with WAL mode, and atomic configuration generation.
+
+There is no limit to what this project can become.
+
+Thank you from the bottom of my heart for reading this and trying MicronOS. I hope it saves your weekends and your sleep the way it has saved mine.
+
+**— Prashant Arbat**  
+*Email:* [prashant.arbat@gmail.com](mailto:prashant.arbat@gmail.com)  
+*India*
+
+---
+
+## ⚡ Key Highlights & Architecture
+
+```
+                          ┌──────────────────────────────────────┐
+                          │     Web GUI (PHP 8.4 + CI4)          │
+                          │   Console CLI (`microctl` Python)    │
+                          │   Interactive Console Menu (Bash)    │
+                          └──────────────────┬───────────────────┘
+                                             │ JSON-RPC (UNIX Socket)
+                                             ▼
+                          ┌──────────────────────────────────────┐
+                          │      micrond (System IPC Daemon)     │
+                          │        Stateful Python Engine        │
+                          └──────────────────┬───────────────────┘
+                                             │ Transactional Apply
+                 ┌───────────────────────────┼───────────────────────────┐
+                 ▼                           ▼                           ▼
+      ┌─────────────────────┐     ┌─────────────────────┐     ┌─────────────────────┐
+      │  Linux Data Plane   │     │   Routing & VPN     │     │  Services & Edge    │
+      │  • nftables stateful│     │  • FRRouting (BGP)  │     │  • Unbound DNSBL    │
+      │  • pyroute2 links   │     │  • WireGuard tunnel │     │  • Kea DHCPv4/v6    │
+      │  • A/B dual root    │     │  • strongSwan IPsec │     │  • ZTNA (Guacamole) │
+      └─────────────────────┘     └─────────────────────┘     └─────────────────────┘
+```
+
+1. **Rock-Solid Debian 13 (Trixie) Foundation:**  
+   Immune to sudden power cuts and hard reboot corruption. Uses transactional writes and SQLite WAL journaling.
+2. **Native `nftables` Firewall & NAT:**  
+   Clean, modern packet filtering, stateful connection tracking, port forwarding (DNAT), outbound masquerade (SNAT), and rate limiting.
+3. **Enterprise Dynamic Routing (FRR):**  
+   Full BGP, OSPF, and dynamic multi-WAN failover with gateway latency/jitter SLA tracking.
+4. **ZTNA Clientless Gateway:**  
+   Built-in clientless remote access gateway using Apache Guacamole, allowing secure RDP, SSH, and VNC browser sessions without open WAN ports.
+5. **Modern VPN Suite:**  
+   Kernel-native WireGuard tunnels (site-to-site and road-warrior) + enterprise IPsec IKEv2 (strongSwan) + OpenVPN.
+6. **DNSBL Ad & Threat Shield:**  
+   Unbound validating DNS resolver with integrated domain and IP blocklists.
+7. **Dual-Root A/B Partitioning:**  
+   Enterprise dual-slot updates (`MICRON_ROOT_A` / `MICRON_ROOT_B`) with automated health-check watchdog rollback.
+8. **pfSense-Style Console Menu:**  
+   Interactive Ncurses / Bash physical console menu on `tty1` for instant interface assignment, IP reconfiguration, ping checks, and factory reset.
+
+---
+
+## 🚀 Quick Verification & Development
+
+To test the control plane, database migrations, and RPC verification locally:
+
+```bash
+# 1. Install dependencies
+composer install
+
+# 2. Initialize configuration database
+php spark migrate --all
+php spark db:seed InitialApplianceSeeder
+php spark db:seed RolesPermissionsSeeder
+
+# 3. Run automated test suites
+php vendor/bin/phpunit --no-coverage
+for t in tests/test_*.py; do python3 "$t" || echo "FAILED: $t"; done
+bash tests/installer/web_and_boot_deconflict_test.sh
+
+# 4. Verify RPC method sync between Web UI and micrond daemon
+python3 tools/rpc_inventory.py
+```
+
+On a live appliance, run the diagnostic doctor at any time:
+```bash
+microctl doctor
+```
+
+---
+
+## 🛠️ ISO Build & Appliance Installation
+
+MicronOS builds as a hybrid BIOS / UEFI bootable ISO using standard Debian `live-build`:
+
+```bash
+# Navigate to packaging directory
+cd packaging/live-build
+
+# Stage application overlay into the chroot tree
+bash stage-overlay.sh
+
+# Build the hybrid bootable ISO image
+sudo lb clean --purge
+sudo lb config
+sudo lb build
+```
+
+The resulting ISO can be burned to a USB drive or mounted directly in Proxmox, VMware ESXi, Hyper-V, or bare-metal x86_64 hardware. An interactive terminal installer partitions the disk, configures A/B boot slots, and deploys the appliance in under 2 minutes.
+
+---
+
+## 📚 Documentation Hub
+
+Complete technical blueprints, API contracts, and implementation guides are available directly inside the appliance web interface under **Admin → Documentation**, or in the [`docs/`](docs/) directory:
+
+* 📄 **System Architecture Specification:** [`docs/MICRON_FIREWALL_OS_ARCHITECTURE.md`](docs/MICRON_FIREWALL_OS_ARCHITECTURE.md)
+* 📄 **Appliance ISO Creation & Installer Guide:** [`docs/ISO_CREATION_AND_INSTALLER_GUIDE.md`](docs/ISO_CREATION_AND_INSTALLER_GUIDE.md)
+* 📄 **Daemon & RPC Interface Contract:** [`docs/MICRONOS_IPC_RPC_CLI_CONTRACT.md`](docs/MICRONOS_IPC_RPC_CLI_CONTRACT.md)
+* 📄 **Implementation Roadmap & Execution Plan:** [`docs/STEP_BY_STEP_IMPLEMENTATION_PLAN.md`](docs/STEP_BY_STEP_IMPLEMENTATION_PLAN.md)
+* 🌐 **Offline Browser Launchpad:** [`docs/index.html`](docs/index.html)
+
+---
+
+## 🤝 Contributing & Community
+
+MicronOS is an open-source project created for network engineers, system administrators, homelab enthusiasts, and small businesses everywhere. 
+
+Whether you are a Linux kernel hacker, a frontend designer, a documentation writer, or a network engineer testing on different hardware NICs: **you are warmly welcome here.**
+
+* **Found a bug?** Open an issue on GitHub.
+* **Have an improvement?** Pull requests are gratefully reviewed and welcomed.
+* **Questions or feedback?** Reach out directly to [prashant.arbat@gmail.com](mailto:prashant.arbat@gmail.com).
+
+---
+
+## 📄 License
+
+This project is licensed under the **[Apache License, Version 2.0](LICENSE.md)** — meaning you are free to use, modify, distribute, and deploy it for personal, commercial, or enterprise deployments with clear patent grant and trademark protections.
