@@ -33,7 +33,7 @@ Last two years, we managed branch office networks with **VyOS**. Later, we repla
 
 That is when reality hit hard.
 
-In India and many developing regions, power infrastructure outside Tier-1 city centers is brutal. Sudden power cuts, voltage fluctuations, brownouts, and brief blackouts happen regularly—often at remote branch locations operating without expensive UPS batteries or generator failover.
+In India and many developing regions, power infrastructure outside Tier-2 & 3 cities/locations centers is brutal. Sudden power cuts, voltage fluctuations, brownouts, and brief blackouts happen regularly—often at remote branch locations operating without expensive UPS batteries or generator failover.
 
 Under these real-world conditions, we discovered a painful truth: **FreeBSD repeatedly struggled with sudden, violent power loss.** Month after month, across nearly three years:
 * 3 to 4 remote branch firewalls would get corrupted every single month.
