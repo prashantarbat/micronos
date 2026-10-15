@@ -1,5 +1,5 @@
 <p align="center">
-  <h1 align="center">Micron Firewall OS (MicronOS)</h1>
+  <h1 align="center">MICRON OS (Micron Firewall OS)</h1>
   <p align="center"><strong>A Modern, Resilient, Debian-Based Linux Network Security Appliance & Next-Gen Routing Platform</strong></p>
   <p align="center">
     <a href="https://debian.org"><img src="https://img.shields.io/badge/Base-Debian_13_Trixie-A81D33.svg?logo=debian&logoColor=white" alt="Debian Base"></a>
@@ -13,7 +13,7 @@
 
 ---
 
-## 📖 A Note From The Creator: Why MicronOS Exists
+## 📖 A Note From The Creator: Why Micron OS Exists
 
 > *"Sometimes the best tools aren't born in Silicon Valley boardrooms or venture-funded labs. They are born out of sheer frustration, real-world battle scars, and the desperate need to solve a problem that keeps an engineer awake on Sunday night."*
 
@@ -66,7 +66,7 @@ I want to be 100% transparent with the open-source community about how MicronOS 
 * **60% Human Domain Expertise (Me):** 22 years of networking architecture, firewall packet-flow design, RFC compliance, routing topologies, security policies, hardware testing in live labs, and battle-testing against power cuts.
 * **40% AI Pair-Programming:** Helping translate high-level network contracts into low-level Python 3 system IPC daemons, compiling complex `nftables` syntax checkers, scaffolding unit tests, and writing automated Debian `live-build` installer hooks.
 
-Together, we turned 22 years of real-world pain into **MicronOS**.
+Together, we turned 22 years of real-world pain into **Micron OS**.
 
 ### The Wonder of Debian Linux
 
@@ -78,9 +78,17 @@ On this journey, I fell in love with modern Debian all over again. What Linux of
 * **Dual-Plane Architecture:** A decoupled PHP 8.4 Web Control Plane that talks to a hardened Python 3 IPC daemon (`micrond`) over local UNIX domain sockets (`/run/micron/micrond.sock`).
 * **Power-Loss Immune:** A/B dual root partitioning, transactional SQLite state with WAL mode, and atomic configuration generation.
 
+### UI & Operational Design Inspiration
+
+To craft the management interface of Micron OS, I took immense inspiration from the proven structures, visual workflows, and ergonomics of three firewall giants that I have configured for decades:
+* **pfSense & OPNsense:** For their battle-tested, modular navigation, interface assignment flows, live diagnostics, and physical console menu philosophy.
+* **FortiGate (FortiOS):** For its elegant, object-oriented firewall policy structures, interactive address/service pickers, intuitive NAT mappings, and enterprise policy clarity.
+
+I combined these familiar paradigms with modern responsive web design, crisp typography, and instant client-side search to create an interface that feels instantly natural to any network engineer while delivering the raw power of the Debian Linux kernel.
+
 There is no limit to what this project can become.
 
-Thank you from the bottom of my heart for reading this and trying MicronOS. I hope it saves your weekends and your sleep the way it has saved mine.
+Thank you from the bottom of my heart for reading this and trying Micron OS. I hope it saves your weekends and your sleep the way it has saved mine.
 
 **— Prashant Arbat**  
 *Email:* [prashant.arbat@gmail.com](mailto:prashant.arbat@gmail.com)  
@@ -163,7 +171,7 @@ microctl doctor
 
 ## 🛠️ ISO Build & Appliance Installation
 
-MicronOS builds as a hybrid BIOS / UEFI bootable ISO using standard Debian `live-build`:
+Micron OS builds as a hybrid BIOS / UEFI bootable ISO using standard Debian `live-build`:
 
 ```bash
 # Navigate to packaging directory
@@ -196,7 +204,7 @@ Complete technical blueprints, API contracts, and implementation guides are avai
 
 ## 🤝 Contributing & Community
 
-MicronOS is an open-source project created for network engineers, system administrators, homelab enthusiasts, and small businesses everywhere. 
+Micron OS is an open-source project created for network engineers, system administrators, homelab enthusiasts, and small businesses everywhere. 
 
 Whether you are a Linux kernel hacker, a frontend designer, a documentation writer, or a network engineer testing on different hardware NICs: **you are warmly welcome here.**
 
