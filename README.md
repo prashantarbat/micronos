@@ -29,7 +29,7 @@ The only programming language I ever managed to learn and master is **PHP with a
 
 ### The Pain That Started It All
 
-For years, we managed branch office networks with **VyOS**. Later, we replaced several branch appliances with **pfSense** to give non-CLI administrators an accessible web GUI. 
+Last two years, we managed branch office networks with **VyOS**. Later, we replaced several branch appliances with **pfSense** to give non-CLI administrators an accessible web GUI. 
 
 That is when reality hit hard.
 
