@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # /etc/profile.d/micron-prompt.sh
 # Micron OS Console Shell Prompt Configuration
 

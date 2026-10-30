@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # /etc/profile.d/micron-menu.sh
 # Launch pfSense-style Micron OS interactive console menu for top-level interactive logins
 

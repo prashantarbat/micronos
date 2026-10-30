@@ -22,6 +22,31 @@ jobs:
       - run: composer install --no-interaction --prefer-dist
       - run: vendor/bin/phpunit --no-coverage
 
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.4"
+          extensions: intl, mbstring, sqlite3, pdo_sqlite, curl, sodium
+          coverage: none
+      - name: PHP syntax
+        run: find app system tests -name '*.php' -print0 | xargs -0 -n1 -P4 php -l > /dev/null
+      - name: Shell scripts (shellcheck, errors)
+        run: |
+          shellcheck --severity=error system/micron-banner system/micron-network system/micron-ready-beep \
+            system/numlock.sh system/micron-menu.sh system/micron-prompt.sh bin/micron-menu \
+            installer/install.sh installer/micron-healthcheck installer/micron-slot installer/micron-slot-rescue \
+            packaging/live-build/stage-overlay.sh packaging/rebuild_iso.sh packaging/finalize_iso.sh \
+            packaging/live-build/config/hooks/live/*.hook.chroot
+      - name: Python (ruff)
+        run: pipx run ruff check system bin tools installer tests
+      - run: composer install --no-interaction --prefer-dist
+      - name: PHPStan (level 5, report only until the baseline is fixed)
+        continue-on-error: true
+        run: vendor/bin/phpstan analyse --no-progress --error-format=github --memory-limit=1G
+
   daemon-and-installer:
     runs-on: ubuntu-24.04
     steps:

@@ -12,7 +12,10 @@
 # Proves: the plan, ruleset and DHCP config come from the database (no
 # hard-coded LAN address or pool), IPv6 is off by default at every layer, a LAN
 # address set in the database is what boot applies, and a single-port machine
-# keeps the port as the management LAN.
+# keeps the port as the management LAN. The NICs boot sees are faked too: a
+# tmpfs over /sys/class/net holds one physical port, enp1s0 (not the factory
+# eth0, as on most real hardware), so the result does not depend on the host's
+# own network cards.
 # Requires root (mount namespaces). Skips otherwise.
 # ==============================================================================
 set -u
@@ -73,6 +76,8 @@ run_boot() {
         for d in /etc/micron /etc/unbound /etc/kea /etc/sysctl.d /run/micron /var/lib/kea; do
             mkdir -p "$d"; mount -t tmpfs tmpfs "$d"
         done
+        mount -t tmpfs tmpfs /sys/class/net
+        mkdir -p /sys/class/net/lo /sys/class/net/enp1s0/device
         export MICRON_NFT_CONF="$T/nftables.conf"
         mount --bind "$T/writable" "$ROOT/writable"
         export PATH="$T/bin:$PATH"
@@ -101,7 +106,7 @@ assert lan["ipv4"] == "10.10.10.10/24"
 PY
 grep -q "disable_ipv6 = 1" "$T/etc-sysctl/60-micron-ipv6.conf" 2>/dev/null && ok "IPv6 is disabled persistently (sysctl drop-in)" || bad "IPv6 sysctl drop-in"
 grep -q "net.ipv6.conf.all.disable_ipv6=1" "$T/log/calls" && ok "IPv6 is disabled in the running kernel" || bad "runtime sysctl" "$(grep sysctl "$T/log/calls" | head -3)"
-grep -q "ip addr replace 10.10.10.10/24 dev eth0" "$T/log/calls" && ok "the LAN address is applied to the single physical port" || bad "LAN address applied" "$(grep 'ip addr' "$T/log/calls")"
+grep -q "ip addr replace 10.10.10.10/24 dev enp1s0" "$T/log/calls" && ok "the LAN address is applied to the single physical port" || bad "LAN address applied" "$(grep 'ip addr' "$T/log/calls")"
 [ "$(sql "SELECT enabled FROM interfaces WHERE id='wan'")" = "0" ] && ok "a WAN on the same single port is disabled, not doubled up" || bad "single-port WAN"
 grep -q "meta nfproto ipv6 drop" "$T/nftables.conf" && ok "the loaded ruleset is the compiled one and drops IPv6" || bad "compiled ruleset installed" "$(head -5 "$T/nftables.conf")"
 grep -q 'ip saddr 10.10.10.0/24 ip daddr 10.10.10.10 th dport 443 accept' "$T/nftables.conf" && ok "factory LAN rules are compiled from the LAN address (no open accept)" || bad "factory rule compilation"
@@ -114,7 +119,7 @@ sql "UPDATE interfaces SET ipv4_address='172.30.5.1', ipv4_netmask=24 WHERE id='
 sql "UPDATE dhcp_server_settings SET enabled=1, range_from='172.30.5.100', range_to='172.30.5.150', gateway='172.30.5.1', dns_1='172.30.5.1' WHERE interface_id='lan'" >/dev/null
 rm -rf "$T/etc-"*
 run_boot
-grep -q "ip addr replace 172.30.5.1/24 dev eth0" "$T/log/calls" && ok "a reboot applies the address in the database, never an old one" || bad "reboot address" "$(grep 'ip addr' "$T/log/calls")"
+grep -q "ip addr replace 172.30.5.1/24 dev enp1s0" "$T/log/calls" && ok "a reboot applies the address in the database, never an old one" || bad "reboot address" "$(grep 'ip addr' "$T/log/calls")"
 ! grep -q "10.10.10" "$T/nftables.conf" && grep -q "172.30.5.0/24" "$T/nftables.conf" && ok "firewall rules follow the new LAN at boot" || bad "ruleset after move"
 grep -q '172.30.5.100 - 172.30.5.150' "$T/etc-kea/kea-dhcp4.conf" 2>/dev/null && ok "the DHCP server config comes from the database" || bad "kea from db" "$(cat "$T/etc-kea/kea-dhcp4.conf" 2>/dev/null | head -c 300)"
 grep -q "systemctl restart --no-block kea-dhcp4-server" "$T/log/calls" && ok "the DHCP server is restarted with it" || bad "kea restart"

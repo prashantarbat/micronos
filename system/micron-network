@@ -68,13 +68,17 @@ if [ "$have_db" -eq 1 ]; then
 fi
 if [ "${#avail_nics[@]}" -eq 1 ]; then
     # One port only: it must be the management LAN, or nobody can reach the
-    # appliance. A WAN configured on that same port cannot coexist with it
-    # (the plan refuses one device for two interfaces), so it is disabled.
+    # appliance. A WAN on that same port cannot coexist with it (the plan
+    # refuses one device for two interfaces), and a WAN on a port this machine
+    # does not have (the factory eth0 when the port is enp1s0) cannot work, so
+    # either is disabled.
     dev_ok "$LAN_IF" || LAN_IF="${avail_nics[0]}"
-    [ "$WAN_IF" = "$LAN_IF" ] && WAN_IF=""
+    if [ "$WAN_IF" = "$LAN_IF" ] || ! dev_ok "$WAN_IF"; then
+        WAN_IF=""
+    fi
     if [ "$have_db" -eq 1 ] && safe_dev "$LAN_IF"; then
         sqlq "UPDATE interfaces SET physical_device='$LAN_IF' WHERE id='lan';"
-        sqlq "UPDATE interfaces SET enabled=0 WHERE id='wan' AND physical_device='$LAN_IF';"
+        [ -z "$WAN_IF" ] && sqlq "UPDATE interfaces SET enabled=0 WHERE id='wan';"
     fi
 elif [ "${#avail_nics[@]}" -gt 1 ]; then
     if ! dev_ok "$WAN_IF"; then
