@@ -111,6 +111,34 @@
   .frr-row { grid-template-columns: 1fr; }
   .frr-lbl { border-right: none; border-bottom: 1px solid var(--color-border); padding: 8px 14px; }
 }
+/* ── Protocol Sub-Tabs (VRF, Multi-WAN, BFD, FRR) ── */
+.vrf-sub-tabs, .mwan-sub-tabs, .bfd-sub-tabs, .frr-sub-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 2px solid var(--color-border);
+  margin-bottom: 22px;
+  overflow-x: auto;
+}
+.vrf-sub-tab, .mwan-sub-tab, .bfd-sub-tab, .frr-sub-tab {
+  display: flex; align-items: center; gap: 6px;
+  padding: 8px 16px;
+  font-size: 0.8rem; font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  transition: color .15s, border-color .15s;
+  white-space: nowrap;
+  background: none; border-top: none; border-left: none; border-right: none;
+}
+.vrf-sub-tab:hover, .mwan-sub-tab:hover, .bfd-sub-tab:hover, .frr-sub-tab:hover { color: var(--text-primary); }
+.vrf-sub-tab.active { color: var(--color-purple); border-bottom-color: var(--color-purple); }
+.mwan-sub-tab.active { color: var(--color-cyan); border-bottom-color: var(--color-cyan); }
+.bfd-sub-tab.active { color: var(--color-cyan-2, #22d3ee); border-bottom-color: var(--color-cyan-2, #22d3ee); }
+.frr-sub-tab.active { color: var(--color-cyan); border-bottom-color: var(--color-cyan); }
+
+.vrf-sub-panel, .mwan-sub-panel { display: none; }
+.vrf-sub-panel.active, .mwan-sub-panel.active { display: block; }
 </style>
 
 <!-- ── Page Header ── -->
@@ -129,12 +157,20 @@
       </div>
       <div>
         <h1 class="page-title">Dynamic Routing &amp; Multi-WAN</h1>
-        <p class="page-subtitle">Static routes, FRRouting BGP/OSPF/BFD, VRF, Policy-Based Routing, and Multi-WAN gateway groups</p>
+        <p class="page-subtitle">Control plane for dynamic routing protocols, policy routing, and Multi-WAN load balancing — managed through FRRouting</p>
       </div>
     </div>
   </div>
-  <div class="page-header-actions">
+  <div class="page-header-actions" style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+    <a href="<?= base_url('routing/static') ?>" class="btn btn-secondary btn-sm" title="Manage Static IPv4/IPv6 Routes">
+      <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
+      Static Routes
+    </a>
     <?= \App\Libraries\ServiceStatus::widget('frr') ?>
+    <a href="<?= base_url('routing/full-table') ?>" class="btn btn-secondary btn-sm" title="View the complete kernel routing table — all sources: static, BGP, OSPF, RIP, IS-IS, BFD, VRF, PBR, and Multi-WAN">
+      <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"/></svg>
+      Full Routing Table
+    </a>
   </div>
 </div>
 
@@ -146,6 +182,75 @@
   <div class="alert alert-danger animate-in" style="margin-bottom:18px;"><?= esc(session()->getFlashdata('error')) ?></div>
 <?php endif; ?>
 
+<!-- ── Quick Routing Summary Bar ── -->
+<?php
+  $protocolsUp = 0;
+  $protocolsTotal = 0;
+  if (!empty($frrStatus['running'])) { $protocolsUp++; }
+  $protocolsTotal++;
+  $totalPeers = count($bgpNeighbors ?? []) + count($ospfNeighbors ?? []) + count($ripNetworks ?? []) + count($isisInterfaces ?? []) + count($bfdPeers ?? []);
+?>
+<?php if ($totalPeers > 0 || !empty($frrStatus['running'])): ?>
+<div class="rt-quick-sum animate-in" style="display:flex; flex-wrap:wrap; gap:10px 22px; margin-bottom:18px; padding:12px 18px; background:var(--color-surface-2); border:1px solid var(--color-border); border-radius:var(--radius-md); font-size:0.82rem;">
+  <?php if (!empty($frrStatus['running'])): ?>
+    <div style="display:flex; align-items:center; gap:7px;">
+      <span class="frr-dot"></span>
+      <span><strong>FRRouting</strong> <span style="color:var(--text-muted);">running</span></span>
+    </div>
+  <?php else: ?>
+    <div style="display:flex; align-items:center; gap:7px;">
+      <span style="width:8px;height:8px;border-radius:50%;background:var(--color-red);display:inline-block;"></span>
+      <span><strong>FRRouting</strong> <span style="color:var(--text-muted);">stopped — static routes &amp; FIB still active</span></span>
+    </div>
+  <?php endif; ?>
+  <?php if ($totalPeers > 0): ?>
+    <div style="display:flex; align-items:center; gap:7px;">
+      <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="var(--color-cyan)" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+      <span><strong style="color:var(--text-primary);"><?= $totalPeers ?></strong> protocol peers configured across all enabled routing protocols</span>
+    </div>
+  <?php endif; ?>
+</div>
+<?php endif; ?>
+
+<!-- ── Routing Concepts Onboarding ── -->
+<?php
+  $curTab = $_GET['tab'] ?? ($tab ?? 'bgp');
+  if ($curTab === 'pbr') {
+      $curTab = 'vrf';
+  }
+  $totalConfigured = count($bgpNeighbors ?? []) + count($ospfAreas ?? []) + count($ospfNetworks ?? []) + count($ospfIfaces ?? []) + count($ripNetworks ?? []) + count($isisInterfaces ?? []) + count($bfdPeers ?? []) + count($accessLists ?? []) + count($prefixLists ?? []) + count($routeMaps ?? []) + count($vrfs ?? []) + count($pbrRules ?? []) + count($wanGateways ?? []) + count($wanGroups ?? []);
+  $hasAnyConfig = $totalConfigured > 0;
+?>
+<?php if (!$hasAnyConfig && $curTab === 'bgp'): ?>
+<div class="rt-onboard animate-in" style="display:flex; gap:16px; padding:18px 20px; background:var(--color-surface-2); border:1px solid var(--color-border-bright); border-radius:var(--radius-md); margin-bottom:18px; align-items:flex-start;">
+  <div style="flex:1;">
+    <h3 style="font-size:0.95rem; font-weight:700; color:var(--text-primary); margin-bottom:6px;">Routing is empty — here's how it fits together</h3>
+    <p style="font-size:0.84rem; color:var(--text-secondary); margin:0 0 8px 0; line-height:1.55;">
+      Routing tells the appliance how to forward packets. <strong>Static routes</strong> are fixed paths you configure directly.
+      <strong>Dynamic protocols</strong> (BGP, OSPF, RIP, IS-IS) exchange routes with neighbors automatically.
+    </p>
+    <p style="font-size:0.84rem; color:var(--text-secondary); margin:0 0 8px 0; line-height:1.55;">
+      <strong>BGP</strong> is the backbone of the internet — use it to peer with ISPs or other autonomous systems.
+      <strong>OSPF</strong> is a common internal (IGP) choice for enterprise networks.
+      <strong>Multi-WAN</strong> groups multiple uplinks with failover or load-balancing.
+    </p>
+    <p style="font-size:0.82rem; color:var(--text-muted); margin:0; line-height:1.55;">
+      Start by enabling FRR if it's stopped, then add a protocol — BGP or OSPF are the most common first steps.
+    </p>
+  </div>
+  <div style="flex-shrink:0; display:flex; flex-direction:column; gap:8px;">
+    <span style="font-size:0.72rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em; font-weight:700;">First steps</span>
+    <?php if (!empty($frrStatus['running'])): ?>
+      <a href="<?= base_url('routing?tab=bgp') ?>" class="btn btn-primary btn-sm" style="width:100%;">Configure BGP &rarr;</a>
+      <a href="<?= base_url('routing?tab=ospf') ?>" class="btn btn-ghost btn-sm" style="width:100%;">Configure OSPF</a>
+    <?php else: ?>
+      <a href="<?= base_url('routing?tab=multiwan') ?>" class="btn btn-primary btn-sm" style="width:100%;">Set up Multi-WAN &rarr;</a>
+      <span style="font-size:0.78rem; color:var(--text-muted); text-align:right;">FRRouting is stopped — dynamic protocols need it running</span>
+    <?php endif; ?>
+  </div>
+</div>
+<?php endif; ?>
+
 <!-- ── FRR Status Banner ── -->
 <?php if (!empty($frrStatus['running'])): ?>
 <div class="frr-banner animate-in">
@@ -153,193 +258,180 @@
     <span class="frr-dot"></span>
     <strong>FRRouting</strong>
   </div>
-  <div class="frr-badge">Version: <strong><?= esc($frrStatus['version']) ?></strong></div>
-  <div class="frr-badge">Uptime: <strong><?= esc($frrStatus['uptime']) ?></strong></div>
-  <div class="frr-badge">Local AS: <strong class="rt-chip rt-chip-blue"><?= esc($frrStatus['bgp_as']) ?></strong></div>
-  <div class="frr-badge">Router-ID: <strong class="rt-chip rt-chip-cyan"><?= esc($frrStatus['router_id']) ?></strong></div>
-  <?php if (!empty($isMock)): ?>
-    <span class="badge badge-muted" style="margin-left:auto;">simulation mode</span>
+  <div class="frr-badge">Version: <strong><?= esc(($frrStatus['version'] ?? '') ?: '9.1') ?></strong></div>
+  <div class="frr-badge">Uptime: <strong><?= esc(($frrStatus['uptime'] ?? '') ?: 'active') ?></strong></div>
+  <?php if (!empty($frrStatus['bgp_as'])): ?>
+    <div class="frr-badge">Local AS: <strong class="rt-chip rt-chip-blue"><?= esc($frrStatus['bgp_as']) ?></strong></div>
   <?php endif; ?>
+  <?php if (!empty($frrStatus['router_id'])): ?>
+    <div class="frr-badge">Router-ID: <strong class="rt-chip rt-chip-cyan"><?= esc($frrStatus['router_id']) ?></strong></div>
+  <?php endif; ?>
+  <?php if (!empty($isMock)): ?>
+    <span class="badge badge-muted">simulation mode</span>
+  <?php endif; ?>
+  <div style="margin-left:auto; display:flex; align-items:center; gap:8px;">
+    <form method="POST" action="<?= base_url('services/frr/toggle-boot') ?>" style="display:inline;"><?= csrf_field() ?>
+      <button type="submit" class="btn btn-ghost btn-sm" style="font-size:0.75rem;" title="Click to toggle automatic startup at boot">
+        <?= !empty($frrBootEnabled) ? '<span style="color:var(--color-emerald); font-weight:700;">✓ Boot: Enabled</span>' : '<span style="color:var(--text-muted);">○ Boot: Disabled</span>' ?>
+      </button>
+    </form>
+    <form method="POST" action="<?= base_url('services/frr/restart') ?>" style="display:inline;"><?= csrf_field() ?>
+      <button type="submit" class="btn btn-ghost btn-sm" style="font-size:0.75rem;" title="Restart FRR dynamic routing daemons">
+        <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="margin-right:2px; vertical-align:-1px;">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+        </svg>
+        Restart
+      </button>
+    </form>
+    <form method="POST" action="<?= base_url('services/frr/stop') ?>" style="display:inline;" onsubmit="return confirm('Stop FRRouting dynamic routing suite?');"><?= csrf_field() ?>
+      <button type="submit" class="btn btn-ghost btn-sm" style="font-size:0.75rem; color:var(--color-red);" title="Stop FRR Suite">
+        <svg width="11" height="11" fill="currentColor" viewBox="0 0 24 24" style="margin-right:2px; vertical-align:-1px;"><rect x="4" y="4" width="16" height="16"/></svg>
+        Stop
+      </button>
+    </form>
+  </div>
+</div>
+<?php else: ?>
+<div class="frr-banner animate-in" style="background:rgba(239,68,68,0.06); border-color:rgba(239,68,68,0.25);">
+  <div class="frr-badge">
+    <span style="width:8px; height:8px; border-radius:50%; background:var(--color-red); display:inline-block; box-shadow:0 0 6px var(--color-red);"></span>
+    <strong>FRRouting Daemon:</strong> <span style="color:var(--color-red); font-weight:600;">Stopped / Inactive</span>
+  </div>
+  <div style="font-size:0.78rem; color:var(--text-secondary);">
+    Dynamic routing suite (BGP, OSPF, RIP, IS-IS, BFD) is currently offline. Static routes and kernel FIB continue to operate.
+  </div>
+  <div style="margin-left:auto; display:flex; align-items:center; gap:8px;">
+    <form method="POST" action="<?= base_url('services/frr/toggle-boot') ?>" style="display:inline;"><?= csrf_field() ?>
+      <button type="submit" class="btn btn-ghost btn-sm" style="font-size:0.75rem;" title="Toggle boot startup">
+        <?= !empty($frrBootEnabled) ? '<span style="color:var(--color-emerald); font-weight:700;">✓ Boot: Enabled</span>' : '<span style="color:var(--text-muted);">○ Boot: Disabled</span>' ?>
+      </button>
+    </form>
+    <form method="POST" action="<?= base_url('services/frr/start') ?>" style="display:inline;"><?= csrf_field() ?>
+      <button type="submit" class="btn btn-primary btn-sm" style="display:inline-flex; align-items:center; gap:5px; font-size:0.78rem;">
+        <svg width="12" height="12" fill="currentColor" viewBox="0 0 24 24"><polygon points="6 4 20 12 6 20 6 4"/></svg>
+        Start FRR Suite
+      </button>
+    </form>
+  </div>
 </div>
 <?php endif; ?>
 
+<?php
+$curTab = $_GET['tab'] ?? 'bgp';
+if ($curTab === 'pbr') {
+    $curTab = 'vrf';
+    if (!isset($_GET['sub'])) {
+        $_GET['sub'] = 'pbr';
+    }
+}
+?>
 <!-- ── Tab Bar ── -->
 <div class="tab-bar rt-tabs animate-in">
-  <button type="button" class="tab-item rt-tab active" onclick="switchTab('static', this)">
-    <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
-    Static Routes
-    <span class="rt-tab-count"><?= count($staticRoutes) ?></span>
-  </button>
-  <button type="button" class="tab-item rt-tab" onclick="switchTab('fib', this)">
-    <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path stroke-linecap="round" stroke-linejoin="round" d="M12 3v3m0 12v3M3 12h3m12 0h3"/></svg>
-    FIB / Kernel
-    <span class="rt-tab-count"><?= count($kernelRoutes) ?></span>
-  </button>
-  <button type="button" class="tab-item rt-tab" onclick="switchTab('bgp', this)">
+  <a href="<?= base_url('routing?tab=bgp') ?>" class="tab-item rt-tab <?= $curTab === 'bgp' ? 'active' : '' ?>" data-tab="bgp" onclick="switchTab('bgp', this); return false;" title="Border Gateway Protocol — eBGP/iBGP peering, AS numbers, route-maps, prefix-lists">
     <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M17 8l4 4m0 0l-4 4m4-4H3"/></svg>
     BGP
-    <span class="rt-tab-count"><?= count($bgpNeighbors) ?></span>
-  </button>
-  <button type="button" class="tab-item rt-tab" onclick="switchTab('ospf', this)">
+    <span class="rt-tab-count"><?= count($bgpNeighbors ?? []) ?></span>
+  </a>
+  <a href="<?= base_url('routing?tab=ospf') ?>" class="tab-item rt-tab <?= $curTab === 'ospf' ? 'active' : '' ?>" data-tab="ospf" onclick="switchTab('ospf', this); return false;" title="Open Shortest Path First — areas, interfaces, networks, neighbors, path selection">
     <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/></svg>
     OSPF
-    <span class="rt-tab-count"><?= count($ospfAreas) + count($ospfIfaces) + count($ospfNetworks) ?></span>
-  </button>
-  <button type="button" class="tab-item rt-tab" onclick="switchTab('rip', this)">
+    <span class="rt-tab-count"><?= count($ospfAreas ?? []) + count($ospfIfaces ?? []) + count($ospfNetworks ?? []) ?></span>
+  </a>
+  <a href="<?= base_url('routing?tab=rip') ?>" class="tab-item rt-tab <?= $curTab === 'rip' ? 'active' : '' ?>" data-tab="rip" onclick="switchTab('rip', this); return false;" title="Routing Information Protocol — legacy distance-vector, networks and neighbors">
     <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h7"/></svg>
     RIP
-    <span class="rt-tab-count"><?= count($ripNetworks) + count($ripNeighbors) ?></span>
-  </button>
-  <button type="button" class="tab-item rt-tab" onclick="switchTab('isis', this)">
+    <span class="rt-tab-count"><?= count($ripNetworks ?? []) + count($ripNeighbors ?? []) ?></span>
+  </a>
+  <a href="<?= base_url('routing?tab=isis') ?>" class="tab-item rt-tab <?= $curTab === 'isis' ? 'active' : '' ?>" data-tab="isis" onclick="switchTab('isis', this); return false;" title="IS-IS — link-state IGP for service-provider and large enterprise topologies">
     <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"/></svg>
     IS-IS
-    <span class="rt-tab-count"><?= count($isisInterfaces) ?></span>
-  </button>
-  <button type="button" class="tab-item rt-tab" onclick="switchTab('bfd', this)">
+    <span class="rt-tab-count"><?= count($isisInterfaces ?? []) ?></span>
+  </a>
+  <a href="<?= base_url('routing?tab=bfd') ?>" class="tab-item rt-tab <?= $curTab === 'bfd' ? 'active' : '' ?>" data-tab="bfd" onclick="switchTab('bfd', this); return false;" title="Bidirectional Forwarding Detection — fast failure detection for routing peers">
     <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
     BFD
-    <span class="rt-tab-count"><?= count($bfdPeers) ?></span>
-  </button>
-  <button type="button" class="tab-item rt-tab" onclick="switchTab('vrf', this)">
+    <span class="rt-tab-count"><?= count($bfdPeers ?? []) ?></span>
+  </a>
+  <a href="<?= base_url('routing?tab=policy') ?>" class="tab-item rt-tab <?= $curTab === 'policy' ? 'active' : '' ?>" data-tab="policy" onclick="switchTab('policy', this); return false;" title="Route-maps, prefix-lists, and access-lists — policy control for redistribution and path selection">
+    <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+    Policy / Filters
+    <span class="rt-tab-count"><?= count($accessLists ?? []) + count($prefixLists ?? []) + count($routeMaps ?? []) ?></span>
+  </a>
+  <a href="<?= base_url('routing?tab=vrf') ?>" class="tab-item rt-tab <?= in_array($curTab, ['vrf', 'pbr'], true) ? 'active' : '' ?>" data-tab="vrf" onclick="switchTab('vrf', this); return false;" title="VRF instances for route isolation and Policy-Based Routing rules for source-directed forwarding">
     <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
     VRF / PBR
-    <span class="rt-tab-count"><?= count($vrfs) + count($pbrRules) ?></span>
-  </button>
-  <button type="button" class="tab-item rt-tab" onclick="switchTab('multiwan', this)">
+    <span class="rt-tab-count"><?= count($vrfs ?? []) + count($pbrRules ?? []) ?></span>
+  </a>
+  <a href="<?= base_url('routing?tab=multiwan') ?>" class="tab-item rt-tab <?= $curTab === 'multiwan' ? 'active' : '' ?>" data-tab="multiwan" onclick="switchTab('multiwan', this); return false;" title="Multi-WAN gateway groups with failover, load-balance, and round-robin strategies">
     <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064"/></svg>
     Multi-WAN
-    <span class="rt-tab-count"><?= count($wanGateways) ?></span>
-  </button>
+    <span class="rt-tab-count"><?= count($wanGateways ?? []) ?></span>
+  </a>
+  <a href="<?= base_url('routing?tab=frr') ?>" class="tab-item rt-tab <?= $curTab === 'frr' ? 'active' : '' ?>" data-tab="frr" onclick="switchTab('frr', this); return false;" title="FRRouting daemon status, operational state, and the generated frr.conf">
+    <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/></svg>
+    FRR
+    <span class="rt-tab-count" style="background:var(--color-cyan-dim, rgba(6,182,212,0.18)); color:var(--color-cyan, #06b6d4);">frr.conf</span>
+  </a>
+  <a href="<?= base_url('routing?tab=fib') ?>" class="tab-item rt-tab <?= $curTab === 'fib' ? 'active' : '' ?>" data-tab="fib" onclick="switchTab('fib', this); return false;" title="Kernel Forwarding Information Base — the live routes the kernel will actually use">
+    <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path stroke-linecap="round" stroke-linejoin="round" d="M12 3v3m0 12v3M3 12h3m12 0h3"/></svg>
+    FIB / Kernel
+    <span class="rt-tab-count"><?= count($kernelRoutes ?? []) ?></span>
+  </a>
 </div>
 
-<!-- ================================================================
-     TAB: Static Routes
-     ================================================================ -->
-<div class="rt-panel active" id="panel-static">
-  <div class="card" style="padding:0; overflow-x:auto; margin-bottom:20px;">
-    <div style="display:flex; justify-content:space-between; align-items:center; padding:12px 18px; border-bottom:1px solid var(--color-border);">
-      <span style="font-weight:700; font-size:0.875rem; color:var(--text-primary);">Configured Static Routes</span>
-      <?php if (session()->get('is_superadmin') || in_array('routing.static.manage', session()->get('permissions') ?? [])): ?>
-        <button type="button" class="btn btn-primary btn-sm" onclick="openModal('staticModal')">
-          <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
-          Add Route
-        </button>
-      <?php endif; ?>
-    </div>
-    <table class="rt-table">
-      <thead><tr>
-        <th>Destination</th><th>Next Hop</th><th>Interface</th><th>Metric</th><th>Description</th><th>Status</th><th style="text-align:right;">Actions</th>
-      </tr></thead>
-      <tbody>
-        <?php if (empty($staticRoutes)): ?>
-          <tr><td colspan="7" style="text-align:center; padding:32px; color:var(--text-muted);">No static routes configured.</td></tr>
-        <?php else: ?>
-          <?php foreach ($staticRoutes as $sr): ?>
-            <tr>
-              <td><span class="rt-chip rt-chip-cyan"><?= esc($sr['destination']) ?></span></td>
-              <td><span class="rt-chip rt-chip-blue"><?= esc($sr['gateway']) ?></span></td>
-              <td><span class="rt-chip"><?= esc($sr['interface'] ?? 'eth0') ?></span></td>
-              <td style="font-family:var(--font-mono); font-size:0.78rem; color:var(--text-secondary);"><?= esc($sr['metric'] ?? 10) ?></td>
-              <td style="font-size:0.78rem; color:var(--text-secondary);"><?= esc($sr['description'] ?: '—') ?></td>
-              <td><?= (int)($sr['enabled'] ?? 1) ? '<span class="badge badge-success">Active</span>' : '<span class="badge badge-muted">Disabled</span>' ?></td>
-              <td style="text-align:right; white-space:nowrap;">
-                <?php if (session()->get('is_superadmin') || in_array('routing.static.manage', session()->get('permissions') ?? [])): ?>
-                  <form method="POST" action="<?= base_url('routing/static/' . esc($sr['id']) . '/toggle') ?>" style="display:inline;"><?= csrf_field() ?>
-                    <button type="submit" class="btn btn-ghost btn-sm" style="padding:4px 7px; color:<?= (int)($sr['enabled']??1) ? 'var(--color-emerald)' : 'var(--text-muted)' ?>;">
-                      <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5.636 18.364a9 9 0 010-12.728m12.728 0a9 9 0 010 12.728M12 3v9"/></svg>
-                    </button>
-                  </form>
-                  <button type="button" class="btn btn-ghost btn-sm" style="padding:4px 7px;" onclick='openEditStatic(<?= htmlspecialchars(json_encode($sr), ENT_QUOTES, "UTF-8") ?>)'>
-                    <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z"/></svg>
-                  </button>
-                  <form method="POST" action="<?= base_url('routing/static/' . esc($sr['id']) . '/delete') ?>" style="display:inline;" onsubmit="return confirm('Remove route to <?= esc(addslashes($sr['destination'])) ?>?')"><?= csrf_field() ?>
-                    <button type="submit" class="btn btn-ghost btn-sm" style="padding:4px 7px; color:var(--color-red);">
-                      <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
-                    </button>
-                  </form>
-                <?php endif; ?>
-              </td>
-            </tr>
-          <?php endforeach; ?>
-        <?php endif; ?>
-      </tbody>
-    </table>
+<?php if ($curTab === 'static'): ?>
+<div class="rt-panel active" id="panel-static" style="margin-bottom:20px;">
+  <div class="card" style="padding:28px; text-align:center;">
+    <svg width="40" height="40" fill="none" viewBox="0 0 24 24" stroke="var(--color-cyan)" stroke-width="1.5" style="margin:0 auto 12px; display:block;"><path stroke-linecap="round" stroke-linejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
+    <h3 style="font-size:1.05rem; font-weight:700; margin-bottom:8px; color:var(--text-primary);">Static Routes live on their own page</h3>
+    <p style="color:var(--text-secondary); font-size:0.85rem; margin:0 0 16px 0; max-width:420px; margin-left:auto; margin-right:auto;">
+      Add, edit, and remove IPv4/IPv6 static prefixes, default gateways, and interface-bound routes — plus persistent and blackhole routes — on the dedicated Static Routes screen.
+    </p>
+    <a href="<?= base_url('routing/static') ?>" class="btn btn-primary btn-sm">Go to Static Routes &rarr;</a>
   </div>
 </div>
-
-<!-- ================================================================
-     TAB: FIB / Kernel
-     ================================================================ -->
-<div class="rt-panel" id="panel-fib">
-  <div class="card" style="padding:0; overflow-x:auto;">
-    <div style="padding:12px 18px; border-bottom:1px solid var(--color-border); display:flex; justify-content:space-between; align-items:center;">
-      <span style="font-weight:700; font-size:0.875rem; color:var(--text-primary);">Kernel Forwarding Information Base</span>
-      <?php if (!empty($kernelRoutes)): ?>
-        <span class="badge badge-success"><?= count($kernelRoutes) ?> routes synced</span>
-      <?php else: ?>
-        <span class="badge badge-muted">No kernel routes</span>
-      <?php endif; ?>
-    </div>
-    <table class="rt-table">
-      <thead><tr>
-        <th>Destination</th><th>Gateway</th><th>Interface</th><th>Flags</th><th>Protocol</th><th>Metric</th>
-      </tr></thead>
-      <tbody>
-        <?php foreach ($kernelRoutes as $r): ?>
-          <?php
-            $protoClass = match($r['proto']) {
-              'bgp'    => 'rt-chip-purple',
-              'ospf'   => 'rt-chip-amber',
-              'kernel' => 'rt-chip',
-              default  => 'rt-chip-green',
-            };
-          ?>
-          <tr>
-            <td><span class="rt-chip rt-chip-cyan"><?= esc($r['destination']) ?></span></td>
-            <td><span class="rt-chip rt-chip-blue"><?= esc($r['gateway']) ?></span></td>
-            <td><span class="rt-chip"><?= esc($r['interface']) ?></span></td>
-            <td><span class="rt-chip"><?= esc($r['flags']) ?></span></td>
-            <td><span class="rt-chip <?= $protoClass ?>"><?= strtoupper(esc($r['proto'])) ?></span></td>
-            <td style="font-family:var(--font-mono); font-size:0.78rem; color:var(--text-secondary);"><?= esc($r['metric']) ?></td>
-          </tr>
-        <?php endforeach; ?>
-      </tbody>
-    </table>
-  </div>
-</div>
+<?php endif; ?>
 
 <!-- ================================================================
      TAB: BGP (FRRouting BGP Daemon)
      ================================================================ -->
-<div class="rt-panel" id="panel-bgp">
+<div class="rt-panel <?= $curTab === 'bgp' ? 'active' : '' ?>" id="panel-bgp">
   <?= $this->include('routing/bgp_panel') ?>
 </div>
 
 <!-- ================================================================
      TAB: OSPF (Comprehensive FRRouting Engine)
      ================================================================ -->
-<div class="rt-panel" id="panel-ospf">
+<div class="rt-panel <?= $curTab === 'ospf' ? 'active' : '' ?>" id="panel-ospf">
   <?= $this->include('routing/ospf_panel') ?>
 </div>
 
 <!-- ================================================================
      TAB: RIP (FRRouting ripd)
      ================================================================ -->
-<div class="rt-panel" id="panel-rip">
+<div class="rt-panel <?= $curTab === 'rip' ? 'active' : '' ?>" id="panel-rip">
   <?= $this->include('routing/rip_panel') ?>
 </div>
 
 <!-- ================================================================
      TAB: IS-IS (FRRouting isisd)
      ================================================================ -->
-<div class="rt-panel" id="panel-isis">
+<div class="rt-panel <?= $curTab === 'isis' ? 'active' : '' ?>" id="panel-isis">
   <?= $this->include('routing/isis_panel') ?>
 </div>
 
 <!-- ================================================================
      TAB: BFD
      ================================================================ -->
-<div class="rt-panel" id="panel-bfd">
+<div class="rt-panel <?= $curTab === 'bfd' ? 'active' : '' ?>" id="panel-bfd">
+  <!-- ── BFD Sub-Tab Bar ── -->
+  <div class="bfd-sub-tabs">
+    <button type="button" class="bfd-sub-tab active" style="pointer-events:none;" title="Bidirectional Forwarding Detection — sub-second liveness checks for routing peers">
+      <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+      BFD Peer Sessions (<?= count($bfdPeers ?? []) ?>)
+    </button>
+  </div>
+
   <div class="card" style="padding:0; overflow-x:auto;">
     <div style="padding:12px 18px; border-bottom:1px solid var(--color-border); display:flex; justify-content:space-between; align-items:center;">
       <span style="font-weight:700; font-size:0.875rem; color:var(--text-primary);">BFD Sessions (Bidirectional Forwarding Detection)</span>
@@ -356,17 +448,23 @@
       </tr></thead>
       <tbody>
         <?php if (empty($bfdPeers)): ?>
-          <tr><td colspan="8" style="text-align:center; padding:32px; color:var(--text-muted);">No BFD sessions configured.</td></tr>
+          <tr><td colspan="8" style="text-align:center; padding:32px; color:var(--text-muted);">
+              <div style="display:flex; flex-direction:column; align-items:center; gap:6px;">
+                <svg width="28" height="28" fill="none" viewBox="0 0 24 24" stroke="var(--color-cyan)" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+                <p style="font-size:0.88rem; color:var(--text-secondary); margin:0;">No BFD sessions configured.</p>
+                <p style="font-size:0.8rem; color:var(--text-muted); margin:0; max-width:400px;">BFD (Bidirectional Forwarding Detection) provides fast failure detection for routing peers — sub-second detection of a down link so the routing protocol can converge quickly. Add a BFD peer to monitor a neighbor's liveness.</p>
+              </div>
+            </td></tr>
         <?php else: ?>
           <?php foreach ($bfdPeers as $b): ?>
             <tr>
-              <td><span class="rt-chip rt-chip-cyan"><?= esc($b['peer_ip']) ?></span></td>
-              <td><span class="rt-chip"><?= esc($b['local_ip'] ?: 'auto') ?></span></td>
-              <td><span class="rt-chip"><?= esc($b['interface'] ?: 'auto') ?></span></td>
-              <td style="font-family:var(--font-mono); font-size:0.78rem; color:var(--text-secondary);"><?= esc($b['receive_interval']) ?> / <?= esc($b['transmit_interval']) ?></td>
-              <td style="font-family:var(--font-mono); font-size:0.78rem; color:var(--text-secondary);"><?= esc($b['detect_multiplier']) ?></td>
-              <td><?= $b['echo_mode'] ? '<span class="badge badge-info" style="font-size:0.65rem;">ON</span>' : '—' ?></td>
-              <td style="font-size:0.78rem; color:var(--text-secondary);"><?= esc($b['description'] ?: '—') ?></td>
+              <td><span class="rt-chip rt-chip-cyan"><?= esc($b['peer_ip'] ?? '') ?></span></td>
+              <td><span class="rt-chip"><?= esc(($b['local_ip'] ?? '') ?: 'auto') ?></span></td>
+              <td><span class="rt-chip"><?= esc(($b['interface'] ?? '') ?: 'auto') ?></span></td>
+              <td style="font-family:var(--font-mono); font-size:0.78rem; color:var(--text-secondary);"><?= esc($b['receive_interval'] ?? '') ?> / <?= esc($b['transmit_interval'] ?? '') ?></td>
+              <td style="font-family:var(--font-mono); font-size:0.78rem; color:var(--text-secondary);"><?= esc($b['detect_multiplier'] ?? '') ?></td>
+              <td><?= !empty($b['echo_mode']) ? '<span class="badge badge-info" style="font-size:0.65rem;">ON</span>' : '—' ?></td>
+              <td style="font-size:0.78rem; color:var(--text-secondary);"><?= esc(($b['description'] ?? '') ?: '—') ?></td>
               <td style="text-align:right;">
                 <?php if (session()->get('is_superadmin') || in_array('routing.bfd.manage', session()->get('permissions') ?? []) || in_array('routing.static.manage', session()->get('permissions') ?? [])): ?>
                   <form method="POST" action="<?= base_url('routing/bfd/' . esc($b['id']) . '/delete') ?>" style="display:inline;" onsubmit="return confirm('Remove BFD peer?')"><?= csrf_field() ?>
@@ -385,13 +483,43 @@
 </div>
 
 <!-- ================================================================
+     TAB: Policy / Filters (Access Lists, Prefix Lists, Route Maps)
+     ================================================================ -->
+<div class="rt-panel <?= $curTab === 'policy' ? 'active' : '' ?>" id="panel-policy">
+  <?= $this->include('routing/policy_panel') ?>
+</div>
+
+<!-- ================================================================
      TAB: VRF / PBR
      ================================================================ -->
-<div class="rt-panel" id="panel-vrf">
+<div class="rt-panel <?= in_array($curTab, ['vrf', 'pbr'], true) ? 'active' : '' ?>" id="panel-vrf">
+  <?php $activeVrfSub = $_GET['sub'] ?? ($curTab === 'pbr' ? 'pbr' : 'vrf'); ?>
+  <!-- ── VRF / PBR Sub-Tab Bar ── -->
+  <div class="vrf-sub-tabs">
+    <button type="button" class="vrf-sub-tab <?= $activeVrfSub === 'vrf' ? 'active' : '' ?>"
+            onclick="switchVrfSub('vrf', this)"
+            title="Virtual Routing &amp; Forwarding — separate routing tables so overlapping address space can coexist on one device">
+      <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
+      </svg>
+      VRF Instances (<?= count($vrfs ?? []) ?>)
+    </button>
+    <button type="button" class="vrf-sub-tab <?= $activeVrfSub === 'pbr' ? 'active' : '' ?>"
+            onclick="switchVrfSub('pbr', this)"
+            title="Policy-Based Routing — match on source, destination, protocol or interface, then override the normal route lookup">
+      <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+      </svg>
+      Policy-Based Routing (<?= count($pbrRules ?? []) ?>)
+    </button>
+  </div>
+
+  <!-- Sub-Panel: VRF Instances -->
+  <div class="vrf-sub-panel <?= $activeVrfSub === 'vrf' ? 'active' : '' ?>" id="vrf-sub-vrf">
   <!-- VRFs -->
   <div class="card" style="padding:0; overflow-x:auto; margin-bottom:20px;">
     <div style="padding:12px 18px; border-bottom:1px solid var(--color-border); display:flex; justify-content:space-between; align-items:center;">
-      <span style="font-weight:700; font-size:0.875rem; color:var(--text-primary);">Virtual Routing &amp; Forwarding (VRF)</span>
+      <span style="font-weight:700; font-size:0.875rem; color:var(--text-primary);">Virtual Routing &amp; Forwarding — separate routing tables per virtual network</span>
       <?php if (session()->get('is_superadmin') || in_array('routing.vrf.manage', session()->get('permissions') ?? []) || in_array('routing.static.manage', session()->get('permissions') ?? [])): ?>
         <button type="button" class="btn btn-primary btn-sm" onclick="openModal('vrfModal')">
           <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
@@ -403,7 +531,13 @@
       <thead><tr><th>VRF Name</th><th>Table ID</th><th>Interfaces</th><th>Description</th><th style="text-align:right;">Actions</th></tr></thead>
       <tbody>
         <?php if (empty($vrfs)): ?>
-          <tr><td colspan="5" style="text-align:center; padding:28px; color:var(--text-muted);">No VRFs defined. The default VRF is always present (table 254).</td></tr>
+          <tr><td colspan="5" style="text-align:center; padding:28px; color:var(--text-muted);">
+              <div style="display:flex; flex-direction:column; align-items:center; gap:6px;">
+                <svg width="28" height="28" fill="none" viewBox="0 0 24 24" stroke="var(--color-purple)" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+                <p style="font-size:0.88rem; color:var(--text-secondary); margin:0;">No VRFs defined. The default VRF is always present (table 254).</p>
+                <p style="font-size:0.8rem; color:var(--text-muted); margin:0; max-width:400px;">VRF instances give you separate routing tables inside one device — useful for keeping tenant or customer traffic isolated, or for running multiple overlapping address spaces without conflict. Add a VRF when you need routing separation.</p>
+              </div>
+            </td></tr>
         <?php else: ?>
           <?php foreach ($vrfs as $v): ?>
             <?php $vifaces = is_string($v['interfaces']) ? json_decode($v['interfaces'], true) : ($v['interfaces'] ?? []); ?>
@@ -427,11 +561,14 @@
       </tbody>
     </table>
   </div>
+  </div>
 
+  <!-- Sub-Panel: PBR Rules -->
+  <div class="vrf-sub-panel <?= $activeVrfSub === 'pbr' ? 'active' : '' ?>" id="vrf-sub-pbr">
   <!-- PBR Rules -->
   <div class="card" style="padding:0; overflow-x:auto;">
     <div style="padding:12px 18px; border-bottom:1px solid var(--color-border); display:flex; justify-content:space-between; align-items:center;">
-      <span style="font-weight:700; font-size:0.875rem; color:var(--text-primary);">Policy-Based Routing (PBR) Rules</span>
+      <span style="font-weight:700; font-size:0.875rem; color:var(--text-primary);">Policy-Based Routing — match rules that override the normal route lookup</span>
       <?php if (session()->get('is_superadmin') || in_array('routing.pbr.manage', session()->get('permissions') ?? [])): ?>
         <div style="display:flex; gap:8px;">
           <form method="POST" action="<?= base_url('routing/pbr/apply') ?>" style="display:inline;">
@@ -449,7 +586,13 @@
       <thead><tr><th style="width:36px;"></th><th style="width:52px;">Prio</th><th>Match Source</th><th>Match Dest</th><th>Protocol</th><th>In Iface</th><th>Set Next-Hop</th><th>Set Table / VRF</th><th>Action</th><th style="width:70px;">Status</th><th style="text-align:right;">Actions</th></tr></thead>
       <tbody>
         <?php if (empty($pbrRules)): ?>
-          <tr><td colspan="11" style="text-align:center; padding:28px; color:var(--text-muted);">No PBR rules defined.</td></tr>
+          <tr><td colspan="11" style="text-align:center; padding:28px; color:var(--text-muted);">
+              <div style="display:flex; flex-direction:column; align-items:center; gap:6px;">
+                <svg width="28" height="28" fill="none" viewBox="0 0 24 24" stroke="var(--color-cyan)" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                <p style="font-size:0.88rem; color:var(--text-secondary); margin:0;">No PBR rules defined.</p>
+                <p style="font-size:0.8rem; color:var(--text-muted); margin:0; max-width:400px;">PBR rules let you override the normal routing decision — match on source, destination, protocol, or interface, then send matching packets to a specific next-hop or into a VRF. Useful for sending certain traffic out a particular WAN link.</p>
+              </div>
+            </td></tr>
         <?php else: ?>
           <?php foreach ($pbrRules as $pb): ?>
             <tr draggable="true" data-pbr-id="<?= esc($pb['id']) ?>">
@@ -510,15 +653,35 @@
       </tbody>
     </table>
   </div>
+  </div>
 </div>
 
 <!-- ================================================================
      TAB: Multi-WAN
      ================================================================ -->
-<div class="rt-panel" id="panel-multiwan">
+<div class="rt-panel <?= $curTab === 'multiwan' ? 'active' : '' ?>" id="panel-multiwan">
+  <?php $activeMwanSub = $_GET['sub'] ?? 'gateways'; ?>
+  <!-- ── Multi-WAN Sub-Tab Bar ── -->
+  <div class="mwan-sub-tabs">
+    <button type="button" class="mwan-sub-tab <?= $activeMwanSub === 'gateways' ? 'active' : '' ?>"
+            onclick="switchMwanSub('gateways', this)">
+      <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064"/>
+      </svg>
+      WAN Gateways (<?= count($wanGateways ?? []) ?>)
+    </button>
+    <button type="button" class="mwan-sub-tab <?= $activeMwanSub === 'groups' ? 'active' : '' ?>"
+            onclick="switchMwanSub('groups', this)">
+      <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/>
+      </svg>
+      Gateway Groups (<?= count($wanGroups ?? []) ?>)
+    </button>
+  </div>      <!-- Sub-Panel: WAN Gateways -->
+  <div class="mwan-sub-panel <?= $activeMwanSub === 'gateways' ? 'active' : '' ?>" id="mwan-sub-gateways">
   <!-- Gateway Cards -->
   <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
-    <h3 style="font-size:0.9rem; font-weight:700; color:var(--text-primary); margin:0;">WAN Gateways</h3>
+    <h3 style="font-size:0.9rem; font-weight:700; color:var(--text-primary); margin:0;">WAN Gateways — uplink endpoints with live health probing</h3>
     <?php if (session()->get('is_superadmin') || in_array('routing.multiwan.manage', session()->get('permissions') ?? []) || in_array('routing.static.manage', session()->get('permissions') ?? [])): ?>
       <button type="button" class="btn btn-primary btn-sm" onclick="openModal('gwModal')">
         <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
@@ -528,16 +691,22 @@
   </div>
 
   <?php if (empty($wanGateways)): ?>
-    <div class="card" style="padding:28px; text-align:center; color:var(--text-muted); margin-bottom:20px;">No WAN gateways configured. Add a gateway to enable Multi-WAN.</div>
+    <div class="card" style="padding:28px; text-align:center; color:var(--text-muted); margin-bottom:20px;">
+      <div style="display:flex; flex-direction:column; align-items:center; gap:6px;">
+        <svg width="28" height="28" fill="none" viewBox="0 0 24 24" stroke="var(--color-cyan)" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064"/></svg>
+        <p style="font-size:0.88rem; color:var(--text-secondary); margin:0;">No WAN gateways configured. Add a gateway to enable Multi-WAN.</p>
+        <p style="font-size:0.8rem; color:var(--text-muted); margin:0; max-width:400px;">WAN gateways are the uplink endpoints Multi-WAN monitors and load-balances across. Each gateway has a monitor IP that is probed for latency and packet loss, so the system can detect a degraded or down link and switch traffic to a healthy one. Add at least one gateway before creating gateway groups.</p>
+      </div>
+    </div>
   <?php else: ?>
     <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(360px, 1fr)); gap:14px; margin-bottom:24px;">
       <?php foreach ($wanGateways as $gw): ?>
-        <?php $tele = $gw['telemetry'] ?? ['rtt' => 11.4, 'stddev' => 1.2, 'loss' => 0.0, 'status' => 'online']; ?>
+        <?php $tele = $gw['telemetry'] ?? ['rtt' => null, 'stddev' => null, 'loss' => null, 'status' => 'online']; ?>
         <div class="gw-card">
-          <span class="gw-status-dot <?= $gw['enabled'] ? 'gw-up' : 'gw-down' ?>"></span>
+          <span class="gw-status-dot <?= !empty($gw['enabled']) ? 'gw-up' : 'gw-down' ?>"></span>
           <div style="flex:1; min-width:0;">
             <div style="display:flex; justify-content:space-between; align-items:flex-start;">
-              <div style="font-weight:700; font-size:0.875rem; color:var(--text-primary);"><?= esc($gw['name']) ?></div>
+              <div style="font-weight:700; font-size:0.875rem; color:var(--text-primary);"><?= esc($gw['name'] ?? 'WAN') ?></div>
               <?php
                 $teleStatus = strtolower($tele['status'] ?? 'online');
                 $gwBadgeClass = match($teleStatus) {
@@ -554,33 +723,35 @@
               <span class="badge <?= $gwBadgeClass ?>" style="font-size:0.68rem; padding:2px 6px;"><?= $gwBadgeText ?></span>
             </div>
             <div style="font-size:0.72rem; color:var(--text-muted); margin-top:2px;">
-              <span class="rt-chip" style="font-size:0.68rem;"><?= esc($gw['interface']) ?></span>
-              <span class="rt-chip rt-chip-cyan" style="font-size:0.68rem; margin-left:4px;"><?= esc($gw['gateway_ip']) ?></span>
+              <span class="rt-chip" style="font-size:0.68rem;"><?= esc($gw['interface'] ?? '—') ?></span>
+              <span class="rt-chip rt-chip-cyan" style="font-size:0.68rem; margin-left:4px;"><?= esc($gw['gateway_ip'] ?? '—') ?></span>
             </div>
             
             <!-- Live gateway telemetry bar -->
             <div style="display:flex; gap:8px; margin-top:8px; align-items:center; background:rgba(0,0,0,0.25); padding:6px 10px; border-radius:var(--radius-sm); border:1px solid var(--color-border);">
               <div style="flex:1;">
-                <div style="font-size:0.65rem; color:var(--text-muted); text-transform:uppercase;">RTT Latency</div>
-                <div style="font-family:var(--font-mono); font-size:0.82rem; font-weight:700; color:var(--color-emerald);"><?= esc($tele['rtt']) ?> ms <span style="font-size:0.68rem; font-weight:400; color:var(--text-muted);">&plusmn;<?= esc($tele['stddev']) ?>ms</span></div>
+                <div style="font-size:0.63rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em;">RTT Latency</div>
+                <?php if (($tele['rtt'] ?? null) !== null): ?>
+                  <div style="font-family:var(--font-mono); font-size:0.82rem; font-weight:700; color:var(--color-emerald);"><?= esc($tele['rtt']) ?> ms <span style="font-size:0.68rem; font-weight:400; color:var(--text-muted);">&plusmn;<?= esc($tele['stddev'] ?? 0) ?> ms</span></div>
+                <?php else: ?>
+                  <div style="font-family:var(--font-mono); font-size:0.82rem; font-weight:700; color:var(--text-muted);">—</div>
+                <?php endif; ?>
               </div>
               <div style="flex:1;">
-                <div style="font-size:0.65rem; color:var(--text-muted); text-transform:uppercase;">Packet Loss</div>
-                <div style="font-family:var(--font-mono); font-size:0.82rem; font-weight:700; color:var(--text-primary);"><?= esc($tele['loss']) ?>%</div>
+                <div style="font-size:0.63rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em;">Packet Loss</div>
+                <div style="font-family:var(--font-mono); font-size:0.82rem; font-weight:700; color:var(--text-primary);"><?= ($tele['loss'] ?? null) !== null ? esc($tele['loss']) . '%' : '—' ?></div>
               </div>
-              <button type="button" class="btn btn-ghost btn-sm" style="font-size:0.7rem; padding:3px 7px;" onclick="probeGateway('<?= esc($gw['name']) ?>', '<?= esc($gw['monitor_ip'] ?: $gw['gateway_ip']) ?>')">
-                Probe
+              <button type="button" class="btn btn-ghost btn-sm" style="font-size:0.7rem; padding:3px 7px;" onclick="probeGateway('<?= esc($gw['name'] ?? '') ?>', '<?= esc(($gw['monitor_ip'] ?? '') ?: ($gw['gateway_ip'] ?? '')) ?>')">
+                Probe now
               </button>
+            </div>            <div style="display:flex; gap:14px; margin-top:6px; font-size:0.72rem; color:var(--text-muted); flex-wrap:wrap;">
+              <span>Monitor IP: <strong style="color:var(--text-secondary);"><?= esc(($gw['monitor_ip'] ?? '') ?: ($gw['gateway_ip'] ?? '—')) ?></strong></span>
+              <span>Priority: <strong style="color:var(--text-secondary);"><?= esc($gw['priority'] ?? 1) ?></strong> <span style="color:var(--text-muted);">(lower = preferred)</span></span>
+              <span>Weight: <strong style="color:var(--text-secondary);"><?= esc($gw['weight'] ?? 1) ?></strong> <span style="color:var(--text-muted);">(for load-balance)</span></span>
             </div>
-
-            <div style="display:flex; gap:12px; margin-top:6px; font-size:0.7rem; color:var(--text-muted);">
-              <span>Monitor: <strong style="color:var(--text-secondary);"><?= esc($gw['monitor_ip'] ?: $gw['gateway_ip']) ?></strong></span>
-              <span>Priority: <strong style="color:var(--text-secondary);"><?= esc($gw['priority']) ?></strong></span>
-              <span>Weight: <strong style="color:var(--text-secondary);"><?= esc($gw['weight']) ?></strong></span>
-            </div>
-            <div style="display:flex; gap:10px; margin-top:4px; font-size:0.68rem; color:var(--text-muted);">
-              <span>Thresholds: warn &gt; <?= esc($gw['latency_warn']) ?>ms &bull; down &gt; <?= esc($gw['latency_down']) ?>ms</span>
-              <span>Loss warn &gt; <?= esc($gw['loss_warn']) ?>%</span>
+            <div style="display:flex; gap:12px; margin-top:4px; font-size:0.68rem; color:var(--text-muted); flex-wrap:wrap;">
+              <span>Latency thresholds: warn &gt; <?= esc($gw['latency_warn'] ?? 150) ?> ms &bull; down &gt; <?= esc($gw['latency_down'] ?? 300) ?> ms</span>
+              <span>Packet loss warning: &gt; <?= esc($gw['loss_warn'] ?? 20) ?>%</span>
             </div>
           </div>
           <?php if (session()->get('is_superadmin') || in_array('routing.multiwan.manage', session()->get('permissions') ?? []) || in_array('routing.static.manage', session()->get('permissions') ?? [])): ?>
@@ -588,7 +759,7 @@
               <button type="button" class="btn btn-ghost btn-sm" style="padding:4px 7px;" onclick='openEditGw(<?= htmlspecialchars(json_encode($gw), ENT_QUOTES, "UTF-8") ?>)'>
                 <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z"/></svg>
               </button>
-              <form method="POST" action="<?= base_url('routing/multiwan/gateways/' . esc($gw['id']) . '/delete') ?>" onsubmit="return confirm('Remove gateway <?= esc(addslashes($gw['name'])) ?>?')"><?= csrf_field() ?>
+              <form method="POST" action="<?= base_url('routing/multiwan/gateways/' . esc($gw['id']) . '/delete') ?>" onsubmit="return confirm('Remove gateway <?= esc(addslashes($gw['name'] ?? '')) ?>?')"><?= csrf_field() ?>
                 <button type="submit" class="btn btn-ghost btn-sm" style="padding:4px 7px; color:var(--color-red);">
                   <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
                 </button>
@@ -599,10 +770,13 @@
       <?php endforeach; ?>
     </div>
   <?php endif; ?>
+  </div>
 
+  <!-- Sub-Panel: Gateway Groups -->
+  <div class="mwan-sub-panel <?= $activeMwanSub === 'groups' ? 'active' : '' ?>" id="mwan-sub-groups">
   <!-- Gateway Groups Table -->
   <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
-    <h3 style="font-size:0.9rem; font-weight:700; color:var(--text-primary); margin:0;">Gateway Groups</h3>
+    <h3 style="font-size:0.9rem; font-weight:700; color:var(--text-primary); margin:0;">Gateway Groups — failover &amp; load-balance policies across WAN links</h3>
     <?php if (session()->get('is_superadmin') || in_array('routing.multiwan.manage', session()->get('permissions') ?? []) || in_array('routing.static.manage', session()->get('permissions') ?? [])): ?>
       <div style="display:flex; gap:8px;">
         <form method="POST" action="<?= base_url('routing/multiwan/apply') ?>"><?= csrf_field() ?>
@@ -623,21 +797,28 @@
       <thead><tr><th>Group Name</th><th>Strategy</th><th>Sticky</th><th>Members</th><th>Trigger</th><th>Description</th><th style="text-align:right;">Actions</th></tr></thead>
       <tbody>
         <?php if (empty($wanGroups)): ?>
-          <tr><td colspan="7" style="text-align:center; padding:28px; color:var(--text-muted);">No gateway groups defined.</td></tr>
+          <tr><td colspan="7" style="text-align:center; padding:28px; color:var(--text-muted);">
+              <div style="display:flex; flex-direction:column; align-items:center; gap:6px;">
+                <svg width="28" height="28" fill="none" viewBox="0 0 24 24" stroke="var(--color-cyan)" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064"/></svg>
+                <p style="font-size:0.88rem; color:var(--text-secondary); margin:0;">No gateway groups defined.</p>
+                <p style="font-size:0.8rem; color:var(--text-muted); margin:0; max-width:400px;">Gateway groups combine multiple WAN gateways into a single failover or load-balanced uplink. A group selects which gateway to use based on its strategy (failover, round-robin, or load-balance) and optional sticky sessions so clients keep reaching the same link.</p>
+              </div>
+            </td></tr>
         <?php else: ?>
           <?php foreach ($wanGroups as $grp): ?>
             <?php
-              $members = is_string($grp['members']) ? json_decode($grp['members'], true) : ($grp['members'] ?? []);
+              $members = is_string($grp['members'] ?? null) ? json_decode($grp['members'], true) : ($grp['members'] ?? []);
               $members = is_array($members) ? $members : [];
-              $stratClass = match($grp['strategy']) {
+              $grpStrat = $grp['strategy'] ?? 'failover';
+              $stratClass = match($grpStrat) {
                 'load-balance' => 'rt-chip-green',
                 'round-robin'  => 'rt-chip-blue',
                 default        => 'rt-chip-amber',
               };
             ?>
             <tr>
-              <td><strong style="color:var(--text-primary);"><?= esc($grp['name']) ?></strong></td>
-              <td><span class="rt-chip <?= $stratClass ?>"><?= esc(strtoupper(str_replace('-', ' ', $grp['strategy']))) ?></span></td>
+              <td><strong style="color:var(--text-primary);"><?= esc($grp['name'] ?? 'Group') ?></strong></td>
+              <td><span class="rt-chip <?= $stratClass ?>"><?= esc(strtoupper(str_replace('-', ' ', $grpStrat))) ?></span></td>
               <td>
                 <?php if (!empty($grp['sticky_enabled'])): ?>
                   <span class="rt-chip rt-chip-green" title="Source addresses keep the gateway they were assigned">STICKY <?= (int)($grp['sticky_timeout'] ?? 0) ?>s</span>
@@ -652,8 +833,8 @@
                   echo esc(implode(', ', $mnames) ?: '—');
                 ?>
               </td>
-              <td><span class="rt-chip"><?= esc(strtoupper($grp['trigger'])) ?></span></td>
-              <td style="font-size:0.78rem; color:var(--text-secondary);"><?= esc($grp['description'] ?: '—') ?></td>
+              <td><span class="rt-chip"><?= esc(strtoupper($grp['trigger'] ?? 'member-down')) ?></span></td>
+              <td style="font-size:0.78rem; color:var(--text-secondary);"><?= esc(($grp['description'] ?? '') ?: '—') ?></td>
               <td style="text-align:right; white-space:nowrap;">
                 <?php if (session()->get('is_superadmin') || in_array('routing.multiwan.manage', session()->get('permissions') ?? []) || in_array('routing.static.manage', session()->get('permissions') ?? [])): ?>
                   <button type="button" class="btn btn-ghost btn-sm" style="padding:4px 7px;" onclick='openEditGwg(<?= htmlspecialchars(json_encode($grp), ENT_QUOTES, "UTF-8") ?>)'>
@@ -672,6 +853,21 @@
       </tbody>
     </table>
   </div>
+  </div>
+</div>
+
+<!-- ================================================================
+     TAB: FRR Status & frr.conf View
+     ================================================================ -->
+<div class="rt-panel <?= $curTab === 'frr' ? 'active' : '' ?>" id="panel-frr">
+  <?= $this->include('routing/frr_panel') ?>
+</div>
+
+<!-- ================================================================
+     TAB: FIB / Kernel Forwarding Table (Far Right Tab)
+     ================================================================ -->
+<div class="rt-panel <?= $curTab === 'fib' ? 'active' : '' ?>" id="panel-fib">
+  <?= $this->include('routing/fib_panel') ?>
 </div>
 
 <!-- ================================================================
@@ -718,66 +914,6 @@
   </div>
 </div>
 
-<!-- BGP Neighbor Modal -->
-<div class="rt-modal-backdrop" id="bgpModal">
-  <div class="rt-modal-dialog">
-    <div class="rt-modal-header">
-      <span style="font-weight:700; font-size:1rem; color:var(--text-primary);" id="bgpModalTitle">Add BGP Neighbor</span>
-      <button type="button" onclick="closeModal('bgpModal')" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:1.2rem;">&times;</button>
-    </div>
-    <form method="POST" id="bgpForm" action="<?= base_url('routing/bgp/store') ?>" style="display:flex; flex-direction:column; flex:1; overflow:hidden; min-height:0;">
-      <?= csrf_field() ?>
-      <div class="rt-modal-body" style="overflow-y:auto; flex:1; min-height:0;">
-        <div class="rt-grid-2">
-          <div class="rt-field"><label>Neighbor IP *</label><input type="text" name="neighbor_ip" id="bgpIP" required placeholder="10.0.0.1" class="wg-input-mono" spellcheck="false"><p class="hint">IPv4 or IPv6 peer address</p></div>
-          <div class="rt-field"><label>Remote AS *</label><input type="number" name="remote_as" id="bgpRemoteAS" required placeholder="65002" min="1" max="4294967295"><p class="hint">Peer Autonomous System number</p></div>
-        </div>
-        <div class="rt-grid-2">
-          <div class="rt-field"><label>Update Source</label><input type="text" name="update_source" id="bgpUpdateSrc" placeholder="lo or 192.168.1.1"><p class="hint">Interface or IP for TCP session</p></div>
-          <div class="rt-field"><label>Description</label><input type="text" name="description" id="bgpDesc" placeholder="Upstream provider"></div>
-        </div>
-        <div class="rt-grid-2">
-          <div class="rt-field">
-            <label>Route Map In</label>
-            <select name="route_map_in" id="bgpRmIn" style="width:100%;">
-              <option value="">— none —</option>
-              <?php foreach (($routeMaps ?? []) as $rm): ?>
-                <option value="<?= esc($rm['name']) ?>"><?= esc($rm['name']) ?></option>
-              <?php endforeach; ?>
-            </select>
-            <p class="hint">Filter routes received from this neighbor. Manage route-maps on the OSPF &rsaquo; Policy tab.</p>
-          </div>
-          <div class="rt-field">
-            <label>Route Map Out</label>
-            <select name="route_map_out" id="bgpRmOut" style="width:100%;">
-              <option value="">— none —</option>
-              <?php foreach (($routeMaps ?? []) as $rm): ?>
-                <option value="<?= esc($rm['name']) ?>"><?= esc($rm['name']) ?></option>
-              <?php endforeach; ?>
-            </select>
-            <p class="hint">Filter routes advertised to this neighbor.</p>
-          </div>
-        </div>
-        <div class="rt-field"><label>MD5 Password (optional)</label><input type="password" name="password" id="bgpPw" placeholder="BGP session password" autocomplete="new-password" spellcheck="false"></div>
-        <div style="display:flex; gap:20px; margin-top:4px; flex-wrap:wrap;">
-          <label style="display:flex;align-items:center;gap:7px;font-size:0.82rem;color:var(--text-secondary);cursor:pointer;">
-            <input type="checkbox" name="next_hop_self" id="bgpNHS" value="1"> Next-Hop-Self
-          </label>
-          <label style="display:flex;align-items:center;gap:7px;font-size:0.82rem;color:var(--text-secondary);cursor:pointer;">
-            <input type="checkbox" name="bfd_enabled" id="bgpBfd" value="1"> Enable BFD
-          </label>
-          <label style="display:flex;align-items:center;gap:7px;font-size:0.82rem;color:var(--text-secondary);cursor:pointer;">
-            <input type="checkbox" name="enabled" id="bgpEnabled" value="1" checked> Active / Peering Enabled
-          </label>
-        </div>
-      </div>
-      <div class="rt-modal-footer">
-        <button type="button" class="btn btn-ghost btn-sm" onclick="closeModal('bgpModal')">Cancel</button>
-        <button type="submit" class="btn btn-primary btn-sm" id="bgpSubmit">Add Neighbor</button>
-      </div>
-    </form>
-  </div>
-</div>
 
 
 
@@ -1087,23 +1223,64 @@ function switchTab(name, btn) {
   if (btn) btn.classList.add('active');
   var url = new URL(window.location);
   url.searchParams.set('tab', name);
-  if (name !== 'ospf' && name !== 'bgp' && name !== 'rip' && name !== 'isis') {
+  if (name !== 'ospf' && name !== 'bgp' && name !== 'rip' && name !== 'isis' && name !== 'policy' && name !== 'vrf' && name !== 'multiwan') {
     url.searchParams.delete('sub');
   }
   history.replaceState(null, '', url);
 }
 
-// ── Auto-activate tab from ?tab= URL param ──
+// ── VRF / PBR Sub-Tab switching ──
+function switchVrfSub(name, btn) {
+  document.querySelectorAll('.vrf-sub-panel').forEach(function(p) { p.classList.remove('active'); });
+  document.querySelectorAll('.vrf-sub-tab').forEach(function(t) { t.classList.remove('active'); });
+  var panel = document.getElementById('vrf-sub-' + name);
+  if (panel) panel.classList.add('active');
+  if (btn) btn.classList.add('active');
+  var url = new URL(window.location);
+  url.searchParams.set('tab', 'vrf');
+  url.searchParams.set('sub', name);
+  history.replaceState(null, '', url);
+}
+
+// ── Multi-WAN Sub-Tab switching ──
+function switchMwanSub(name, btn) {
+  document.querySelectorAll('.mwan-sub-panel').forEach(function(p) { p.classList.remove('active'); });
+  document.querySelectorAll('.mwan-sub-tab').forEach(function(t) { t.classList.remove('active'); });
+  var panel = document.getElementById('mwan-sub-' + name);
+  if (panel) panel.classList.add('active');
+  if (btn) btn.classList.add('active');
+  var url = new URL(window.location);
+  url.searchParams.set('tab', 'multiwan');
+  url.searchParams.set('sub', name);
+  history.replaceState(null, '', url);
+}
+
+// ── Auto-activate tab from ?tab= and ?sub= URL param ──
 (function() {
-  var tab = new URLSearchParams(window.location.search).get('tab');
+  var urlParams = new URLSearchParams(window.location.search);
+  var tab = urlParams.get('tab');
+  if (tab === 'pbr') {
+    tab = 'vrf';
+    if (!urlParams.get('sub')) urlParams.set('sub', 'pbr');
+  }
   if (tab) {
-    var btn = document.querySelector('.rt-tab[onclick*="\'' + tab + '\'"]');
+    var btn = document.querySelector('.rt-tab[data-tab="' + tab + '"]') || document.querySelector('.rt-tab[onclick*="\'' + tab + '\'"]');
     if (btn) {
       document.querySelectorAll('.rt-panel').forEach(function(p) { p.classList.remove('active'); });
       document.querySelectorAll('.rt-tab').forEach(function(t) { t.classList.remove('active'); });
       var p = document.getElementById('panel-' + tab);
       if (p) p.classList.add('active');
       btn.classList.add('active');
+    }
+  }
+  var sub = urlParams.get('sub');
+  if (sub) {
+    if (tab === 'vrf') {
+      var vrfBtn = document.querySelector('.vrf-sub-tab[onclick*="\'' + sub + '\'"]');
+      if (vrfBtn) switchVrfSub(sub, vrfBtn);
+    } else if (tab === 'multiwan') {
+      var mwanBtn = document.querySelector('.mwan-sub-tab[onclick*="\'' + sub + '\'"]');
+      if (mwanBtn) switchMwanSub(sub, mwanBtn);
     }
   }
 })();
@@ -1121,9 +1298,7 @@ function openModal(id) {
   document.getElementById(id).classList.add('active');
 }
 function closeModal(id) { document.getElementById(id).classList.remove('active'); }
-document.querySelectorAll('.rt-modal-backdrop').forEach(function(m) {
-  m.addEventListener('click', function(e) { if (e.target === this) this.classList.remove('active'); });
-});
+
 document.addEventListener('keydown', function(e) {
   if (e.key === 'Escape') document.querySelectorAll('.rt-modal-backdrop.active').forEach(function(m) { m.classList.remove('active'); });
 });

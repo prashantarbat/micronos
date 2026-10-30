@@ -1,0 +1,17 @@
+[Unit]
+Description=MicronOS WireGuard Tunnels
+Documentation=man:wg-quick(8)
+Wants=network-online.target
+Requires=micrond.service
+After=network-online.target micron-network.service micrond.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/microctl wireguard-service start
+ExecStop=/usr/local/bin/microctl wireguard-service stop
+TimeoutStartSec=60s
+TimeoutStopSec=30s
+
+[Install]
+WantedBy=multi-user.target

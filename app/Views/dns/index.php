@@ -1,6 +1,11 @@
 <?= $this->extend('layouts/main') ?>
 <?= $this->section('content') ?>
 
+<style>
+.dns-panel { display: none; }
+.dns-panel.active { display: block; }
+</style>
+
 <!-- ── Page Header ── -->
 <div class="page-header animate-in">
   <div class="page-header-content">

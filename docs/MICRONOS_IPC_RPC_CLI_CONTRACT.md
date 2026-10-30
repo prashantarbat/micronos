@@ -90,7 +90,8 @@ consistently.
 | `call(string $method, array $params = []): array` | returns `['result' => …, 'error' => …]` |
 | `callOrFail(...)` | throws `RuntimeException` on RPC or socket error |
 | typed helpers | `getInterfaces()`, `getFirewallRules()`, `getWireguardPeers()`, `getIpsecStatus()`, `getSystemInfo()`, `applyNetworkConfig()`, `applyFirewallRules()`, `user*()`, `bond*()`, `bridge*()`, `wireless*()` |
-| `isMock()` | true on Windows or when the socket is absent |
+| `isMock()` | the development client: `MICRON_IPC_MOCK=1`, or off-appliance on Windows / with no socket. **Never on an appliance** (`ID=micronos` in `/etc/os-release`, or `MICRON_APPLIANCE=1`): there a missing socket is reported as an error and pages say "unavailable" instead of showing samples |
+| `isAppliance()` | static; the check above |
 | `mockDispatch()` | canned responses for development; **must be updated when a new method is added** or the UI is undevelopable offline |
 
 Controllers resolve it with `\Config\Services::ipc()` (a shared service) — tests inject
@@ -124,27 +125,82 @@ Namespace counts as of 2026-10-13 (140 methods):
 **Regenerate, never hand-edit.** §9 defines the generator/contract test; the table above
 is a human-readable snapshot and will be replaced by generated output.
 
-### Known drift (must be closed — Programme G1/G2)
+### Drift closed in the 2026-10 completion pass
 
-`vpn.wireguard.sync` executes:
+`tools/rpc_inventory.py` (and `tests/test_micrond_ops.py`, which fails the build on it)
+found **54 method names called by `app/` that the daemon did not implement**. On an
+appliance every one of them returned `-32601 Method not found`, while the Windows mock
+answered a generic success — so the defect was invisible in development. All are now
+implemented or the caller was corrected:
 
-```python
-config_path = f"/etc/wireguard/{interface}.conf"
-subprocess.run(["wg", "syncconf", interface, config_path], …)
-```
+| Area | Methods now implemented | Behaviour |
+|---|---|---|
+| DNS | `dns.config.reload`, `dns.hosts.reload`, `dns.status` | managed config `unbound` |
+| FRR | `frr.{bgp,ospf,rip,isis,bfd}.reload` | managed config `frr` (compiled by `App\Libraries\FrrCompiler`) |
+| Routing | `network.vrf.sync`, `network.multiwan.sync` | VRF devices reconciled; gateways via the policy-routing apply |
+| HA | `ha.sync`, `ha.failover`, `ha.status` | managed config `keepalived`; live keepalived/conntrackd state |
+| IDS | `ids.apply`, `ids.status` | managed configs `suricata`, `suricata-rules` (checked with `suricata -T`) |
+| QoS | `qos.apply`, `qos.status` | `tc -batch` script, every line pattern-checked |
+| DPI | `dpi.apply`, `dpi.status`, `dpi.stats`, `dpi.live_flows` | reports honestly when no nDPI engine is installed |
+| SNMP / SIEM | `snmp.reconfigure`, `snmp.sync_traps`, `snmp.sync_users`, `snmp.get_logs`, `snmp.test_query`, `snmp.send_test_trap`, `siem.reconfigure`, `siem.get_logs`, `siem.send_test` | managed configs `snmpd`, `rsyslog-siem`; journal reads |
+| System | `system.health`, `system.services_status`, `system.service_logs`, `system.commit_watchdog`, `system.confirm`, `system.crontab_sync`, `system.cron_run`, `system.cron_logs`, `system.rpc_methods` | real `/proc`, `/sys`, systemd and journal data; each `system.health` interface also carries `kind` (ethernet / wireless / bridge / vlan / bond / tunnel / loopback / virtual), `wireless`, `driver`, `bus`, `slot` and, for Ethernet, `port_type` (`tp`, `fibre`, `da`, from `ethtool`, cached) |
+| Network | `network.apply` (destructive), `network.confirm`, `network.rollback`, `network.status` (read), `system.ipv6.set` (destructive) | one transaction: plan + nftables + Kea → snapshot → apply → verify → commit or restore; confirm window for management-affecting changes. See [Network Configuration](MICRONOS_NETWORK_CONFIGURATION.md) |
+| Hardware | `hardware.nics` (read) | the physical Ethernet ports and Wi-Fi radios in `/sys/class/net`, with real kernel names (`eno1`, `enp7s0`, `wlp2s0`); used by the dashboard front panel, the Interfaces page (Wi-Fi only when a radio exists) and the darkstat capture picker |
+| DHCP | `dhcp.leases` (read) | current leases from Kea's memfile CSV (`/var/lib/kea/kea-leases4.csv` and rotations; newest record per address, default state, unexpired); empty when Kea has never run |
+| Plugins | `plugin.darkstat.apply`, `plugin.darkstat.status` | drop-in that replaces Debian's SysV `Type=forking` wrapper (`Type=simple`, `--no-daemon`, `--user nobody`, chroot created); status probes the web port |
+| VPN | `vpn.openvpn.sync`, `vpn.openvpn.status`, `vpn.wireguard.remove` | managed config `openvpn`; status file parsing |
+| Certificates | `cert.install`, `cert.reload` | key/cert match check, `/etc/micron/ssl/webgui.{crt,key}` |
+| Firewall | `firewall.list_rules`, `diag.conntrack_kill`, `diag.conntrack_kill_host` | live `nft -j` counters; real deleted-state counts |
+| Web filter | `webfilter.av.status`, `webfilter.clamav.update` | live ClamAV / c-icap state, `freshclam` |
 
-but **no component writes that file**. `WireguardCompiler::compileServerConfig()` is only
-ever attached to an HTTP download. Therefore:
+`App\Libraries\CommandDispatcher` used ten further names that never existed
+(`firewall.flush`, `nat.list`, `route.table`, `interface.set`, `backup.*`, …);
+those wrappers were removed rather than faked.
 
-* `vpn.wireguard.sync` on a real appliance is a no-op (or an error when the file is absent);
-* the Web UI's "Tunnel enabled/disabled — interface brought up/torn down" messages are
-  **false** (G2).
+**WireGuard (G1/G2).** `vpn.wireguard.sync` now receives the compiled configuration
+(`WireguardCompiler::compileServerConfig()` — enabled peers only), refuses `PreUp/PostUp/
+PreDown/PostDown/SaveConfig` hooks (wg-quick would run them as root), writes
+`/etc/wireguard/<iface>.conf` atomically with mode 0600, and then brings the interface
+down, up, re-addresses it, or `wg syncconf`s the stripped config as appropriate. Every
+WireGuard flash message in the UI is built from the daemon's answer; a failed sync is
+reported as an error, never as "brought up / torn down".
 
-**Required fix:** the daemon materialises `/etc/wireguard/<iface>.conf` atomically from
-the same compiled content the UI offers (enabled peers only per
-`WireguardCompiler::enabledPeers()`), then `wg syncconf`s it; the controller's message
-must reflect the daemon's actual `status`/`warnings`. Test: invoke the RPC, read the file
-back, assert contents, assert the disabled peer is absent.
+### Managed configuration files
+
+Configuration-bearing methods share one engine, `_apply_managed_config()` in the daemon.
+The caller supplies only the file **content**; the daemon owns the path, the mode, the
+syntax checker and the unit. The sequence is: validate (non-empty, ≤ 1 MiB, no NUL) →
+atomic write → syntax check → reload → on failure restore the previous file (and, if the
+reload had already run, reload it again). An apply without content changes nothing and
+says so.
+
+| Kind | Path | Mode | Checker | Reload |
+|---|---|---|---|---|
+| `unbound` | `/etc/unbound/unbound.conf.d/micron.conf` | 0644 | `unbound-checkconf` | `systemctl reload-or-restart unbound` |
+| `frr` | `/etc/frr/frr.conf` | 0640 | `vtysh --dryrun --inputfile` | `systemctl reload-or-restart frr` |
+| `keepalived` | `/etc/keepalived/keepalived.conf` | 0600 | `keepalived --config-test` | `systemctl reload-or-restart keepalived` |
+| `snmpd` | `/etc/snmp/snmpd.conf` | 0600 | — | `systemctl restart snmpd` |
+| `rsyslog-siem` | `/etc/rsyslog.d/60-micron-siem.conf` | 0644 | `rsyslogd -N1` | `systemctl restart rsyslog` |
+| `openvpn` | `/etc/openvpn/server.conf` | 0600 | — | `systemctl restart openvpn@server` |
+| `suricata` / `suricata-rules` | `/etc/suricata/micron.yaml`, `rules/micron.rules` | 0644 | `suricata -T` | `systemctl reload-or-restart suricata` |
+| `qos` | `/etc/micron/qos.tc` | 0644 | line patterns | `tc -force -batch` |
+| `cron` | `/etc/cron.d/micron` | 0644 | allow-list (below) | — |
+
+The PHP side is `App\Libraries\ConfigApplier` (one method per subsystem), used through
+`BaseController::applier()`; compilers live in `FrrCompiler`, `ServiceConfigCompiler`,
+`UnboundDnsCompiler`, `SuricataCompiler`, `OpenvpnCompiler`.
+
+**Cron allow-list.** `system.crontab_sync` / `system.cron_run` accept only `php spark …`
+tasks and executables under `/usr/local/bin`, `/usr/local/sbin` plus a few named system
+tools, only for users `root` and `www-data`, and refuse shell syntax
+(`; | & $ ` ( ) < >` and quotes). A refused line rejects the whole sync and leaves the
+installed file untouched.
+
+### Transport detail: empty params
+
+PHP's `json_encode([])` produces a JSON **list**. The client now sends `{}` for empty
+params, and the daemon also accepts `[]` as "no parameters". (Found by running the Web UI
+against a live daemon after the dispatcher began rejecting non-object params.)
 
 ---
 
@@ -178,19 +234,59 @@ back, assert contents, assert the disabled peer is absent.
 
 ---
 
-## 7. Trust model (state it honestly)
+## 7. Trust model (as implemented)
 
-* The UNIX socket and its `0660` group membership are the authorization boundary for the
-  daemon **today**. Any process running as `www-data` can invoke any handler; the
-  capability declarations in plugin manifests bound what *plugins* may ask for, not what
-  a caller may invoke.
-* The Web UI's authorization is enforced in PHP (route filters + `PermissionModel`),
-  which is correct for the operator-facing surface but is **not** a daemon-side control.
-* **W1 hardening:** add a declared capability class per method — `read`, `configure`,
-  `destructive` — to a method registry, and refuse invocations that the caller's granted
-  class does not cover. Document the residual risk and the future per-caller identity
-  (`SO_PEERCRED` pid/uid → mapped account) as an explicit follow-up rather than implying
-  it already exists.
+* **Outer boundary:** the socket is `0660`, group `www-data`.
+* **Per-method classes:** every handler is `read`, `configure` or `destructive`
+  (`RPC_READ_METHODS` / `RPC_DESTRUCTIVE_METHODS` in `micrond.py`; everything else is
+  `configure`). `system.rpc_methods` publishes the catalogue with each class
+  (`microctl rpc methods`).
+* **Caller identity:** on each connection the daemon reads the peer's kernel-attested
+  `SO_PEERCRED` (pid, uid, gid). `root` (console tools via sudo) and `www-data` (the web
+  plane) may use every class. Any other uid in the socket group is limited to `read`
+  unless `/etc/micron/rpc-peers.json` (`{"user": "configure"}`) grants more. A peer
+  whose identity cannot be read is limited to `read`. Refusals return `-32003
+  Permission denied` and are logged as `AUDIT rpc refused`.
+* **Audit:** every non-read invocation is logged with method, class, uid and pid.
+* **Dispatch hardening:** method names must match `^[a-z][a-z0-9_]*(\.[a-z0-9_]+){1,4}$`
+  (no dunder lookups), params must be an object (`-32602` otherwise).
+* **Residual risk:** the web plane runs as `www-data` and therefore holds every class;
+  the operator-level authorisation for the Web UI remains the PHP route filters
+  (`PermissionFilter` → `PermissionModel`). Per-operator identity is not propagated to the
+  daemon.
+
+The Web UI's route permissions are checked by
+`CompletionRegressionTest::testEveryRoutePermissionExistsInTheCatalogue`: five keys used by
+routes but never catalogued (`vpn.ipsec.view`, `vpn.ipsec.manage`,
+`captive.vouchers.revoke`, `captive.apply`, and `captive.sessions.terminate` — renamed to
+the existing `captive.sessions.disconnect`) made those pages unreachable for every
+delegated role; migration `2026-10-14-000118` catalogues and grants them.
+
+## 7a. Console CLI (`microctl`) — daemon commands
+
+These talk to micrond directly over the socket (same framing as the Web UI, **no
+simulation fallback**). Every command accepts `--json`.
+
+| Command | RPC | Notes |
+|---|---|---|
+| `microctl version` | — | reads `VERSION` |
+| `microctl health` | `system.health` | uptime, load, memory, disks, conntrack, temperature, links |
+| `microctl services` | `system.services_status` | live systemd state of managed units |
+| `microctl service <id> <start\|stop\|restart> [--yes]` | `system.service` | `stop` needs `--yes` when not interactive |
+| `microctl logs <service> [--lines 1-500]` | `system.service_logs` | journal of a managed unit only |
+| `microctl vpn <wireguard\|openvpn\|ipsec> status [--interface wg0]` | `vpn.*.status` | interface name validated |
+| `microctl plugins` | `plugin.catalog` | |
+| `microctl rpc methods` | `system.rpc_methods` | handler + capability class |
+| `microctl doctor` | several | socket, daemon, DB `quick_check`, disk, failed units |
+
+Exit status: `0` success · `1` usage error (including an unknown command — it used to exit
+0) · `2` daemon unreachable · `3` the daemon reported a failure / doctor found a failure.
+`MICRON_SOCKET` overrides the socket path (used by the integration test).
+`interface set-lan` now validates `ipv4/prefix` (8–30, not the network or broadcast
+address) and keeps the generated DHCP pool inside the new subnet.
+
+Verified end to end by `tests/test_cli_daemon_integration.py`, which starts the real
+daemon on a temporary socket and drives `bin/microctl` against it.
 
 ---
 
@@ -266,3 +362,22 @@ Add to the suite (Programme W1.3 / W6):
 ```
 
 Any step skipped means the capability is not done (Programme §8).
+
+## 11. Browser terminal control socket (not micrond)
+
+`micron-terminald` has its own control socket, `/run/micron/terminal.sock`
+(0660 root:www-data, SO_PEERCRED: root or the www-data group), with the same
+framing as micrond (4-byte big-endian length + JSON-RPC 2.0). Only the Web UI
+(`App\Libraries\TerminalClient`) and `php spark terminal` / `microctl terminal`
+use it.
+
+| Method | Params | Result |
+|---|---|---|
+| `terminal.issue` | `user_id`, `username`, `level` (`standard`/`admin`), `origin`, `client_ip`, `attach?` | `{ticket, expires_in}` or `{success:false, error, code?:"limit"}` |
+| `terminal.list` | `user_id?` | `{sessions:[{id, user_id, username, level, pid, created, last_input, attached, cols, rows}]}` |
+| `terminal.kill` | `session_id`, `user_id?` (must own it when given), `reason?` | `{success}` |
+| `terminal.revoke_user` | `user_id`, `level?`, `reason?` | `{terminated}` |
+| `terminal.status` | — | `{version, uptime, sessions, limits, standard_user_present}` |
+
+The WebSocket side and the privilege model are in [Web Terminal](MICRONOS_WEB_TERMINAL.md).
+

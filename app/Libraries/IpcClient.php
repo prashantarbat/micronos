@@ -20,8 +20,20 @@ class IpcClient
     /** Socket connect/read timeout in seconds. */
     private const TIMEOUT = 5;
 
-    /** Max response bytes to read from the socket. */
-    private const MAX_READ = 65536;
+    /**
+     * Methods that legitimately run longer than TIMEOUT, in seconds. ospf.status
+     * runs six vtysh queries back to back, which can exceed 5 s on a busy router.
+     */
+    private const SLOW_METHODS = [
+        'ospf.status' => 30,
+    ];
+
+    /**
+     * Max response bytes to read from the socket. Status methods return raw
+     * vtysh/kernel output (ospf.status alone can return several hundred KiB on a
+     * large LSDB), so this is a sanity bound, not a typical size.
+     */
+    private const MAX_READ = 4194304;
 
     /** Whether we are running in mock (Windows / no-socket) mode. */
     private bool $mockMode = false;
@@ -31,7 +43,23 @@ class IpcClient
 
     public function __construct()
     {
-        $this->mockMode = ($this->isWindows() || ! file_exists(self::SOCK_PATH));
+        // MICRON_IPC_MOCK=1 forces the development client (phpunit.dist.xml sets
+        // it), so the test suite behaves the same whether or not a real micrond
+        // happens to be listening on the host running it.
+        //
+        // An installed or live-booted MicronOS appliance never uses it: when the
+        // daemon socket is missing there (micrond still starting, or stopped)
+        // calls fail and pages report "unavailable" — sample data is never
+        // shown on a real system. Elsewhere (a developer's Laragon/WSL box) a
+        // missing socket still selects the development client.
+        $forced = getenv('MICRON_IPC_MOCK');
+        if ($forced === '1') {
+            $this->mockMode = true;
+        } elseif ($forced === '0' || self::isAppliance()) {
+            $this->mockMode = false;
+        } else {
+            $this->mockMode = $this->isWindows() || ! file_exists(self::SOCK_PATH);
+        }
 
         if ($this->mockMode) {
             $this->log('debug', '[IpcClient] Running in MOCK mode (no daemon socket).');
@@ -57,7 +85,7 @@ class IpcClient
             return $this->mockDispatch($method, $params, $payload);
         }
 
-        return $this->socketDispatch($payload);
+        return $this->socketDispatch($payload, self::SLOW_METHODS[$method] ?? self::TIMEOUT);
     }
 
     /**
@@ -130,9 +158,9 @@ class IpcClient
     /**
      * Apply network interfaces configuration to daemon.
      */
-    public function applyNetworkConfig(): array
+    public function applyNetworkConfig(array $params = []): array
     {
-        return $this->call('interface.set')['result'] ?? [];
+        return $this->call('network.apply', $params)['result'] ?? [];
     }
 
     /**
@@ -257,7 +285,8 @@ class IpcClient
             'jsonrpc' => '2.0',
             'id'      => $this->rpcId++,
             'method'  => $method,
-            'params'  => $params,
+            // JSON-RPC params are an object; json_encode([]) would send a list.
+            'params'  => $params === [] ? new \stdClass() : $params,
         ]);
     }
 
@@ -265,7 +294,7 @@ class IpcClient
     // Real socket dispatch (Linux)
     // -------------------------------------------------------------------------
 
-    private function socketDispatch(string $payload): array
+    private function socketDispatch(string $payload, int $timeout = self::TIMEOUT): array
     {
         $sock = @socket_create(AF_UNIX, SOCK_STREAM, 0);
 
@@ -273,8 +302,8 @@ class IpcClient
             return $this->errorResponse(-32000, 'Failed to create UNIX socket: ' . socket_strerror(socket_last_error()));
         }
 
-        socket_set_option($sock, SOL_SOCKET, SO_RCVTIMEO, ['sec' => self::TIMEOUT, 'usec' => 0]);
-        socket_set_option($sock, SOL_SOCKET, SO_SNDTIMEO, ['sec' => self::TIMEOUT, 'usec' => 0]);
+        socket_set_option($sock, SOL_SOCKET, SO_RCVTIMEO, ['sec' => $timeout, 'usec' => 0]);
+        socket_set_option($sock, SOL_SOCKET, SO_SNDTIMEO, ['sec' => $timeout, 'usec' => 0]);
 
         if (! @socket_connect($sock, self::SOCK_PATH)) {
             socket_close($sock);
@@ -395,6 +424,7 @@ class IpcClient
             $method === 'pppoe.redial' => $this->mockPppoeRedial($params),
 
             // ---------- VPN methods ----------
+            $method === 'vpn.wireguard.service' => ['success' => true, 'status' => 'applied', 'service' => 'wireguard', 'action' => $params['action'] ?? 'start', 'state' => ($params['action'] ?? 'start') === 'stop' ? 'stopped' : 'running', 'message' => 'WireGuard tunnels updated (simulated)'],
             $method === 'vpn.wireguard.sync'   => ['success' => true, 'status' => 'synced'],
             $method === 'vpn.wireguard.status' => $this->mockWgStatus(),
             $method === 'vpn.wireguard.peers'  => ['peers' => []],
@@ -418,6 +448,14 @@ class IpcClient
             $method === 'system.halt'    => ['scheduled' => true, 'delay_sec' => 3],
             $method === 'system.ipv6.set' => $this->mockIpv6Set($params),
             $method === 'system.ipv6.status' => ['enabled' => true, 'sysctl' => $this->ipv6Sysctl(true), 'mock' => true],
+            $method === 'system.ssh_apply' => [
+                'success' => true,
+                'status'  => 'applied',
+                'port'    => (int) ($params['port'] ?? 22),
+                'enabled' => !empty($params['enabled']),
+                'steps'   => ['(mock) ssh_apply configured'],
+                'mock'    => true,
+            ],
             $method === 'system.updates_check' => $this->mockUpdatesCheck(),
             $method === 'system.upgrade' => [
                 'success' => true,
@@ -853,6 +891,47 @@ class IpcClient
                 'reloaded'         => true,
                 'worker'           => 'ssl_crtd',
             ],
+
+            // ---------- Toolkit & ops (development simulation, always labelled) ----------
+            $method === 'system.health'          => $this->mockHealth(),
+            $method === 'hardware.nics'          => $this->mockHardwareNics(),
+            $method === 'system.services_status' => ['success' => true, 'status' => 'ok', 'services' => $this->mockServicesStatus()],
+            $method === 'ospf.status'            => $this->mockOspfStatus(),
+            $method === 'vpn.wireguard.service'  => ['success' => true, 'status' => 'applied', 'service' => 'wireguard', 'action' => $params['action'] ?? 'start', 'state' => ($params['action'] ?? 'start') === 'stop' ? 'stopped' : 'running', 'message' => 'WireGuard tunnels updated (simulated)'],
+            $method === 'vpn.wireguard.sync'     => ['success' => true, 'status' => ! empty($params['enabled']) || ! array_key_exists('enabled', $params) ? 'synced' : 'down',
+                'interface' => (string) ($params['interface'] ?? 'wg0'), 'message' => 'simulated sync'],
+            $method === 'vpn.wireguard.remove'   => ['success' => true, 'status' => 'removed', 'interface' => (string) ($params['interface'] ?? '')],
+            $method === 'firewall.list_rules'    => $this->mockFirewallList(),
+            $method === 'frr.status'             => [
+                'success'   => true,
+                'status'    => 'ok',
+                'running'   => true,
+                'enabled'   => true,
+                'version'   => 'FRRouting 9.1 (simulated)',
+                'uptime'    => '3d 14h 22m',
+                'bgp_as'    => '65001',
+                'router_id' => '10.0.0.1',
+            ],
+            $method === 'ospf.status'            => $this->mockOspfStatus(),
+            str_starts_with($method, 'frr.') && str_ends_with($method, '.reload'),
+            $method === 'dns.config.reload', $method === 'dns.hosts.reload', $method === 'ha.sync',
+            $method === 'snmp.reconfigure', $method === 'snmp.sync_traps', $method === 'snmp.sync_users',
+            $method === 'siem.reconfigure', $method === 'qos.apply', $method === 'ids.apply',
+            $method === 'vpn.openvpn.sync', $method === 'network.vrf.sync', $method === 'system.crontab_sync'
+                => ['success' => true, 'status' => 'applied', 'steps' => ['simulated apply (development mode)'], 'warnings' => []],
+            $method === 'ha.failover'            => ['success' => true, 'status' => 'applied', 'target' => (string) ($params['target'] ?? '')],
+            $method === 'diag.tools'             => $this->mockToolkitTools(),
+            $method === 'diag.telnet'            => $this->mockToolOutput('telnet', $params),
+            $method === 'diag.nmap', $method === 'diag.mtr', $method === 'diag.dns_query', $method === 'diag.whois',
+            $method === 'diag.arping', $method === 'diag.sockets', $method === 'diag.tls_probe', $method === 'diag.http',
+            $method === 'diag.iperf3', $method === 'diag.ethtool'
+                => $this->mockToolOutput(substr($method, 5), $params),
+            $method === 'diag.nmap_start', $method === 'diag.mtr_start'
+                => ['session' => bin2hex(random_bytes(8)), 'running' => true, 'output' => '', 'kind' => substr($method, 5, -6),
+                    'cmd' => substr($method, 5, -6) . ' (simulated)'],
+            $method === 'diag.conntrack_kill', $method === 'diag.conntrack_kill_host'
+                => ['success' => true, 'status' => 'applied', 'killed_count' => 0, 'message' => 'simulated: no kernel state was touched'],
+            $method === 'system.rpc_methods'     => ['success' => true, 'status' => 'ok', 'count' => 0, 'methods' => []],
 
             default => ['_mock' => true, 'method' => $method, 'params' => $params],
         };
@@ -1348,6 +1427,163 @@ class IpcClient
         ];
     }
 
+    // -------------------------------------------------------------------------
+    // Toolkit / health mocks (development only — every value is labelled)
+    // -------------------------------------------------------------------------
+
+    /**
+     * The development machine's ports, shaped like `system.health` reports a
+     * real one: the configured WAN/LAN devices first, then further copper and
+     * fibre ports with predictable kernel names. A Wi-Fi radio is simulated
+     * only when MICRON_MOCK_WIRELESS is set (1, or a device name such as wlan0), so the Interfaces page hides wireless
+     * settings by default exactly as it does on hardware without a radio.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function mockNics(): array
+    {
+        $wan = 'eno1';
+        $lan = 'enp2s0';
+        try {
+            $db = \Config\Database::connect();
+            if ($db->tableExists('interfaces')) {
+                foreach ($db->table('interfaces')->select('id, physical_device')->get()->getResultArray() as $row) {
+                    $dev = (string) ($row['physical_device'] ?? '');
+                    if ($dev === '' || preg_match('/^[A-Za-z0-9_.-]{1,15}$/', $dev) !== 1) {
+                        continue;
+                    }
+                    if (strtolower((string) $row['id']) === 'wan') {
+                        $wan = $dev;
+                    } elseif (strtolower((string) $row['id']) === 'lan') {
+                        $lan = $dev;
+                    }
+                }
+            }
+        } catch (\Throwable) {
+        }
+
+        $nics = [
+            [$wan, 'tp', true, 1000, 'igc', '0000:01:00.0'],
+            [$lan, 'tp', true, 1000, 'igc', '0000:02:00.0'],
+            ['enp3s0', 'tp', false, null, 'igc', '0000:03:00.0'],
+            ['enp4s0', 'tp', false, null, 'igc', '0000:04:00.0'],
+            ['enp5s0f0', 'fibre', true, 10000, 'ixgbe', '0000:05:00.0'],
+            ['enp5s0f1', 'fibre', false, null, 'ixgbe', '0000:05:00.1'],
+        ];
+        $out  = [];
+        $seen = [];
+        foreach ($nics as $i => [$name, $port, $up, $speed, $driver, $slot]) {
+            if (isset($seen[$name])) {
+                continue;
+            }
+            $seen[$name] = true;
+            $out[] = ['name' => $name, 'kind' => 'ethernet', 'wireless' => false, 'driver' => $driver, 'bus' => 'pci',
+                'slot' => $slot, 'port_type' => $port, 'operstate' => $up ? 'up' : 'down', 'carrier' => $up,
+                'mac' => sprintf('52:54:00:a1:%02x:%02x', $i + 1, crc32($name) & 0xff), 'speed_mbps' => $speed];
+        }
+        $radio = (string) getenv('MICRON_MOCK_WIRELESS');
+        if ($radio !== '' && $radio !== '0') {
+            $radio = preg_match('/^[a-z][a-z0-9]{1,14}$/', $radio) === 1 ? $radio : 'wlp6s0';
+            $out[] = ['name' => $radio, 'kind' => 'wireless', 'wireless' => true, 'driver' => 'iwlwifi', 'bus' => 'pci',
+                'slot' => '0000:06:00.0', 'operstate' => 'down', 'carrier' => false, 'mac' => '52:54:00:a1:06:01', 'speed_mbps' => null];
+        }
+
+        return $out;
+    }
+
+    private function mockHardwareNics(): array
+    {
+        $nics = $this->mockNics();
+
+        return ['success' => true, 'status' => 'ok', 'mock' => true, 'nics' => $nics,
+            'wireless' => array_values(array_column(array_filter($nics, static fn ($n) => $n['wireless']), 'name')),
+            'ethernet' => array_values(array_column(array_filter($nics, static fn ($n) => $n['kind'] === 'ethernet'), 'name'))];
+    }
+
+    private function mockHealth(): array
+    {
+        $ifaces = [['name' => 'lo', 'operstate' => 'unknown', 'carrier' => true, 'mac' => '00:00:00:00:00:00', 'mtu' => 65536,
+            'speed_mbps' => null, 'rx_bytes' => 4096, 'tx_bytes' => 4096, 'rx_packets' => 64, 'tx_packets' => 64,
+            'rx_errors' => 0, 'tx_errors' => 0, 'virtual' => true, 'kind' => 'loopback', 'wireless' => false]];
+        foreach ($this->mockNics() as $i => $nic) {
+            $up = $nic['carrier'];
+            $ifaces[] = $nic + ['mtu' => 1500, 'rx_bytes' => $up ? 1048576 * (40 + $i * 7) : 0,
+                'tx_bytes' => $up ? 524288 * (25 + $i * 5) : 0, 'rx_packets' => $up ? 10000 + $i : 0,
+                'tx_packets' => $up ? 8000 + $i : 0, 'rx_errors' => 0, 'tx_errors' => 0, 'virtual' => false];
+        }
+        $ifaces[] = ['name' => 'wg0', 'operstate' => 'unknown', 'carrier' => true, 'mac' => '', 'mtu' => 1420, 'speed_mbps' => null,
+            'rx_bytes' => 2097152, 'tx_bytes' => 1048576, 'rx_packets' => 3000, 'tx_packets' => 2500, 'rx_errors' => 0,
+            'tx_errors' => 0, 'virtual' => true, 'kind' => 'tunnel', 'wireless' => false];
+
+        return ['success' => true, 'status' => 'ok', 'mock' => true, 'uptime_sec' => 3 * 86400 + 5 * 3600,
+            'load_avg' => [0.18, 0.22, 0.20], 'cpu_count' => 4, 'cpu_model' => 'Simulated CPU (development mode)',
+            'mem_total_mb' => 8030, 'mem_used_mb' => 1640, 'mem_available_mb' => 6390, 'swap_total_mb' => 0, 'swap_used_mb' => 0,
+            'disks' => [['mount' => '/', 'total_gb' => 15.6, 'used_gb' => 3.1, 'free_gb' => 12.5, 'used_pct' => 19.9]],
+            'conntrack_count' => 42, 'conntrack_max' => 262144, 'temperature_c' => null,
+            'interfaces' => $ifaces, 'timestamp' => time()];
+    }
+
+    private function mockServicesStatus(): array
+    {
+        $out = [];
+        foreach (['nftables', 'unbound', 'kea-dhcp4', 'wireguard', 'openvpn', 'frr', 'squid', 'suricata', 'keepalived', 'chrony', 'snmpd', 'rsyslog'] as $i => $id) {
+            $running = ! in_array($id, ['squid', 'suricata', 'keepalived', 'snmpd'], true);
+            $out[$id] = ['unit' => $id, 'running' => $running, 'state' => $running ? 'running' : 'stopped',
+                'active_state' => $running ? 'active' : 'inactive', 'sub_state' => $running ? 'running' : 'dead',
+                'since' => '', 'pid' => $running ? 1000 + $i : 0, 'installed' => true];
+        }
+
+        return $out;
+    }
+
+    private function mockToolkitTools(): array
+    {
+        $tools = [];
+        foreach (['ping' => 'iputils-ping', 'traceroute' => 'traceroute', 'mtr' => 'mtr-tiny', 'nmap' => 'nmap',
+            'nc' => 'netcat-openbsd', 'telnet' => 'telnet', 'dig' => 'bind9-dnsutils', 'whois' => 'whois',
+            'arping' => 'iputils-arping', 'ss' => 'iproute2', 'openssl' => 'openssl', 'curl' => 'curl',
+            'iperf3' => 'iperf3', 'tcpdump' => 'tcpdump', 'ethtool' => 'ethtool'] as $tool => $pkg) {
+            $tools[$tool] = ['binary' => $tool, 'package' => $pkg, 'installed' => true, 'path' => '/usr/bin/' . $tool];
+        }
+
+        return ['success' => true, 'status' => 'ok', 'tools' => $tools, 'mock' => true,
+            'nmap_profiles' => ['ping-sweep' => 'Host discovery only (no port scan)', 'quick' => 'Top 100 TCP ports',
+                'top1000' => 'Top 1000 TCP ports', 'service' => 'Top 1000 TCP ports with service/version detection',
+                'udp-top' => 'Top 50 UDP ports (slow)', 'ports' => 'An explicit port list']];
+    }
+
+    private function mockToolOutput(string $tool, array $params): array
+    {
+        $target = (string) ($params['host'] ?? $params['target'] ?? $params['name'] ?? $params['object'] ?? $params['url'] ?? $params['interface'] ?? '');
+        $banner = "[SIMULATED — development mode, no packets were sent]\n";
+        $body   = match ($tool) {
+            'telnet'    => "Trying {$target} port " . (int) ($params['port'] ?? 23) . "/tcp …\nConnected to {$target} in 1.2 ms.\n--- banner ---\nSSH-2.0-OpenSSH_9.6\n",
+            'nmap'      => "Nmap scan report for {$target}\nPORT    STATE SERVICE\n22/tcp  open  ssh\n443/tcp open  https\n",
+            'mtr'       => "HOST: micron-os  Loss%  Snt  Last   Avg  Best  Wrst StDev\n  1.|-- 192.168.1.1  0.0%  10  0.4  0.5  0.3  0.9  0.1\n  2.|-- {$target}  0.0%  10  9.8 10.1  9.5 11.2  0.4\n",
+            'dns_query' => ";; ->>HEADER<<- opcode: QUERY, status: NOERROR\n{$target}. 300 IN A 93.184.216.34\n",
+            'whois'     => "% Simulated whois record for {$target}\nOrgName: Example Org\n",
+            'arping'    => "ARPING {$target}\nUnicast reply from {$target} [02:00:00:00:00:01] 0.6ms\n",
+            'sockets'   => 'tcp LISTEN 0 4096 0.0.0.0:22 0.0.0.0:* users:(("sshd",pid=812,fd=3))' . "\n"
+                . 'tcp LISTEN 0 511 0.0.0.0:80 0.0.0.0:* users:(("apache2",pid=901,fd=4))' . "\n",
+            'tls_probe' => "Protocol : TLSv1.3\nCipher   : TLS_AES_256_GCM_SHA384\nsubject=CN = {$target}\nVerify return code: 0 (ok)\n",
+            'http'      => "HTTP/1.1 200 OK\nserver: simulated\n\n---\nhttp_code=200\ntime_total=0.084\n",
+            'iperf3'    => "Sender:   941.2 Mbit/s\nReceiver: 939.8 Mbit/s\n",
+            'ethtool'   => "Settings for {$target}:\n\tSpeed: 1000Mb/s\n\tDuplex: Full\n\tLink detected: yes\n",
+            default     => "(no simulation for {$tool})\n",
+        };
+        $parsed = match ($tool) {
+            'telnet'    => ['open' => true, 'state' => 'open', 'connect_ms' => 1.2, 'banner' => 'SSH-2.0-OpenSSH_9.6'],
+            'nmap'      => ['open_ports' => [['port' => 22, 'proto' => 'tcp', 'service' => 'ssh'], ['port' => 443, 'proto' => 'tcp', 'service' => 'https']]],
+            'http'      => ['http_code' => 200, 'timing_ms' => ['total' => 84.0]],
+            'tls_probe' => ['protocol' => 'TLSv1.3', 'cipher' => 'TLS_AES_256_GCM_SHA384'],
+            'iperf3'    => ['sent_mbps' => 941.2, 'received_mbps' => 939.8],
+            default     => [],
+        };
+
+        return ['success' => true, 'status' => 'ok', 'tool' => $tool, 'mock' => true, 'output' => $banner . $body,
+            'parsed' => $parsed, 'warnings' => [], 'cmd' => $tool . ' (simulated)', 'returncode' => 0, 'truncated' => false];
+    }
+
     private function mockFirewallList(): array
     {
         return [
@@ -1505,12 +1741,37 @@ class IpcClient
     private function mockWgStatus(): array
     {
         return [
-            'running'    => true,
-            'interface'  => 'wg0',
-            'listen_port'=> 51820,
-            'public_key' => 'MOCK_PUBLIC_KEY_BASE64==',
+            'status'     => 'ok',
+            'interfaces' => [
+                'wg0' => ['interface' => 'wg0', 'listen_port' => 51820, 'status' => 'up'],
+            ],
             'peers'      => [
-                ['peer' => 'PEER_KEY_1==', 'endpoint' => '198.51.100.10:51820', 'allowed_ips' => '10.100.0.2/32', 'last_handshake' => '2 minutes ago', 'transfer' => '1.2 MiB rx / 0.8 MiB tx'],
+                ['interface' => 'wg0', 'peer' => 'PEER_KEY_1==', 'endpoint' => '198.51.100.10:51820', 'allowed_ips' => '10.100.0.2/32', 'latest_handshake' => time() - 120, 'rx_bytes' => 1258291, 'tx_bytes' => 838860, 'persistent_keepalive' => 25],
+            ],
+        ];
+    }
+
+    private function mockOspfStatus(): array
+    {
+        return [
+            'success' => true,
+            'status'  => 'ok',
+            'sections' => [
+                'general'         => ['command' => 'show ip ospf', 'available' => true, 'output' => "OSPF router ID 10.10.10.1\nArea 0.0.0.0\n"],
+                'neighbors'       => ['command' => 'show ip ospf neighbor detail', 'available' => true, 'output' => "Neighbor ID     Pri State           Dead Time Address         Interface\n192.0.2.2         1 Full/DR         00:00:34 192.0.2.2      enp2s0\n"],
+                'routes'          => ['command' => 'show ip ospf route', 'available' => true, 'output' => "============ OSPF network routing table ============\nN 10.20.0.0/24 [10] area: 0.0.0.0\n"],
+                'database'        => ['command' => 'show ip ospf database', 'available' => true, 'output' => "            OSPF Router with ID (10.10.10.1) (Process ID 1)\nRouter Link States (Area 0.0.0.0)\n"],
+                'router_database' => ['command' => 'show ip ospf database router', 'available' => true, 'output' => "                Router Link States (Area 0.0.0.0)\nLink ID         ADV Router      Age Seq#       Checksum Link count\n10.10.10.1      10.10.10.1      12  0x80000003 0x1234 2\n"],
+                'interfaces'      => ['command' => 'show ip ospf interface', 'available' => true, 'output' => "enp2s0 is up, line protocol is up\n  Internet Address 10.10.10.1/24, Area 0.0.0.0\n"],
+            ],
+            'resources' => [
+                'available'      => true,
+                'cpu_percent'    => 1.2,
+                'memory_percent' => 0.4,
+                'memory_bytes'   => 5242880,
+                'pids'           => [1234],
+                'cpu_output'     => 'ospfd CPU average: 1.2% (simulated)',
+                'memory_output'  => 'Resident memory: 5.0 MiB (simulated)',
             ],
         ];
     }
@@ -1835,6 +2096,31 @@ class IpcClient
             'result' => null,
             'error'  => ['code' => $code, 'message' => $message],
         ];
+    }
+
+    /**
+     * Whether this PHP runs on a MicronOS appliance image (installed or live).
+     * The ISO ships /etc/os-release with ID=micronos; the installer keeps it.
+     * MICRON_APPLIANCE=1 says the same where os-release is not yet in place
+     * (the ISO build's chroot hook, the installer's target chroot).
+     */
+    public static function isAppliance(?string $osRelease = null): bool
+    {
+        if ($osRelease === null) {
+            if (getenv('MICRON_APPLIANCE') === '1') {
+                return true;
+            }
+            if (str_starts_with(strtoupper(PHP_OS), 'WIN')) {
+                return false;
+            }
+        }
+        $osRelease ??= '/etc/os-release';
+        if (! is_readable($osRelease)) {
+            return false;
+        }
+        $text = (string) @file_get_contents($osRelease, false, null, 0, 4096);
+
+        return preg_match('/^ID="?micronos"?\s*$/m', $text) === 1;
     }
 
     private function isWindows(): bool

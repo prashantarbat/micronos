@@ -47,6 +47,14 @@ final class ServiceControlTest extends BaseTestCase
 
         $_COOKIE[config(SecurityConfig::class)->cookieName] = bin2hex(random_bytes(16));
         Services::injectMock('security', new Security(config(SecurityConfig::class)));
+
+        // Hermetic: always the development (mock) client, even on a host where
+        // a real micrond happens to be listening — these tests exercise the
+        // page flow, not a host's systemd.
+        $ipc = new \App\Libraries\IpcClient();
+        \Closure::bind(function () { $this->mockMode = true; }, $ipc, \App\Libraries\IpcClient::class)();
+        Services::injectMock('ipc', $ipc);
+        Services::resetSingle('packageManager');
     }
 
     protected function tearDown(): void
@@ -208,7 +216,8 @@ final class ServiceControlTest extends BaseTestCase
 
         $dbRow = $this->db->table('system_services')->where('id', self::TEST_ID)->get()->getRowArray();
         $this->assertSame('running', $dbRow['status']);
-        $this->assertNotNull($dbRow['pid']);
+        // No daemon reported a PID, so none is recorded (it used to be rand()).
+        $this->assertNull($dbRow['pid']);
     }
 
     public function testControlEndpointRestartsWithNameAndMessage(): void

@@ -1,0 +1,32 @@
+Micron OS
+Copyright 2026 Prashant Arbat and the Micron OS contributors
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+"Micron OS" and the Micron OS logo are names of this project. The Apache
+License does not grant permission to use them for a modified or redistributed
+version (Apache License 2.0, section 6). See the Trademarks section of README.md.
+
+-------------------------------------------------------------------------------
+Third-party software bundled in this repository
+-------------------------------------------------------------------------------
+
+This product includes software developed by third parties. Each component is
+listed with its licence in THIRD_PARTY_LICENSES.md, and the original licence
+texts are kept beside the files they cover.
+
+This product includes guacamole-common-js, developed at
+The Apache Software Foundation (https://www.apache.org/).
+Apache Guacamole
+Copyright 2020 The Apache Software Foundation
+
+-------------------------------------------------------------------------------
+Appliance ISO image
+-------------------------------------------------------------------------------
+
+The bootable ISO image is an aggregate of this project and Debian GNU/Linux
+packages (including the Linux kernel, FRRouting, nftables, strongSwan,
+WireGuard tools, nginx, Apache httpd, PHP, Python and guacd). Those packages
+keep their own licences, some of which are the GNU GPL. Where to obtain their
+corresponding source code is described in README.md, "Source code for the
+ISO image".

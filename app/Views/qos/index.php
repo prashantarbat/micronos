@@ -892,13 +892,6 @@ document.addEventListener('keydown', e => {
   }
 });
 
-document.querySelectorAll('.mno-modal-backdrop').forEach(modal => {
-  modal.addEventListener('click', e => {
-    if (e.target === modal) {
-      modal.classList.remove('active');
-    }
-  });
-});
 </script>
 
 <?= $this->endSection() ?>

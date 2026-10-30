@@ -1,426 +1,297 @@
 #!/bin/bash
 # ==============================================================================
-# Micron OS — Core Network Initialization & Plug-and-Play Router Daemon
+# Micron OS — boot-time network bring-up
 # ==============================================================================
-# Ensures appliance network interfaces are automatically discovered, configured,
-# routed, NAT-masqueraded, and protected on boot with full dual-stack IPv4 & IPv6.
+# Makes the kernel match the committed network configuration on every boot,
+# using the same pieces the Web UI and the CLI use at run time:
+#
+#   1. bind the configured WAN/LAN roles to NICs that actually exist (first
+#      boot on new hardware: real names such as enp1s0 / eno1);
+#   2. `php spark network boot-files` builds, from the configuration database,
+#      the network plan, the nftables ruleset and the Kea DHCPv4 config — the
+#      very same NetworkPlan / NftablesCompiler / KeaDhcpCompiler the Web UI
+#      transaction uses (micrond is not running yet, so no RPC);
+#   3. system/micron_netcfg.py applies the plan (addresses, default route,
+#      IPv6 master switch, dhclient) — the engine micrond's network.apply uses;
+#      if the database cannot produce a plan, the last committed plan
+#      (/etc/micron/network.json) is applied instead;
+#   4. the ruleset and the DHCP config are syntax-checked and loaded.
+#
+# Nothing here hard-codes an address or a DHCP pool any more: a reboot can no
+# longer bring back an old LAN address, pool or firewall rule.
+#
+# IPv6 is OFF unless the administrator switched it on (System > Networking):
+# /etc/sysctl.d/60-micron-ipv6.conf already disables it before this runs.
 # ==============================================================================
-set -euo pipefail
+set -uo pipefail
 
 app_root="/usr/local/micron"
 [ -d "$app_root" ] || app_root="$(cd "$(dirname "$0")/.." && pwd)"
+DB_PATH="$app_root/writable/micron_config.db"
+NETCFG="$app_root/system/micron_netcfg.py"
+WORK="/run/micron/network-boot"
+NFT_CONF="${MICRON_NFT_CONF:-/etc/nftables.conf}"
+log() { echo "[micron-network] $*"; }
 
-# Enable Linux Kernel Packet Forwarding & IPv6 Routing / SLAAC
-sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || true
-sysctl -w net.ipv4.conf.all.forwarding=1 >/dev/null 2>&1 || true
-sysctl -w net.ipv4.conf.default.forwarding=1 >/dev/null 2>&1 || true
-sysctl -w net.ipv6.conf.all.forwarding=1 >/dev/null 2>&1 || true
-sysctl -w net.ipv6.conf.default.forwarding=1 >/dev/null 2>&1 || true
-sysctl -w net.ipv6.conf.all.accept_ra=2 >/dev/null 2>&1 || true
-sysctl -w net.ipv6.conf.default.accept_ra=2 >/dev/null 2>&1 || true
+# IPv4 forwarding is always on (this is a router). IPv6 forwarding is set by
+# the plan only when IPv6 is enabled.
+sysctl -q -w net.ipv4.ip_forward=1 || true
+sysctl -q -w net.ipv4.conf.all.forwarding=1 || true
+sysctl -q -w net.ipv4.conf.default.forwarding=1 || true
 
-# 1. Discover Available Physical Network Interfaces
+# ---------------------------------------------------------------- 1. NICs
 avail_nics=()
 for ifpath in /sys/class/net/*; do
     [ -d "$ifpath" ] || continue
     dev=$(basename "$ifpath")
-    [[ "$dev" =~ ^(lo|virbr|docker|veth|wg|tun) ]] && continue
-    # Exclude bridge virtual interfaces when enumerating raw physical NICs
+    [[ "$dev" =~ ^(lo|virbr|docker|veth|wg|tun|ifb|sit|ip6tnl|gre|ppp) ]] && continue
     [ -d "$ifpath/bridge" ] && continue
+    [ -e "$ifpath/device" ] || continue          # physical ports only
     avail_nics+=("$dev")
 done
-
 if [ "${#avail_nics[@]}" -eq 0 ]; then
-    echo "[micron-network] Warning: No physical network interfaces found."
-    exit 0
+    log "warning: no physical network interfaces found"
 fi
 
-# 2. Determine Configured WAN and LAN Roles
-WAN_IF=""
-LAN_IF=""
-LAN_IP="10.10.10.10/24"
-LAN_IPV6=""
-LAN_IPV6_PREFIX="64"
-LAN_IS_BRIDGE=0
-BRIDGE_SLAVES=()
-IPV6_SYSTEM_ENABLED=1
-
-# Check /etc/micron/network_init.json first
-if [ -f /etc/micron/network_init.json ]; then
-    WAN_IF=$(grep -o '"wan_interface"[[:space:]]*:[[:space:]]*"[^"]*"' /etc/micron/network_init.json 2>/dev/null | cut -d'"' -f4 || true)
-    LAN_IF=$(grep -o '"lan_interface"[[:space:]]*:[[:space:]]*"[^"]*"' /etc/micron/network_init.json 2>/dev/null | cut -d'"' -f4 || true)
-fi
-
-# Check SQLite Database
-DB_PATH="$app_root/writable/micron_config.db"
+have_db=0
 if [ -f "$DB_PATH" ] && command -v sqlite3 >/dev/null 2>&1; then
-    db_wan=$(sqlite3 "$DB_PATH" "SELECT physical_device FROM interfaces WHERE id='wan' LIMIT 1;" 2>/dev/null || true)
-    db_lan=$(sqlite3 "$DB_PATH" "SELECT physical_device FROM interfaces WHERE id='lan' LIMIT 1;" 2>/dev/null || true)
-    db_lan_ip=$(sqlite3 "$DB_PATH" "SELECT ipv4_address || '/' || ipv4_netmask FROM interfaces WHERE id='lan' LIMIT 1;" 2>/dev/null || true)
-    db_lan_ip6=$(sqlite3 "$DB_PATH" "SELECT ipv6_address FROM interfaces WHERE id='lan' LIMIT 1;" 2>/dev/null || true)
-    db_lan_ip6_pfx=$(sqlite3 "$DB_PATH" "SELECT ipv6_prefix FROM interfaces WHERE id='lan' LIMIT 1;" 2>/dev/null || true)
-    db_lan_mode=$(sqlite3 "$DB_PATH" "SELECT ip_assignment_type FROM interfaces WHERE id='lan' LIMIT 1;" 2>/dev/null || echo "static")
-    [ -n "$db_lan_mode" ] || db_lan_mode="static"
-    db_v6_sys=$(sqlite3 "$DB_PATH" "SELECT ipv6_enabled FROM system_settings LIMIT 1;" 2>/dev/null || true)
-    [ "$db_v6_sys" = "0" ] && IPV6_SYSTEM_ENABLED=0
-    [ -n "$db_wan" ] && [ -d "/sys/class/net/$db_wan" ] && WAN_IF="$db_wan"
-    [ -n "$db_lan" ] && { [ -d "/sys/class/net/$db_lan" ] || [ -d "/sys/class/net/$db_lan/bridge" ]; } && LAN_IF="$db_lan"
-    if [ -n "$db_lan_ip" ] && [ "$db_lan_ip" != "/" ]; then
-        LAN_IP="$db_lan_ip"
-    fi
-    if [ -n "$db_lan_ip6" ] && [ "$db_lan_ip6" != "" ]; then
-        LAN_IPV6="$db_lan_ip6"
-        [ -n "$db_lan_ip6_pfx" ] && LAN_IPV6_PREFIX="$db_lan_ip6_pfx"
-    fi
+    have_db=1
 fi
+sqlq() { sqlite3 "$DB_PATH" "$1" 2>/dev/null || true; }
+dev_ok() { [ -n "$1" ] && [ -d "/sys/class/net/$1" ]; }
+safe_dev() { [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9_.:@-]{0,14}$ ]]; }
 
-# Auto-bind if hardware NICs do not match configured names
-if [ -z "$WAN_IF" ] || [ ! -d "/sys/class/net/$WAN_IF" ]; then
-    WAN_IF="${avail_nics[0]}"
+WAN_IF=""; LAN_IF=""
+if [ "$have_db" -eq 1 ]; then
+    WAN_IF=$(sqlq "SELECT physical_device FROM interfaces WHERE id='wan' LIMIT 1;")
+    LAN_IF=$(sqlq "SELECT physical_device FROM interfaces WHERE id='lan' LIMIT 1;")
 fi
-
-if [ -z "$LAN_IF" ] || { [ ! -d "/sys/class/net/$LAN_IF" ] && [ ! -d "/sys/class/net/$LAN_IF/bridge" ]; }; then
-    if [ "${#avail_nics[@]}" -ge 2 ]; then
+if [ "${#avail_nics[@]}" -eq 1 ]; then
+    # One port only: it must be the management LAN, or nobody can reach the
+    # appliance. A WAN configured on that same port cannot coexist with it
+    # (the plan refuses one device for two interfaces), so it is disabled.
+    dev_ok "$LAN_IF" || LAN_IF="${avail_nics[0]}"
+    [ "$WAN_IF" = "$LAN_IF" ] && WAN_IF=""
+    if [ "$have_db" -eq 1 ] && safe_dev "$LAN_IF"; then
+        sqlq "UPDATE interfaces SET physical_device='$LAN_IF' WHERE id='lan';"
+        sqlq "UPDATE interfaces SET enabled=0 WHERE id='wan' AND physical_device='$LAN_IF';"
+    fi
+elif [ "${#avail_nics[@]}" -gt 1 ]; then
+    if ! dev_ok "$WAN_IF"; then
+        WAN_IF=""
         for cand in "${avail_nics[@]}"; do
-            if [ "$cand" != "$WAN_IF" ]; then
-                LAN_IF="$cand"
-                break
-            fi
+            [ "$cand" != "$LAN_IF" ] && { WAN_IF="$cand"; break; }
         done
     fi
-    [ -n "$LAN_IF" ] || LAN_IF="$WAN_IF"
+    if ! dev_ok "$LAN_IF" || [ "$LAN_IF" = "$WAN_IF" ]; then
+        LAN_IF=""
+        for cand in "${avail_nics[@]}"; do
+            [ "$cand" != "$WAN_IF" ] && { LAN_IF="$cand"; break; }
+        done
+    fi
+    if [ "$have_db" -eq 1 ] && safe_dev "$WAN_IF" && safe_dev "$LAN_IF"; then
+        sqlq "UPDATE interfaces SET physical_device='$WAN_IF' WHERE id='wan';"
+        sqlq "UPDATE interfaces SET physical_device='$LAN_IF' WHERE id='lan';"
+    fi
 fi
-
-# Update SQLite Database with active physical devices
-if [ -f "$DB_PATH" ] && command -v sqlite3 >/dev/null 2>&1; then
-    sqlite3 "$DB_PATH" "UPDATE interfaces SET physical_device='$WAN_IF' WHERE id='wan';" 2>/dev/null || true
-    sqlite3 "$DB_PATH" "UPDATE interfaces SET physical_device='$LAN_IF' WHERE id='lan';" 2>/dev/null || true
-fi
-
-# Persist /etc/micron/network_init.json
 mkdir -p /etc/micron
-cat << EOF > /etc/micron/network_init.json
+cat > /etc/micron/network_init.json <<EOF
 {
   "wan_interface": "$WAN_IF",
   "lan_interface": "$LAN_IF",
-  "lan_is_bridge": false,
-  "bridge_slaves": [],
   "configured": true
 }
 EOF
+log "roles: WAN=${WAN_IF:-none} LAN=${LAN_IF:-none}"
 
-echo "[micron-network] Interfaces detected: WAN=$WAN_IF, LAN=$LAN_IF (Target LAN IP: $LAN_IP, IPv6 Enabled: $IPV6_SYSTEM_ENABLED)"
-
-# 3. Bring WAN Interface Up & Start DHCP Clients (IPv4 & IPv6 Dual-Stack)
-ip link set dev "$WAN_IF" up 2>/dev/null || true
-if [ "$IPV6_SYSTEM_ENABLED" -eq 1 ]; then
-    sysctl -w net.ipv6.conf."$WAN_IF".disable_ipv6=0 >/dev/null 2>&1 || true
-    sysctl -w net.ipv6.conf."$WAN_IF".accept_ra=2 >/dev/null 2>&1 || true
-    sysctl -w net.ipv6.conf."$WAN_IF".autoconf=1 >/dev/null 2>&1 || true
-fi
-
-if command -v dhclient >/dev/null 2>&1; then
-    if ! pgrep -f "dhclient.*$WAN_IF" >/dev/null 2>&1; then
-        echo "[micron-network] Requesting DHCPv4 lease on WAN ($WAN_IF)..."
-        dhclient -4 -nw -pf "/run/dhclient.${WAN_IF}.pid" "$WAN_IF" 2>/dev/null || true
+# ------------------------------------------------- 2. generated artefacts
+gen_files() {
+    rm -rf "$WORK"; install -d -m 0750 "$WORK"
+    if [ -f "$app_root/spark" ] && command -v php >/dev/null 2>&1; then
+        (cd "$app_root" && php spark network boot-files "$WORK") >/dev/null 2>&1 && [ -s "$WORK/plan.json" ]
+        return $?
     fi
-    if [ "$IPV6_SYSTEM_ENABLED" -eq 1 ] && ! pgrep -f "dhclient.*-6.*$WAN_IF" >/dev/null 2>&1; then
-        echo "[micron-network] Requesting DHCPv6 lease on WAN ($WAN_IF)..."
-        dhclient -6 -nw -pf "/run/dhclient6.${WAN_IF}.pid" "$WAN_IF" 2>/dev/null || true
-    fi
-elif command -v dhcpcd >/dev/null 2>&1; then
-    if ! pgrep -f "dhcpcd.*$WAN_IF" >/dev/null 2>&1; then
-        echo "[micron-network] Requesting DHCP lease on WAN ($WAN_IF) via dhcpcd..."
-        dhcpcd -b "$WAN_IF" 2>/dev/null || true
-    fi
-fi
-
-# 4. Bring LAN Interface Up & Configure (DHCP Client or Static IP)
-ip link set dev "$LAN_IF" up 2>/dev/null || true
-if [ "${db_lan_mode:-static}" = "dhcp" ]; then
-    echo "[micron-network] Requesting DHCP lease on LAN ($LAN_IF)..."
-    if command -v dhclient >/dev/null 2>&1; then
-        if ! pgrep -f "dhclient.*$LAN_IF" >/dev/null 2>&1; then
-            dhclient -4 -nw -pf "/run/dhclient.${LAN_IF}.pid" "$LAN_IF" 2>/dev/null || true
-        fi
-    elif command -v dhcpcd >/dev/null 2>&1; then
-        if ! pgrep -f "dhcpcd.*$LAN_IF" >/dev/null 2>&1; then
-            dhcpcd -b "$LAN_IF" 2>/dev/null || true
-        fi
-    fi
-else
-    # Flush any autoconfigured link-local (169.254.x.x) addresses
-    for ll in $(ip -4 addr show dev "$LAN_IF" 2>/dev/null | awk '/inet 169\.254/ {print $2}'); do
-        ip addr del "$ll" dev "$LAN_IF" 2>/dev/null || true
-    done
-    ip addr replace "$LAN_IP" dev "$LAN_IF" 2>/dev/null || true
-fi
-
-if [ "$IPV6_SYSTEM_ENABLED" -eq 1 ]; then
-    sysctl -w net.ipv6.conf."$LAN_IF".disable_ipv6=0 >/dev/null 2>&1 || true
-    if [ -n "$LAN_IPV6" ]; then
-        echo "[micron-network] Assigning static IPv6 to LAN ($LAN_IF): $LAN_IPV6/$LAN_IPV6_PREFIX"
-        ip -6 addr replace "${LAN_IPV6}/${LAN_IPV6_PREFIX}" dev "$LAN_IF" 2>/dev/null || true
-    fi
-fi
-
-# Extract LAN IP and subnet base
-LAN_BASE_IP=$(echo "$LAN_IP" | cut -d/ -f1)
-LAN_PREFIX=$(echo "$LAN_IP" | cut -d/ -f2)
-LAN_PREFIX=${LAN_PREFIX:-24}
-
-# 5. Prevent WAN/LAN Subnet Conflicts
-WAN_CURR_IP=$(ip -4 addr show dev "$WAN_IF" 2>/dev/null | awk '/inet / && !/169\.254/ {print $2}' | cut -d/ -f1 | head -n1 || true)
-if [ -n "$WAN_CURR_IP" ]; then
-    WAN_OCTETS=$(echo "$WAN_CURR_IP" | cut -d. -f1-3)
-    LAN_OCTETS=$(echo "$LAN_BASE_IP" | cut -d. -f1-3)
-    if [ "$WAN_OCTETS" = "$LAN_OCTETS" ] && [ "$WAN_IF" != "$LAN_IF" ]; then
-        echo "[micron-network] WARNING: Subnet conflict detected between WAN ($WAN_CURR_IP) and LAN ($LAN_BASE_IP)!"
-        echo "[micron-network] Re-assigning LAN to safe alternate subnet 192.168.10.1/24 to prevent routing collision..."
-        LAN_BASE_IP="192.168.10.1"
-        LAN_IP="192.168.10.1/24"
-        ip addr replace "$LAN_IP" dev "$LAN_IF" 2>/dev/null || true
-        if [ -f "$DB_PATH" ] && command -v sqlite3 >/dev/null 2>&1; then
-            sqlite3 "$DB_PATH" "UPDATE interfaces SET ipv4_address='192.168.10.1', ipv4_netmask=24 WHERE id='lan';" 2>/dev/null || true
-        fi
-    fi
-fi
-
-# 6. Configure Kea DHCP Server on LAN (Disabled by default unless explicitly enabled; never on DHCP client LAN)
-DHCP_ENABLED=0
-if [ "${db_lan_mode:-static}" != "dhcp" ] && [ -f "$DB_PATH" ] && command -v sqlite3 >/dev/null 2>&1; then
-    db_dhcp=$(sqlite3 "$DB_PATH" "SELECT enabled FROM dhcp_server_settings WHERE interface_id='lan' LIMIT 1;" 2>/dev/null || true)
-    if [ "$db_dhcp" = "1" ]; then
-        DHCP_ENABLED=1
-    fi
-fi
-
-if [ "$DHCP_ENABLED" -eq 1 ]; then
-    mkdir -p /etc/kea /var/lib/kea
-    LAN_SUBNET_3OCT=$(echo "$LAN_BASE_IP" | cut -d. -f1-3)
-    cat << EOF > /etc/kea/kea-dhcp4.conf
-{
-  "Dhcp4": {
-    "interfaces-config": {
-      "interfaces": [ "$LAN_IF" ]
-    },
-    "lease-database": {
-      "type": "memfile",
-      "persist": true,
-      "name": "/var/lib/kea/kea-leases4.csv"
-    },
-    "valid-lifetime": 7200,
-    "max-valid-lifetime": 86400,
-    "subnet4": [
-      {
-        "id": 1,
-        "subnet": "${LAN_SUBNET_3OCT}.0/${LAN_PREFIX}",
-        "interface": "$LAN_IF",
-        "pools": [
-          { "pool": "${LAN_SUBNET_3OCT}.100 - ${LAN_SUBNET_3OCT}.200" }
-        ],
-        "option-data": [
-          {
-            "name": "routers",
-            "data": "$LAN_BASE_IP"
-          },
-          {
-            "name": "domain-name-servers",
-            "data": "$LAN_BASE_IP, 1.1.1.1, 8.8.8.8"
-          }
-        ]
-      }
-    ]
-  }
+    return 1
 }
-EOF
-    # Use --no-block to prevent deadlock during early boot
-    systemctl restart --no-block kea-dhcp4-server 2>/dev/null || true
-    echo "[micron-network] Kea DHCPv4 server active on $LAN_IF (${LAN_SUBNET_3OCT}.100 - ${LAN_SUBNET_3OCT}.200)."
 
-    # Configure Kea DHCPv6 if IPv6 enabled and static prefix present
-    if [ "$IPV6_SYSTEM_ENABLED" -eq 1 ] && [ -n "$LAN_IPV6" ]; then
-        LAN_V6_SUBNET=$(echo "$LAN_IPV6" | sed 's/::[0-9a-fA-F]*$/::/' | sed 's/:[0-9a-fA-F]*$/::/')
-        cat << EOF > /etc/kea/kea-dhcp6.conf
-{
-  "Dhcp6": {
-    "interfaces-config": {
-      "interfaces": [ "$LAN_IF" ]
-    },
-    "lease-database": {
-      "type": "memfile",
-      "persist": true,
-      "name": "/var/lib/kea/kea-leases6.csv"
-    },
-    "valid-lifetime": 7200,
-    "max-valid-lifetime": 86400,
-    "subnet6": [
-      {
-        "id": 1,
-        "subnet": "${LAN_V6_SUBNET}0/${LAN_IPV6_PREFIX}",
-        "interface": "$LAN_IF",
-        "pools": [
-          { "pool": "${LAN_V6_SUBNET}100 - ${LAN_V6_SUBNET}200" }
-        ],
-        "option-data": [
-          {
-            "name": "dns-servers",
-            "data": "${LAN_IPV6}, 2606:4700:4700::1111, 2001:4860:4860::8888"
-          }
-        ]
-      }
-    ]
-  }
+apply_plan() {
+    local plan=""
+    [ -s "$WORK/plan.json" ] && plan="$WORK/plan.json"
+    if command -v python3 >/dev/null 2>&1 && [ -f "$NETCFG" ]; then
+        python3 "$NETCFG" boot "$plan"
+        return $?
+    fi
+    return 2
 }
-EOF
-        systemctl restart --no-block kea-dhcp6-server 2>/dev/null || true
-        echo "[micron-network] Kea DHCPv6 server active on $LAN_IF."
+
+GENERATED=0
+gen_files && GENERATED=1
+[ "$GENERATED" -eq 1 ] || log "warning: could not build the plan from the database; using the last committed plan"
+
+# ----------------------------------------------------------- 3. addressing
+apply_plan
+rc=$?
+if [ "$rc" -eq 2 ]; then
+    # No usable plan at all (first boot with a broken database): safe
+    # defaults so the appliance stays reachable on the LAN. IPv6 stays off.
+    log "warning: no network plan; falling back to factory LAN 10.10.10.10/24"
+    if [ -n "$LAN_IF" ]; then
+        ip link set dev "$LAN_IF" up 2>/dev/null || true
+        ip addr replace 10.10.10.10/24 dev "$LAN_IF" 2>/dev/null || true
+    fi
+    if [ -n "$WAN_IF" ] && [ "$WAN_IF" != "$LAN_IF" ]; then
+        ip link set dev "$WAN_IF" up 2>/dev/null || true
+        command -v dhclient >/dev/null 2>&1 && dhclient -4 -nw -pf "/run/dhclient.${WAN_IF}.pid" "$WAN_IF" 2>/dev/null || true
+    fi
+fi
+
+# --------------------------------------- 4. WAN/LAN subnet conflict repair
+# A WAN lease inside the LAN subnet would black-hole the LAN. The LAN is
+# moved through the same dependency-aware path as an operator change (DHCP
+# pool, firewall/NAT references and DNS records follow), then re-applied.
+if [ "$GENERATED" -eq 1 ] && [ -n "$WAN_IF" ] && [ "$WAN_IF" != "$LAN_IF" ]; then
+    sleep 3
+    wan_ip=$(ip -4 -o addr show dev "$WAN_IF" 2>/dev/null | awk '{print $4}' | grep -v '^169\.254' | head -n1 || true)
+    lan_cidr=$(python3 -c "import json,sys;p=json.load(open('$WORK/plan.json'));print(next((i['ipv4'] or '') for i in p['interfaces'] if i['id']=='lan'))" 2>/dev/null || true)
+    if [ -n "$wan_ip" ] && [ -n "$lan_cidr" ]; then
+        if python3 - "$wan_ip" "$lan_cidr" <<'PY'
+import ipaddress, sys
+w = ipaddress.ip_interface(sys.argv[1]).network
+l = ipaddress.ip_interface(sys.argv[2]).network
+sys.exit(0 if w.overlaps(l) else 1)
+PY
+        then
+            alt="192.168.10.1/24"
+            python3 -c "import ipaddress,sys;sys.exit(0 if ipaddress.ip_interface('$wan_ip').network.overlaps(ipaddress.ip_network('192.168.10.0/24')) else 1)" && alt="172.31.254.1/24"
+            log "WARNING: WAN address $wan_ip overlaps the LAN ($lan_cidr); moving the LAN to $alt"
+            if (cd "$app_root" && php spark network set-address lan "$alt" --offline); then
+                gen_files && apply_plan || true
+            fi
+        fi
+    fi
+fi
+
+IPV6_ON=0
+[ -s "$WORK/ipv6.enabled" ] && [ "$(cat "$WORK/ipv6.enabled")" = "1" ] && IPV6_ON=1
+if [ "$GENERATED" -eq 0 ] && [ -r /proc/sys/net/ipv6/conf/all/disable_ipv6 ]; then
+    [ "$(cat /proc/sys/net/ipv6/conf/all/disable_ipv6)" = "0" ] && IPV6_ON=1
+fi
+
+# ------------------------------------------------------------- 5. DHCPv4
+if [ "$GENERATED" -eq 1 ] && [ "$(cat "$WORK/dhcp4.enabled" 2>/dev/null)" = "1" ]; then
+    if ! command -v kea-dhcp4 >/dev/null 2>&1 || kea-dhcp4 -t "$WORK/kea-dhcp4.conf" >/dev/null 2>&1; then
+        install -d /etc/kea /var/lib/kea
+        install -m 0600 "$WORK/kea-dhcp4.conf" /etc/kea/kea-dhcp4.conf
+        systemctl restart --no-block kea-dhcp4-server 2>/dev/null || true
+        log "DHCPv4 server configuration loaded from the database"
     else
-        systemctl stop --no-block kea-dhcp6-server 2>/dev/null || true
+        log "warning: generated DHCPv4 configuration rejected by kea-dhcp4 -t; keeping the previous one"
     fi
-else
-    echo "[micron-network] DHCP service is disabled. Stopping kea-dhcp4-server and kea-dhcp6-server..."
+elif [ "$GENERATED" -eq 1 ]; then
     systemctl stop --no-block kea-dhcp4-server 2>/dev/null || true
-    systemctl stop --no-block kea-dhcp6-server 2>/dev/null || true
+fi
+if [ "$IPV6_ON" -eq 0 ]; then
+    systemctl stop --no-block kea-dhcp6-server radvd 2>/dev/null || true
 fi
 
-# 7. Configure & Start Unbound DNS Resolver (Dual-Stack IPv4 & IPv6)
+# -------------------------------------------------------------- 6. Unbound
+# Base listener file owned by this script; the operator's resolver settings
+# live in /etc/unbound/unbound.conf.d/micron.conf (DNS page → micrond).
 mkdir -p /etc/unbound/unbound.conf.d
-cat << EOF > /etc/unbound/unbound.conf
-server:
-    verbosity: 1
-    interface: 0.0.0.0
-    interface: ::0
-    port: 53
-    do-ip4: yes
-    do-ip6: yes
-    do-udp: yes
-    do-tcp: yes
-    access-control: 127.0.0.0/8 allow
-    access-control: ::1/128 allow
-    access-control: 10.0.0.0/8 allow
-    access-control: 172.16.0.0/12 allow
-    access-control: 192.168.0.0/16 allow
-    access-control: fe80::/10 allow
-    access-control: fc00::/7 allow
-    access-control: 2000::/3 allow
-    access-control: 0.0.0.0/0 refuse
-    access-control: ::0/0 refuse
-    hide-identity: yes
-    hide-version: yes
-
-forward-zone:
-    name: "."
-    forward-addr: 1.1.1.1
-    forward-addr: 8.8.8.8
-    forward-addr: 9.9.9.9
-    forward-addr: 2606:4700:4700::1111
-    forward-addr: 2001:4860:4860::8888
-    forward-addr: 2620:fe::fe
-EOF
-
-# Use --no-block to prevent deadlock during early boot
-systemctl restart --no-block unbound 2>/dev/null || true
-
-# 8. Compile & Apply nftables Ruleset (Atomic Secure Firewall & Routing)
-NFT_COMPILED=0
-if [ -f "$app_root/spark" ] && command -v php >/dev/null 2>&1; then
-    if (cd "$app_root" && php spark firewall:compile > /tmp/nftables_raw.txt 2>/dev/null); then
-        sed -n '/=== Compiled nftables Ruleset ===/,/=== End of Ruleset ===/p' /tmp/nftables_raw.txt | sed '1d;$d' > /tmp/nftables_compiled.txt
-        if [ -s /tmp/nftables_compiled.txt ] && command -v nft >/dev/null 2>&1 && nft -c -f /tmp/nftables_compiled.txt 2>/dev/null; then
-            cp /tmp/nftables_compiled.txt /etc/nftables.conf
-            NFT_COMPILED=1
-        fi
+if [ -s /etc/unbound/unbound.conf.d/micron.conf ]; then
+{
+    echo "# Micron OS — the resolver is configured from the DNS page (unbound.conf.d/micron.conf)."
+    echo "include-toplevel: \"/etc/unbound/unbound.conf.d/*.conf\""
+} > /etc/unbound/unbound.conf.micron-new
+else
+{
+    echo "# Micron OS — base resolver listener (generated by micron-network; IPv6 $( [ $IPV6_ON -eq 1 ] && echo on || echo off ))"
+    echo "server:"
+    echo "    verbosity: 1"
+    echo "    interface: 0.0.0.0"
+    [ "$IPV6_ON" -eq 1 ] && echo "    interface: ::0"
+    echo "    port: 53"
+    echo "    do-ip4: yes"
+    echo "    do-ip6: $( [ $IPV6_ON -eq 1 ] && echo yes || echo no )"
+    echo "    do-udp: yes"
+    echo "    do-tcp: yes"
+    echo "    access-control: 127.0.0.0/8 allow"
+    echo "    access-control: 10.0.0.0/8 allow"
+    echo "    access-control: 172.16.0.0/12 allow"
+    echo "    access-control: 192.168.0.0/16 allow"
+    echo "    access-control: 100.64.0.0/10 allow"
+    if [ "$IPV6_ON" -eq 1 ]; then
+        echo "    access-control: ::1/128 allow"
+        echo "    access-control: fe80::/10 allow"
+        echo "    access-control: fc00::/7 allow"
+        echo "    access-control: 2000::/3 allow"
+        echo "    access-control: ::0/0 refuse"
     fi
+    echo "    access-control: 0.0.0.0/0 refuse"
+    echo "    hide-identity: yes"
+    echo "    hide-version: yes"
+    echo "include-toplevel: \"/etc/unbound/unbound.conf.d/*.conf\""
+} > /etc/unbound/unbound.conf.micron-new
+fi
+if ! command -v unbound-checkconf >/dev/null 2>&1 || unbound-checkconf /etc/unbound/unbound.conf.micron-new >/dev/null 2>&1; then
+    mv -f /etc/unbound/unbound.conf.micron-new /etc/unbound/unbound.conf
+    systemctl restart --no-block unbound 2>/dev/null || true
+else
+    log "warning: unbound rejected the generated base configuration; keeping the previous one"
+    rm -f /etc/unbound/unbound.conf.micron-new
 fi
 
-# Fallback robust atomic ruleset if spark was not available or output invalid
-if [ "$NFT_COMPILED" -eq 0 ]; then
-    cat << EOF > /etc/nftables.conf
+# ------------------------------------------------------------- 7. Firewall
+NFT_OK=0
+if [ "$GENERATED" -eq 1 ] && command -v nft >/dev/null 2>&1 && nft -c -f "$WORK/nftables.conf" 2>/dev/null; then
+    install -m 0644 "$WORK/nftables.conf" "$NFT_CONF"
+    NFT_OK=1
+fi
+if [ "$NFT_OK" -eq 0 ] && [ ! -s "$NFT_CONF" ] && [ -n "$LAN_IF" ]; then
+    # Last resort: minimal management-only ruleset (IPv6 dropped unless on).
+    SSH_PORT=22
+    WEB_PORT=443
+    if [ "$have_db" -eq 1 ]; then
+        db_ssh=$(sqlq "SELECT ssh_port FROM system_settings WHERE id=1 LIMIT 1;")
+        [ -n "$db_ssh" ] && [ "$db_ssh" -gt 0 ] 2>/dev/null && SSH_PORT="$db_ssh"
+        db_web=$(sqlq "SELECT webgui_port FROM system_settings WHERE id=1 LIMIT 1;")
+        [ -n "$db_web" ] && [ "$db_web" -gt 0 ] 2>/dev/null && WEB_PORT="$db_web"
+    fi
+    v6rule='meta nfproto ipv6 drop comment "IPv6 disabled"'
+    [ "$IPV6_ON" -eq 1 ] && v6rule='ip6 nexthdr icmpv6 accept'
+    cat > "$NFT_CONF" <<EOF
 #!/usr/sbin/nft -f
 flush ruleset
-
 table inet micron_filter {
     chain input {
         type filter hook input priority filter; policy drop;
-
-        # Established and related return traffic
         ct state established,related accept
         ct state invalid drop
-
-        # Loopback interface
         iifname "lo" accept
-
-        # ICMP IPv4 (Echo, Unreachable, Time Exceeded)
+        $v6rule
         ip protocol icmp icmp type { echo-request, destination-unreachable, time-exceeded } limit rate 50/second accept
-
-        # ICMPv6 (RFC 4890 compliant: NDP, RA, RS, NS, NA, Echo, Packet Too Big)
-        ip6 nexthdr icmpv6 accept comment "Allow ICMPv6 (NDP, RA, NS, NA, Packet Too Big)"
-
-        # DHCP Client on WAN (Allow upstream DHCPv4 & DHCPv6 replies)
-        iifname "$WAN_IF" udp dport 68 accept comment "WAN DHCPv4 client"
-        iifname "$WAN_IF" udp dport 546 accept comment "WAN DHCPv6 client"
-
-        # WAN Inbound Security: Drop all unsolicited probes and scans from WAN
-        iifname "$WAN_IF" counter drop comment "WAN Security: Drop unsolicited inbound WAN traffic"
-
-        # Management Plane: WebGUI (80, 443, 8443) & SSH (22) from LAN ONLY
-        iifname "$LAN_IF" tcp dport { 80, 443, 8443, 22 } accept comment "Allow WebGUI and SSH from LAN only"
-
-        # Core Services: DNS (53), DHCPv4 (67), DHCPv6 (547) from LAN ONLY
-        iifname "$LAN_IF" udp dport { 53, 67, 547 } accept comment "Allow DNS, DHCPv4, DHCPv6 from LAN only"
-        iifname "$LAN_IF" tcp dport 53 accept comment "Allow DNS TCP from LAN only"
-
-        # VPN services
-        udp dport 51820 accept comment "WireGuard"
-        udp dport { 500, 4500 } accept comment "IPsec"
-        ip protocol esp accept comment "IPsec ESP"
+        iifname "$WAN_IF" udp dport 68 accept
+        iifname "$LAN_IF" tcp dport { 80, 443, 22, $WEB_PORT, $SSH_PORT } accept
+        iifname "$LAN_IF" udp dport { 53, 67 } accept
+        iifname "$LAN_IF" tcp dport 53 accept
     }
-
     chain forward {
         type filter hook forward priority filter; policy drop;
-
-        # Connection tracking
         ct state established,related accept
-        ct state invalid drop
-
-        # ICMPv6 forwarding (Packet Too Big for MTU discovery)
-        ip6 nexthdr icmpv6 accept comment "Allow ICMPv6 forward"
-
-        # WireGuard tunnels
-        iifname "wg+" accept
-        oifname "wg+" accept
-
-        # Standard Router Forwarding: Allow all traffic originating from LAN to WAN / Internet
-        iifname "$LAN_IF" accept comment "Allow LAN to Internet Forwarding"
+        iifname "$LAN_IF" accept
     }
-
-    chain output {
-        type filter hook output priority filter; policy accept;
-    }
+    chain output { type filter hook output priority filter; policy accept; }
 }
-
 table inet micron_nat {
-    chain prerouting {
-        type nat hook prerouting priority dstnat; policy accept;
-    }
-
     chain postrouting {
         type nat hook postrouting priority srcnat; policy accept;
-
-        # Outbound NAT Masquerade on WAN
-        oifname "$WAN_IF" masquerade comment "WAN Outbound NAT"
+        oifname "$WAN_IF" masquerade
     }
 }
 EOF
 fi
+nft -f "$NFT_CONF" 2>/dev/null || log "warning: nftables ruleset failed to load"
 
-nft -f /etc/nftables.conf 2>/dev/null || true
-
-# 9. Refresh Login Banners
-if [ -x /usr/local/bin/micron-banner ]; then
-    /usr/local/bin/micron-banner 2>/dev/null || true
-fi
-
-echo "[micron-network] Appliance networking initialized successfully."
+[ -x /usr/local/bin/micron-banner ] && /usr/local/bin/micron-banner 2>/dev/null || true
+log "network initialised (IPv6 $( [ $IPV6_ON -eq 1 ] && echo on || echo off ))"
 exit 0

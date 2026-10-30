@@ -95,7 +95,7 @@ details.ds-advanced[open] > summary { margin-bottom:14px; color:var(--text-prima
     <div style="padding:12px; background:rgba(255,255,255,0.02); border-radius:8px; border:1px solid rgba(255,255,255,0.04);">
       <div style="font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; font-weight:600;">Web Console Port</div>
       <div id="dsPort" style="font-size:1.25rem; font-weight:700; color:var(--color-emerald, #10b981); margin-top:4px; font-family:var(--font-mono);">—</div>
-      <div style="font-size:0.72rem; color:var(--text-muted); margin-top:2px;">HTTP dashboard port</div>
+      <div id="dsListen" style="font-size:0.72rem; color:var(--text-muted); margin-top:2px;">HTTP dashboard port</div>
     </div>
 
     <div style="padding:12px; background:rgba(255,255,255,0.02); border-radius:8px; border:1px solid rgba(255,255,255,0.04);">
@@ -134,8 +134,10 @@ details.ds-advanced[open] > summary { margin-bottom:14px; color:var(--text-prima
 
       <div>
         <label for="dsInterface" style="font-weight:600; font-size:0.82rem;">Capture interface(s) *</label>
-        <input type="text" id="dsInterface" name="interface" placeholder="e.g. eth0 or eth0, eth1" spellcheck="false" required class="form-control" style="margin-top:4px;">
-        <div class="ds-field-hint">One interface name, or several separated by commas.</div>
+        <?php $dsNics = $nics ?? []; ?>
+        <input type="text" id="dsInterface" name="interface" list="dsNicList" placeholder="<?= esc($dsNics !== [] ? implode(', ', array_slice($dsNics, 0, 2)) : 'e.g. enp1s0') ?>" spellcheck="false" required class="form-control" style="margin-top:4px;">
+        <datalist id="dsNicList"><?php foreach ($dsNics as $nic): ?><option value="<?= esc($nic) ?>"><?php endforeach; ?></datalist>
+        <div class="ds-field-hint">One interface name, or several separated by commas.<?php if ($dsNics !== []): ?> Present on this appliance: <code><?= esc(implode(', ', $dsNics)) ?></code><?php endif; ?></div>
       </div>
 
       <div>
@@ -250,6 +252,13 @@ function dsRender(result) {
   dsSet('dsDropin', data.dropin_present ? 'Active' : 'Not generated', 'Absent');
   dsSet('dsIfaces', (data.interfaces || []).join(', '), 'None');
   dsSet('dsPort', data.port ? data.port : '666', '666');
+  if (data.listening === true) {
+    dsSet('dsListen', 'Listening — reachable from the LAN');
+  } else if (data.listening === false) {
+    dsSet('dsListen', 'Not answering on this port');
+  } else {
+    dsSet('dsListen', 'HTTP dashboard port');
+  }
   dsSet('dsApplied', data.applied_at ? 'Applied: ' + data.applied_at : (data.dropin_present ? '—' : 'Never applied'));
 
   // Update console button href to point directly to darkstat web port on current host

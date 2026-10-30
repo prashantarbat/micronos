@@ -42,17 +42,22 @@ class DosPolicy extends BaseController
     public function index(): string
     {
         $policies   = $this->policyModel->orderBy('created_at', 'ASC')->findAll();
-        $interfaces = $this->interfaceModel->findAll();
+        $db = \Config\Database::connect();
+        $physicalInterfaces = $this->interfaceModel->findAll();
+        $vpnInterfaces      = \App\Libraries\VpnInterfaceProvider::getVpnInterfaces($db);
+        $interfaces         = \App\Libraries\VpnInterfaceProvider::getUnifiedInterfaces($db);
         $presets    = DosPolicyModel::getPresets();
         $schedules  = (new ScheduleModel())->orderBy('name', 'ASC')->findAll();
 
         return view('firewall/dos', [
-            'title'      => 'DDoS & DoS Protection Policies — MicronOS',
-            'breadcrumb' => 'Policy: DoS Policies',
-            'policies'   => $policies,
-            'interfaces' => $interfaces,
-            'presets'    => $presets,
-            'schedules'  => $schedules,
+            'title'              => 'DDoS & DoS Protection Policies — MicronOS',
+            'breadcrumb'         => 'Policy: DoS Policies',
+            'policies'           => $policies,
+            'interfaces'         => $interfaces,
+            'physicalInterfaces' => $physicalInterfaces,
+            'vpnInterfaces'      => $vpnInterfaces,
+            'presets'            => $presets,
+            'schedules'          => $schedules,
         ]);
     }
 
@@ -203,8 +208,9 @@ class DosPolicy extends BaseController
             $resp = $this->ipc->call('firewall.apply', [
                 'table'     => 'filter',
                 'ruleset'   => $ruleset,
-                'safe_mode' => true,
+                'safe_mode' => false,
             ]);
+            $this->ipc->call('firewall.confirm');
 
             if (! empty($resp['error'])) {
                 return redirect()->to(base_url('firewall/dos'))

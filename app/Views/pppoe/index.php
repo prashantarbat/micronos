@@ -237,15 +237,15 @@
 <?php endif; ?>
 
 <!-- Server Modal -->
-<div class="modal-backdrop" id="serverModal">
-  <div class="modal" style="max-width:620px;">
-    <div class="modal-header">
+<div class="rt-modal-backdrop" id="serverModal">
+  <div class="rt-modal-dialog" style="max-width:620px;">
+    <div class="rt-modal-header">
       <span id="serverModalTitle" style="font-weight:700;">Add PPPoE Server</span>
       <button type="button" onclick="closeModal('serverModal')" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:1.3rem;">&times;</button>
     </div>
-    <form method="POST" id="serverForm" action="<?= base_url('pppoe/servers/store') ?>">
+    <form method="POST" id="serverForm" action="<?= base_url('pppoe/servers/store') ?>" style="display:flex; flex-direction:column; flex:1; overflow:hidden; min-height:0;">
       <?= csrf_field() ?>
-      <div class="modal-body">
+      <div class="rt-modal-body">
         <div class="form-group">
           <label class="form-label" for="srvName">Server Name <span style="color:var(--color-red);">*</span></label>
           <input type="text" id="srvName" name="name" class="form-control" required placeholder="PPPoE_LAN">
@@ -387,7 +387,7 @@
 
         <input type="hidden" name="enabled" value="1" id="srvEnabled">
       </div>
-      <div class="modal-footer">
+      <div class="rt-modal-footer">
         <button type="button" class="btn btn-ghost" onclick="closeModal('serverModal')">Cancel</button>
         <button type="submit" class="btn btn-primary" id="serverSubmit">Create Server</button>
       </div>
@@ -396,15 +396,15 @@
 </div>
 
 <!-- RADIUS Test Modal -->
-<div class="modal-backdrop" id="radiusTestModal">
-  <div class="modal" style="max-width:480px;">
-    <div class="modal-header">
+<div class="rt-modal-backdrop" id="radiusTestModal">
+  <div class="rt-modal-dialog" style="max-width:480px;">
+    <div class="rt-modal-header">
       <span style="font-weight:700;">Test RADIUS Authentication</span>
       <button type="button" onclick="closeModal('radiusTestModal')" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:1.3rem;">&times;</button>
     </div>
-    <form method="POST" id="radiusTestForm" action="">
+    <form method="POST" id="radiusTestForm" action="" style="display:flex; flex-direction:column; flex:1; overflow:hidden; min-height:0;">
       <?= csrf_field() ?>
-      <div class="modal-body">
+      <div class="rt-modal-body">
         <div style="font-size:0.78rem; color:var(--text-muted); margin-bottom:14px;">
           Sends a single Access-Request to
           <strong id="rtServer" style="color:var(--text-secondary); font-family:var(--font-mono);"></strong>
@@ -420,7 +420,7 @@
           <div class="form-hint">The credential is sent to the RADIUS server for one request and not stored.</div>
         </div>
       </div>
-      <div class="modal-footer">
+      <div class="rt-modal-footer">
         <button type="button" class="btn btn-ghost" onclick="closeModal('radiusTestModal')">Cancel</button>
         <button type="submit" class="btn btn-primary">Send Test Request</button>
       </div>
@@ -429,16 +429,16 @@
 </div>
 
 <!-- Subscriber Modal -->
-<div class="modal-backdrop" id="userModal">
-  <div class="modal" style="max-width:560px;">
-    <div class="modal-header">
+<div class="rt-modal-backdrop" id="userModal">
+  <div class="rt-modal-dialog" style="max-width:560px;">
+    <div class="rt-modal-header">
       <span style="font-weight:700;">Add Subscriber</span>
       <button type="button" onclick="closeModal('userModal')" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:1.3rem;">&times;</button>
     </div>
-    <form method="POST" id="userForm" action="<?= base_url('pppoe/users/store') ?>">
+    <form method="POST" id="userForm" action="<?= base_url('pppoe/users/store') ?>" style="display:flex; flex-direction:column; flex:1; overflow:hidden; min-height:0;">
       <?= csrf_field() ?>
       <input type="hidden" name="server_id" id="usrServerId">
-      <div class="modal-body">
+      <div class="rt-modal-body">
         <div style="font-size:0.78rem; color:var(--text-muted); margin-bottom:14px;">
           Subscriber on <strong id="usrServerName" style="color:var(--text-secondary);"></strong>
         </div>
@@ -478,7 +478,7 @@
         </div>
         <input type="hidden" name="enabled" value="1">
       </div>
-      <div class="modal-footer">
+      <div class="rt-modal-footer">
         <button type="button" class="btn btn-ghost" onclick="closeModal('userModal')">Cancel</button>
         <button type="submit" class="btn btn-primary">Add Subscriber</button>
       </div>
@@ -581,11 +581,9 @@ function showToast(message, type) {
 
 function openModal(id) { document.getElementById(id).classList.add('active'); }
 function closeModal(id) { document.getElementById(id).classList.remove('active'); }
-document.querySelectorAll('.modal-backdrop').forEach(function(m) {
-  m.addEventListener('click', function(e) { if (e.target === this) this.classList.remove('active'); });
-});
+
 document.addEventListener('keydown', function(e) {
-  if (e.key === 'Escape') document.querySelectorAll('.modal-backdrop.active').forEach(function(m) { m.classList.remove('active'); });
+  if (e.key === 'Escape') document.querySelectorAll('.rt-modal-backdrop.active').forEach(function(m) { m.classList.remove('active'); });
 });
 
 // ── RADIUS fields visibility ──

@@ -1,0 +1,31 @@
+[Unit]
+Description=Micron OS Clientless Gateway WebSocket tunnel to guacd (micron-guacd-bridge)
+After=network.target local-fs.target
+Wants=guacd.service
+StartLimitIntervalSec=60s
+StartLimitBurst=5
+# Independent of the Web UI and of micrond: if it fails, only the in-browser
+# RDP/SSH/VNC viewer is affected.
+
+[Service]
+Type=simple
+# The token signing key is shared with PHP (www-data), so it is created as
+# root before the unprivileged service starts.
+ExecStartPre=+/usr/bin/python3 /usr/local/micron/system/micron-guacd-bridge --ensure-key
+ExecStart=/usr/bin/python3 /usr/local/micron/system/micron-guacd-bridge
+DynamicUser=yes
+SupplementaryGroups=www-data
+Restart=always
+RestartSec=2s
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+MemoryMax=256M
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

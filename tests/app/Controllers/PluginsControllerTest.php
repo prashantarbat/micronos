@@ -1077,6 +1077,39 @@ final class PluginsControllerTest extends BaseTestCase
         $this->assertSame(20, $params['hosts_keep']);
     }
 
+    public function testDarkstatApplyOpensItsWebPortOnTheLanAndClosesItWhenDisabled(): void
+    {
+        $this->installRow('darkstat');
+
+        $ipc = new FakeIpcClient([
+            'plugin.darkstat.apply' => ['result' => ['success' => true, 'message' => 'darkstat is capturing'], 'error' => null],
+            'firewall.apply'        => ['result' => ['status' => 'applied'], 'error' => null],
+        ]);
+        Services::injectMock('ipc', $ipc);
+
+        $this->post('plugins/darkstat/apply', $this->csrf(['enabled' => '1', 'interface' => 'enp7s0', 'port' => '666']))
+            ->assertOK();
+
+        $row = $this->db->table('plugin_settings')->where('plugin_id', 'darkstat')->where('setting_key', 'web_port')->get()->getRowArray();
+        $this->assertSame('666', (string) ($row['value'] ?? ''), 'the web port is recorded for the firewall compiler');
+
+        $fw = array_values(array_filter($ipc->calls, static fn ($c) => $c['method'] === 'firewall.apply'));
+        $this->assertCount(1, $fw, 'the ruleset is reloaded so the port is reachable');
+        $this->assertMatchesRegularExpression('/tcp dport 666 accept comment "darkstat web UI \(plugin\)/', $fw[0]['params']['ruleset']);
+        $this->assertDoesNotMatchRegularExpression('/iifname "eth0" tcp dport 666/', $fw[0]['params']['ruleset'], 'never opened on the WAN');
+
+        // Applying the same port again does not reload the firewall.
+        $this->post('plugins/darkstat/apply', $this->csrf(['enabled' => '1', 'interface' => 'enp7s0', 'port' => '666']))->assertOK();
+        $this->assertCount(1, array_filter($ipc->calls, static fn ($c) => $c['method'] === 'firewall.apply'));
+
+        // Disabling closes it again.
+        $this->post('plugins/darkstat/apply', $this->csrf(['enabled' => '0', 'interface' => 'enp7s0', 'port' => '666']))->assertOK();
+        $this->assertNull($this->db->table('plugin_settings')->where('plugin_id', 'darkstat')->where('setting_key', 'web_port')->get()->getRowArray());
+        $fw = array_values(array_filter($ipc->calls, static fn ($c) => $c['method'] === 'firewall.apply'));
+        $this->assertCount(2, $fw);
+        $this->assertStringNotContainsString('dport 666', $fw[1]['params']['ruleset']);
+    }
+
     public function testTheLightsquidPageRendersTheSettingsForm(): void
     {
         $this->installRow('lightsquid');

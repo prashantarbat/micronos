@@ -6,6 +6,7 @@
   <div class="page-header-content">
     <div style="display:flex; align-items:center; gap:10px;">
       <h1 class="page-title">High Availability &amp; Stateful Failover</h1>
+      <span class="badge badge-warning" style="font-size:0.75rem;" title="Configuration is not yet synchronised to the peer node">PREVIEW</span>
       <span class="badge badge-info" style="font-size:0.75rem;"><?= count($vips) ?> VIPs</span>
       <span class="badge <?= !empty($settings['enabled']) ? 'badge-success' : 'badge-muted' ?>" style="font-size:0.75rem;">
         <?= !empty($settings['enabled']) ? 'VRRP ACTIVE' : 'DISABLED' ?>
@@ -15,6 +16,10 @@
       </span>
     </div>
     <p class="page-subtitle">Active-Passive VRRP cluster redundancy, Virtual IP (VIP) sharing, and conntrackd state table replication</p>
+    <div class="alert alert-warning" style="margin-top:12px; font-size:0.82rem;">
+      <strong>Preview in 1.0:</strong> VRRP failover and state replication work, but firewall and service configuration is not yet copied to the peer.
+      Make the same configuration changes on both nodes (or restore the same backup on each) until configuration sync arrives in a later release.
+    </div>
   </div>
   <div class="page-header-actions">
     <?= \App\Libraries\ServiceStatus::widget(['keepalived', 'conntrackd']) ?>
@@ -67,19 +72,134 @@
   </div>
 <?php endif; ?>
 
+<style>
+/* ── High Availability Metric Cards & Grid Alignment ── */
+.ha-stats-grid {
+  display: grid !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  gap: 16px;
+  margin-bottom: 24px;
+  width: 100%;
+}
+@media (max-width: 1200px) {
+  .ha-stats-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+}
+@media (max-width: 640px) {
+  .ha-stats-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+.ha-stats-grid .stat-card {
+  display: flex !important;
+  flex-direction: column !important;
+  height: 100% !important;
+  min-height: 172px;
+  padding: 20px 22px;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg, 12px);
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+.ha-stats-grid .stat-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--color-border-bright);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
+}
+.ha-stats-grid .stat-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  z-index: 1;
+}
+.ha-stats-grid .stat-card.emerald::before { background: linear-gradient(90deg, transparent 5%, var(--color-emerald) 50%, transparent 95%); }
+.ha-stats-grid .stat-card.cyan::before    { background: linear-gradient(90deg, transparent 5%, var(--color-cyan) 50%, transparent 95%); }
+.ha-stats-grid .stat-card.amber::before   { background: linear-gradient(90deg, transparent 5%, var(--color-amber) 50%, transparent 95%); }
+.ha-stats-grid .stat-card.purple::before  { background: linear-gradient(90deg, transparent 5%, var(--color-purple) 50%, transparent 95%); }
+
+.ha-stats-grid .stat-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 14px;
+  flex-shrink: 0;
+}
+.ha-stats-grid .stat-value {
+  font-size: 1.55rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+  margin-bottom: 5px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.ha-stats-grid .stat-label {
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  font-weight: 600;
+  line-height: 1.35;
+  margin-bottom: 12px;
+}
+.ha-stats-grid .stat-sublabel {
+  font-size: 0.73rem;
+  color: var(--text-muted);
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  line-height: 1.4;
+}
+.ha-stats-grid .stat-sublabel code {
+  font-size: 0.72rem;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--color-surface-3);
+  border: 1px solid var(--color-border);
+  color: var(--text-primary);
+  font-family: var(--font-mono, monospace);
+}
+.ha-stats-grid .stat-sep {
+  opacity: 0.35;
+  display: inline-block;
+  margin: 0 1px;
+}
+</style>
+
 <!-- ── Summary Metric Cards ── -->
 <div class="ha-stats-grid animate-in animate-in-delay-1">
-  <div class="stat-card <?= (($settings['mode'] ?? 'master') === 'master') ? 'emerald' : 'cyan' ?>">
-    <div class="stat-icon <?= (($settings['mode'] ?? 'master') === 'master') ? 'emerald' : 'cyan' ?>">
+  <?php $isMaster = (($settings['mode'] ?? 'master') === 'master'); ?>
+  <div class="stat-card <?= $isMaster ? 'emerald' : 'cyan' ?>">
+    <div class="stat-icon <?= $isMaster ? 'emerald' : 'cyan' ?>">
       <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
         <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
       </svg>
     </div>
-    <div class="stat-value" style="color:<?= (($settings['mode'] ?? 'master') === 'master') ? 'var(--color-emerald)' : 'var(--color-cyan)' ?>;">
+    <div class="stat-value" style="color:<?= $isMaster ? 'var(--color-emerald)' : 'var(--color-cyan)' ?>;">
       <?= strtoupper($settings['mode'] ?? 'MASTER') ?>
+      <span class="badge <?= $isMaster ? 'badge-success' : 'badge-info' ?>" style="font-size:0.62rem; font-weight:700; padding:2px 6px; letter-spacing:0.04em;">
+        <?= $isMaster ? 'ACTIVE' : 'STANDBY' ?>
+      </span>
     </div>
     <div class="stat-label">Local Node Cluster State</div>
-    <div class="stat-sublabel">Node: <?= esc($settings['node_name'] ?? 'node-01') ?> &bull; Priority <?= esc($settings['vrrp_priority'] ?? 110) ?></div>
+    <div class="stat-sublabel">
+      <span>Node: <strong style="color:var(--text-primary); font-weight:600;"><?= esc($settings['node_name'] ?? 'node-01') ?></strong></span>
+      <span class="stat-sep">&bull;</span>
+      <span>Priority <?= esc($settings['vrrp_priority'] ?? 110) ?></span>
+    </div>
   </div>
 
   <div class="stat-card cyan">
@@ -89,10 +209,14 @@
       </svg>
     </div>
     <div class="stat-value" style="color:var(--color-cyan);">
-      <?= $haStatus['conntrackd']['synced_flows'] ?? 482 ?> Flows
+      <?= esc((string) ($haStatus['conntrackd']['synced_flows'] ?? '—')) ?> Flows
     </div>
     <div class="stat-label">conntrackd Kernel Replication</div>
-    <div class="stat-sublabel">Sync Link: <?= esc($settings['conntrackd_interface'] ?? 'sync0') ?> &bull; Peer: <?= esc($settings['peer_sync_ip'] ?? '10.254.254.2') ?></div>
+    <div class="stat-sublabel">
+      <span>Sync: <code><?= esc($settings['conntrackd_interface'] ?? 'sync0') ?></code></span>
+      <span class="stat-sep">&bull;</span>
+      <span>Peer: <code><?= esc($settings['peer_sync_ip'] ?? '10.254.254.2') ?></code></span>
+    </div>
   </div>
 
   <div class="stat-card amber">
@@ -105,7 +229,9 @@
       <?= count($vips) ?> VIPs Active
     </div>
     <div class="stat-label">Virtual Router (VRRPv3)</div>
-    <div class="stat-sublabel">Redundancy for LAN, WAN gateways</div>
+    <div class="stat-sublabel">
+      <span>Redundancy for LAN &amp; WAN gateways</span>
+    </div>
   </div>
 
   <div class="stat-card purple">
@@ -115,10 +241,14 @@
       </svg>
     </div>
     <div class="stat-value" style="color:var(--color-purple);">
-      <?= !empty($settings['config_sync_enabled']) ? 'In Sync' : 'Standby' ?>
+      <?= !empty($settings['config_sync_enabled']) ? 'Configured' : 'Off' ?>
     </div>
     <div class="stat-label">Peer Config Replication</div>
-    <div class="stat-sublabel">TLS Encrypted &bull; Peer: <?= esc($settings['config_sync_peer_ip'] ?? '10.254.254.2') ?></div>
+    <div class="stat-sublabel">
+      <span>TLS Encrypted</span>
+      <span class="stat-sep">&bull;</span>
+      <span>Peer: <code><?= esc($settings['config_sync_peer_ip'] ?? '10.254.254.2') ?></code></span>
+    </div>
   </div>
 </div>
 
@@ -364,7 +494,7 @@
           <label style="display:block; font-size:0.75rem; font-weight:600; text-transform:uppercase; color:var(--text-secondary); margin-bottom:6px;">
             VRRP Authentication Secret
           </label>
-          <input type="password" name="vrrp_auth_pass" value="<?= esc($settings['vrrp_auth_pass'] ?? 'VRRP_S3cur3Key') ?>" required autocomplete="new-password" spellcheck="false"
+          <input type="password" name="vrrp_auth_pass" value="" placeholder="<?= ! empty($settings['vrrp_auth_pass']) ? '•••••••• (unchanged — type to replace)' : 'Up to 8 characters' ?>" maxlength="8" autocomplete="new-password" spellcheck="false" aria-describedby="vrrpPassHelp"
                  style="width:100%; background:var(--color-surface-3); border:1px solid var(--color-border); color:var(--text-primary); padding:8px 12px; border-radius:var(--radius-sm); font-size:0.875rem; font-family:var(--font-mono);">
         </div>
 
@@ -440,12 +570,10 @@
     <input type="hidden" name="vrrp_router_id" value="<?= esc($settings['vrrp_router_id']) ?>">
     <input type="hidden" name="vrrp_interface" value="<?= esc($settings['vrrp_interface']) ?>">
     <input type="hidden" name="vrrp_priority" value="<?= esc($settings['vrrp_priority']) ?>">
-    <input type="hidden" name="vrrp_auth_pass" value="<?= esc($settings['vrrp_auth_pass']) ?>">
     <input type="hidden" name="preempt" value="<?= esc($settings['preempt']) ?>">
     <input type="hidden" name="enabled" value="<?= esc($settings['enabled']) ?>">
     <input type="hidden" name="config_sync_enabled" value="<?= esc($settings['config_sync_enabled']) ?>">
     <input type="hidden" name="config_sync_peer_ip" value="<?= esc($settings['config_sync_peer_ip']) ?>">
-    <input type="hidden" name="config_sync_api_key" value="<?= esc($settings['config_sync_api_key']) ?>">
 
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px; align-items:start;">
       <div class="card card-glass animate-in animate-in-delay-1" style="padding:20px;">
@@ -512,7 +640,7 @@
 
           <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 14px; background:var(--color-surface-2); border:1px solid var(--color-border); border-radius:var(--radius-sm);">
             <span style="font-size:0.8125rem; color:var(--text-secondary);">Current Synced Sessions:</span>
-            <span style="font-family:var(--font-mono); font-size:0.85rem; font-weight:700; color:var(--color-emerald);"><?= $haStatus['conntrackd']['synced_flows'] ?? 482 ?></span>
+            <span style="font-family:var(--font-mono); font-size:0.85rem; font-weight:700; color:var(--color-emerald);"><?= esc((string) ($haStatus['conntrackd']['synced_flows'] ?? '—')) ?></span>
           </div>
 
           <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 14px; background:var(--color-surface-2); border:1px solid var(--color-border); border-radius:var(--radius-sm);">
@@ -542,7 +670,6 @@
     <input type="hidden" name="vrrp_router_id" value="<?= esc($settings['vrrp_router_id']) ?>">
     <input type="hidden" name="vrrp_interface" value="<?= esc($settings['vrrp_interface']) ?>">
     <input type="hidden" name="vrrp_priority" value="<?= esc($settings['vrrp_priority']) ?>">
-    <input type="hidden" name="vrrp_auth_pass" value="<?= esc($settings['vrrp_auth_pass']) ?>">
     <input type="hidden" name="preempt" value="<?= esc($settings['preempt']) ?>">
     <input type="hidden" name="enabled" value="<?= esc($settings['enabled']) ?>">
     <input type="hidden" name="conntrackd_enabled" value="<?= esc($settings['conntrackd_enabled']) ?>">
@@ -575,7 +702,7 @@
           <label style="display:block; font-size:0.75rem; font-weight:600; text-transform:uppercase; color:var(--text-secondary); margin-bottom:6px;">
             Shared Sync API Key / Token <span style="color:var(--color-red);">*</span>
           </label>
-          <input type="password" name="config_sync_api_key" value="<?= esc($settings['config_sync_api_key'] ?? '') ?>" required autocomplete="new-password" spellcheck="false"
+          <input type="password" name="config_sync_api_key" value="" placeholder="<?= ! empty($settings['config_sync_api_key']) ? '•••••••• (unchanged — type to replace)' : 'Shared secret' ?>" autocomplete="new-password" spellcheck="false"
                  style="width:100%; background:var(--color-surface-3); border:1px solid var(--color-border); color:var(--text-primary); padding:8px 12px; border-radius:var(--radius-sm); font-size:0.875rem; font-family:var(--font-mono);">
           <div style="font-size:0.72rem; color:var(--text-muted); margin-top:4px;">Must be identical on both nodes to authorize encrypted policy synchronization.</div>
         </div>
@@ -824,13 +951,6 @@ document.addEventListener('keydown', e => {
   }
 });
 
-document.querySelectorAll('.mno-modal-backdrop').forEach(modal => {
-  modal.addEventListener('click', e => {
-    if (e.target === modal) {
-      modal.classList.remove('active');
-    }
-  });
-});
 </script>
 
 <?= $this->endSection() ?>

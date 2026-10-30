@@ -2,6 +2,7 @@
 
 namespace App\Controllers;
 
+use App\Libraries\DefaultCredentials;
 use App\Libraries\IntendedUrl;
 use App\Models\UserModel;
 use App\Models\PermissionModel;
@@ -71,12 +72,17 @@ class Auth extends BaseController
                 ->with('error', 'Your account has been disabled. Contact your administrator.');
         }
 
+        // Still on the factory password: sign-in completes, but every page
+        // except the password change is closed until it is replaced.
+        $factoryPassword = DefaultCredentials::isFactoryPassword((string) $password);
+
         // ---- 2FA check ----
         if ((int) ($user['totp_enabled'] ?? 0) === 1) {
             // Store pending user in session (not fully logged in yet)
             session()->set([
                 'totp_pending_user_id' => $user['id'],
                 'totp_pending_username'=> $user['username'],
+                'totp_pending_factory_password' => $factoryPassword,
             ]);
 
             log_message('info', "[Auth] TOTP challenge required for user: {$username}");
@@ -84,7 +90,11 @@ class Auth extends BaseController
         }
 
         // ---- No 2FA — complete login ----
-        $this->completeLogin($user);
+        $this->completeLogin($user, $factoryPassword);
+
+        if ($factoryPassword) {
+            return $this->forcePasswordChange();
+        }
 
         // Consumes the remembered destination and guarantees a routable one:
         // a stale POST address never turns into a 404 straight after sign-in.
@@ -140,9 +150,15 @@ class Auth extends BaseController
         }
 
         // Clear pending state and complete login
+        $factoryPassword = (bool) session()->get('totp_pending_factory_password');
         session()->remove('totp_pending_user_id');
         session()->remove('totp_pending_username');
-        $this->completeLogin($user);
+        session()->remove('totp_pending_factory_password');
+        $this->completeLogin($user, $factoryPassword);
+
+        if ($factoryPassword) {
+            return $this->forcePasswordChange();
+        }
 
         $redirectUrl = IntendedUrl::take(session());
 
@@ -155,6 +171,16 @@ class Auth extends BaseController
     public function logout(): \CodeIgniter\HTTP\RedirectResponse
     {
         $username = session()->get('username') ?? 'unknown';
+        $userId   = (string) (session()->get('user_id') ?? '');
+
+        // Root terminals live only as long as the sign-in that authorised
+        // them; standard ones stay reattachable until their own idle timeout.
+        if ($userId !== '') {
+            try {
+                \Config\Services::terminalClient()->revokeUser($userId, 'signed out', 'admin');
+            } catch (\Throwable) {
+            }
+        }
 
         // Destroy session completely
         session()->destroy();
@@ -180,7 +206,7 @@ class Auth extends BaseController
         $settings   = (new \App\Models\SystemSettingsModel())->getSettings();
         $appearance = config('Appearance');
 
-        $theme = in_array($settings['theme'] ?? '', $appearance->ids(), true) ? $settings['theme'] : 'dark';
+        $theme = $appearance->resolveTheme($settings['theme'] ?? null);
         if (session()->has('ui_theme') && in_array(session()->get('ui_theme'), $appearance->ids(), true)) {
             $theme = session()->get('ui_theme');
         }
@@ -193,10 +219,17 @@ class Auth extends BaseController
         ];
     }
 
+    /** Send a user who signed in with the factory password to change it. */
+    private function forcePasswordChange(): \CodeIgniter\HTTP\RedirectResponse
+    {
+        return redirect()->to(base_url('profile'))->with('warning',
+            'This account still uses the factory default password. Choose a new password to continue.');
+    }
+
     /**
      * Populate session with user data and pre-computed permissions.
      */
-    private function completeLogin(array $user): void
+    private function completeLogin(array $user, bool $factoryPassword = false): void
     {
         $permModel   = new PermissionModel();
         $permissions = $permModel->getEffectiveKeysForUser($user['id']);
@@ -223,6 +256,11 @@ class Auth extends BaseController
             'logged_in_at'       => time(),
         ]);
 
+        if ($factoryPassword) {
+            session()->set(DefaultCredentials::SESSION_FLAG, true);
+            log_message('warning', "[Auth] {$user['username']} signed in with the factory password; a change is required");
+        }
+
         log_message('info', "[Auth] Login successful: {$user['username']} | is_superadmin: " . ($isSuperadmin ? 'YES' : 'NO') . " | permissions: " . count($permissions));
     }
 
@@ -232,8 +270,9 @@ class Auth extends BaseController
      *
      * NOTE: On the real appliance, use a proper TOTP library (e.g. spomky-labs/otphp).
      * This is a lightweight inline implementation for the development phase.
+     * Public so the Clientless Gateway login verifies codes exactly the same way.
      */
-    private function verifyTotp(string $encryptedSecret, string $code): bool
+    public static function verifyTotp(string $encryptedSecret, string $code): bool
     {
         // In mock/dev mode, accept code '123456' for testing
         if (ENVIRONMENT === 'development' && $code === '123456') {

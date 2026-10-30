@@ -97,20 +97,37 @@ class SystemSettings extends BaseController
             }
         } catch (\Throwable) {}
 
+        $dbResilience = new \App\Libraries\DatabaseResilienceService();
+        $dbIntegrity  = $dbResilience->verifyIntegrity();
+        $snapPath     = $dbResilience->getSnapshotPath();
+        $snapExists   = file_exists($snapPath);
+        $dbResilienceInfo = [
+            'healthy'        => $dbIntegrity['healthy'],
+            'integrity'      => $dbIntegrity['result'],
+            'db_path'        => $dbResilience->getDbPath(),
+            'db_size'        => file_exists($dbResilience->getDbPath()) ? filesize($dbResilience->getDbPath()) : 0,
+            'wal_path'       => $dbResilience->getDbPath() . '-wal',
+            'wal_size'       => file_exists($dbResilience->getDbPath() . '-wal') ? filesize($dbResilience->getDbPath() . '-wal') : 0,
+            'snapshot_exists'=> $snapExists,
+            'snapshot_size'  => $snapExists ? filesize($snapPath) : 0,
+            'snapshot_mtime' => $snapExists ? filemtime($snapPath) : 0,
+        ];
+
         return view('system/index', [
-            'title'          => 'System Settings — MicronOS',
-            'breadcrumb'     => 'System Settings',
-            'settings'       => $settings,
-            'timezones'      => $timezones,
-            'countries'      => $countries,
-            'ldapServer'     => $ldapServer,
-            'radiusPrimary'  => $radiusPrimary,
-            'radiusBackup'   => $radiusBackup,
-            'ldapMappings'   => $ldapMappings,
-            'radiusMappings' => $radiusMappings,
-            'allRoles'       => $allRoles,
-            'certificates'   => $certificates,
-            'isMock'         => $this->ipc->isMock(),
+            'title'            => 'System Settings — MicronOS',
+            'breadcrumb'       => 'System Settings',
+            'settings'         => $settings,
+            'timezones'        => $timezones,
+            'countries'        => $countries,
+            'ldapServer'       => $ldapServer,
+            'radiusPrimary'    => $radiusPrimary,
+            'radiusBackup'     => $radiusBackup,
+            'ldapMappings'     => $ldapMappings,
+            'radiusMappings'   => $radiusMappings,
+            'allRoles'         => $allRoles,
+            'certificates'     => $certificates,
+            'dbResilienceInfo' => $dbResilienceInfo,
+            'isMock'           => $this->ipc->isMock(),
         ]);
     }
 
@@ -127,6 +144,10 @@ class SystemSettings extends BaseController
                   'webgui_sticky_blink_enabled',
                   'ssh_root_login','notif_email_enabled','ipv6_enabled'] as $checkbox) {
             $post[$checkbox] = isset($post[$checkbox]) ? 1 : 0;
+        }
+
+        if (isset($post['webgui_cert_id'])) {
+            $post['webgui_cert_id'] = (int) $post['webgui_cert_id'];
         }
 
         // Normalise SSH auth methods from multi-select to comma string
@@ -147,22 +168,56 @@ class SystemSettings extends BaseController
 
         // Whitelist appearance values — only the themes / layouts we ship
         $appearance = $this->appearance();
-        if (isset($post['theme']) && ! in_array($post['theme'], $appearance->ids(), true)) {
-            $post['theme'] = 'dark';
+        if (isset($post['theme'])) {
+            $post['theme'] = $appearance->resolveTheme((string) $post['theme']);
         }
-        if (isset($post['layout']) && ! in_array($post['layout'], $appearance->layoutIds(), true)) {
-            $post['layout'] = 'sidebar';
+        if (isset($post['layout'])) {
+            $post['layout'] = $appearance->resolveLayout((string) $post['layout']);
         }
 
         // Strip CSRF token and submit button from data
         unset($post[csrf_token()], $post['submit']);
 
-        // Capture the current IPv6 state so we only touch the daemon on change
-        $previous      = $this->model->getSettings();
-        $ipv6Changed   = (int) ($previous['ipv6_enabled'] ?? 1) !== (int) $post['ipv6_enabled'];
-        $ipv6Enabled   = (int) $post['ipv6_enabled'] === 1;
+        // The IPv6 master switch is a network change: it goes through the same
+        // transaction as an interface change (plan + firewall + DHCP → micrond →
+        // verify → commit, or everything restored), not straight into the row.
+        $previous    = $this->model->getSettings();
+        $ipv6Was     = (int) ($previous['ipv6_enabled'] ?? 0) === 1;
+        $ipv6Enabled = (int) $post['ipv6_enabled'] === 1;
+        unset($post['ipv6_enabled']);
+
+        $sshPortWas    = (int) ($previous['ssh_port'] ?? 22);
+        $sshPortNow    = isset($post['ssh_port']) ? (int) $post['ssh_port'] : $sshPortWas;
+        $webPortWas    = (int) ($previous['webgui_port'] ?? 443);
+        $webPortNow    = isset($post['webgui_port']) ? (int) $post['webgui_port'] : $webPortWas;
+        $sshEnabledWas = (int) ($previous['ssh_enabled'] ?? 1);
+        $sshEnabledNow = isset($post['ssh_enabled']) ? (int) $post['ssh_enabled'] : $sshEnabledWas;
+        $certIdWas     = (int) ($previous['webgui_cert_id'] ?? 0);
+        $certIdNow     = isset($post['webgui_cert_id']) ? (int) $post['webgui_cert_id'] : $certIdWas;
 
         $this->model->saveSettings($post);
+
+        // Apply SSH daemon settings (port, authentication, root login)
+        $applier = $this->applier();
+        $applier->ssh($post);
+
+        // Apply Web GUI TLS certificate if changed
+        if ($certIdNow !== $certIdWas) {
+            if ($certIdNow > 0) {
+                $certModel = new \App\Models\PkiCertificateModel();
+                $cert = $certModel->find($certIdNow);
+                if ($cert && !empty($cert['certificate']) && empty($cert['revoked'])) {
+                    $applier->webguiCertificate($cert);
+                }
+            } else {
+                $this->ipc->call('cert.reload');
+            }
+        }
+
+        // If SSH port, Web GUI port, or SSH daemon state changed, recompile and atomic-apply firewall
+        if ($sshPortNow !== $sshPortWas || $webPortNow !== $webPortWas || $sshEnabledNow !== $sshEnabledWas) {
+            $applier->firewall();
+        }
 
         // Record automatic Git revision commit and bump patch version
         $author = (string) (session('username') ?? 'ministrator');
@@ -176,20 +231,35 @@ class SystemSettings extends BaseController
             session()->remove('ui_layout');
         }
 
-        // Apply the IPv6 master switch to the appliance
-        if ($ipv6Changed) {
-            $this->ipc->call('system.ipv6.set', ['enabled' => $ipv6Enabled]);
-
-            $message = $ipv6Enabled
-                ? 'IPv6 support enabled — interfaces, DNS and services may use IPv6 again.'
-                : 'IPv6 disabled — the kernel IPv6 stack is off, IPv6 routes are removed and the firewall drops all IPv6 traffic.';
-
-            return redirect()->to(base_url('system'))
-                ->with('success', 'System settings saved successfully.')
-                ->with('warning', $message);
+        if ($ipv6Was === $ipv6Enabled) {
+            return redirect()->to(base_url('system'))->with('success', 'System settings saved successfully.');
         }
 
-        return redirect()->to(base_url('system'))->with('success', 'System settings saved successfully.');
+        $r = (new \App\Libraries\Network\NetworkTransaction($this->ipc))->apply(
+            static function ($db) use ($ipv6Enabled) {
+                $db->table('system_settings')->where('id', 1)->update([
+                    'ipv6_enabled' => $ipv6Enabled ? 1 : 0,
+                    'updated_at'   => date('Y-m-d H:i:s'),
+                ]);
+
+                return null;
+            },
+            ['actor' => $author, 'reason' => 'IPv6 ' . ($ipv6Enabled ? 'enabled' : 'disabled')]
+        );
+
+        if (! $r['ok']) {
+            return redirect()->to(base_url('system') . '#network')
+                ->with('success', 'Other system settings were saved.')
+                ->with('error', 'IPv6 was left ' . ($ipv6Was ? 'enabled' : 'disabled') . ': ' . $r['message']);
+        }
+
+        $message = $ipv6Enabled
+            ? 'IPv6 enabled: the kernel stack is on, configured IPv6 addresses are applied and the firewall passes IPv6 again.'
+            : 'IPv6 disabled: the kernel stack is off on every interface (addresses and routes removed), DHCPv6/RA are stopped and the firewall drops all IPv6.';
+
+        return redirect()->to(base_url('system') . '#network')
+            ->with('success', 'System settings saved. ' . $message)
+            ->with('warning', $r['warnings'] !== [] ? implode(' ', $r['warnings']) : null);
     }
 
     /* ----------------------------------------------------------------
@@ -242,8 +312,8 @@ class SystemSettings extends BaseController
     {
         $appearance = $this->appearance();
         $body   = json_decode($this->request->getBody(), true) ?? [];
-        $theme  = in_array($body['theme']  ?? '', $appearance->ids(),       true) ? $body['theme']  : 'dark';
-        $layout = in_array($body['layout'] ?? '', $appearance->layoutIds(), true) ? $body['layout'] : 'sidebar';
+        $theme  = $appearance->resolveTheme($body['theme'] ?? null);
+        $layout = $appearance->resolveLayout($body['layout'] ?? null);
 
         $ok = $this->model->saveSettings(['theme' => $theme, 'layout' => $layout]);
 
@@ -579,5 +649,51 @@ class SystemSettings extends BaseController
 
         $tab = ($authType === 'radius') ? '#radius' : '#ldap';
         return redirect()->to(base_url('system') . $tab)->with('success', 'Group mapping removed.');
+    }
+
+    /* ----------------------------------------------------------------
+     * POST /system/db/check
+     * ---------------------------------------------------------------- */
+    public function checkDatabase(): \CodeIgniter\HTTP\ResponseInterface
+    {
+        $service = new \App\Libraries\DatabaseResilienceService();
+        $res = $service->verifyIntegrity();
+        return $this->response->setJSON([
+            'success' => $res['healthy'],
+            'healthy' => $res['healthy'],
+            'result'  => $res['result'],
+            'status'  => $res['status'],
+        ]);
+    }
+
+    /* ----------------------------------------------------------------
+     * POST /system/db/checkpoint
+     * ---------------------------------------------------------------- */
+    public function checkpointDatabase(): \CodeIgniter\HTTP\ResponseInterface
+    {
+        try {
+            $cmd = new \App\Libraries\CommandDispatcher();
+            $res = $cmd->databaseCheckpoint('TRUNCATE');
+            return $this->response->setJSON([
+                'success' => $res['success'] ?? false,
+                'message' => 'WAL checkpoint executed successfully.',
+                'data'    => $res,
+            ]);
+        } catch (\Throwable $e) {
+            return $this->response->setJSON([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /* ----------------------------------------------------------------
+     * POST /system/db/snapshot
+     * ---------------------------------------------------------------- */
+    public function snapshotDatabase(): \CodeIgniter\HTTP\ResponseInterface
+    {
+        $service = new \App\Libraries\DatabaseResilienceService();
+        $res = $service->createSnapshot();
+        return $this->response->setJSON($res);
     }
 }

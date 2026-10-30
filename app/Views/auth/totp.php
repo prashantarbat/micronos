@@ -1,7 +1,7 @@
 <?php
 // Same Interface Theme as the sign-in page (resolved by Auth::appearanceContext()).
-$_theme = $appTheme ?? 'dark';
-$_mode  = $appMode ?? 'dark';
+$_theme = $appTheme ?? config('Appearance')->defaultTheme;
+$_mode  = $appMode ?? (config('Appearance')->isLight($_theme) ? 'light' : 'dark');
 ?>
 <!DOCTYPE html>
 <html lang="en" data-theme="<?= esc($_theme) ?>" data-mode="<?= esc($_mode) ?>">
@@ -106,5 +106,6 @@ document.getElementById('totp_code').addEventListener('input', function() {
   }
 });
 </script>
+<?= view('partials/app_footer', ['footerVariant' => 'standalone']) ?>
 </body>
 </html>

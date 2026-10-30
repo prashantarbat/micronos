@@ -149,7 +149,7 @@ class Dns extends BaseController
         ]);
 
         [$key, $message] = $this->ipcFlash(
-            $this->ipc->call('dns.config.reload'),
+            $this->applier()->dns(),
             'DNS Resolver configuration saved and Unbound reloaded.',
             'Saved, but the DNS reload'
         );
@@ -254,7 +254,7 @@ class Dns extends BaseController
         ]);
 
         [$key, $message] = $this->ipcFlash(
-            $this->ipc->call('dns.hosts.reload'),
+            $this->applier()->dns(),
             "DNS host override for {$hostname} added.",
             'Added, but the DNS reload'
         );
@@ -279,7 +279,7 @@ class Dns extends BaseController
 
         $db->table('dns_hosts')->where('id', $id)->update($data);
         [$key, $message] = $this->ipcFlash(
-            $this->ipc->call('dns.hosts.reload'),
+            $this->applier()->dns(),
             'DNS host override updated.',
             'Updated, but the DNS reload'
         );
@@ -292,7 +292,7 @@ class Dns extends BaseController
         $db = \Config\Database::connect();
         $db->table('dns_hosts')->where('id', $id)->delete();
         [$key, $message] = $this->ipcFlash(
-            $this->ipc->call('dns.hosts.reload'),
+            $this->applier()->dns(),
             'DNS host override removed.',
             'Removed, but the DNS reload'
         );
@@ -362,7 +362,7 @@ class Dns extends BaseController
         ]);
 
         [$key, $message] = $this->ipcFlash(
-            $this->ipc->call('dns.config.reload'),
+            $this->applier()->dns(),
             "Domain override for {$data['domain']} added.",
             'Added, but the DNS reload'
         );
@@ -386,7 +386,7 @@ class Dns extends BaseController
         $data['updated_at'] = date('Y-m-d H:i:s');
         $db->table('dns_domain_overrides')->where('id', $id)->update($data);
         [$key, $message] = $this->ipcFlash(
-            $this->ipc->call('dns.config.reload'),
+            $this->applier()->dns(),
             'Domain override updated.',
             'Updated, but the DNS reload'
         );
@@ -407,7 +407,7 @@ class Dns extends BaseController
             ]);
 
             [$key, $message] = $this->ipcFlash(
-                $this->ipc->call('dns.config.reload'),
+                $this->applier()->dns(),
                 'Domain override state updated.',
                 'State saved, but the DNS reload'
             );
@@ -421,7 +421,7 @@ class Dns extends BaseController
         $db = \Config\Database::connect();
         $db->table('dns_domain_overrides')->where('id', $id)->delete();
         [$key, $message] = $this->ipcFlash(
-            $this->ipc->call('dns.config.reload'),
+            $this->applier()->dns(),
             'Domain override removed.',
             'Removed, but the DNS reload'
         );

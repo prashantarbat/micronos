@@ -45,7 +45,7 @@ final class WebAppOverlayTest extends CIUnitTestCase
      * @var list<string>
      */
     private const SHIPPED = [
-        'app', 'bin', 'installer', 'public', 'system', 'vendor',
+        'app', 'bin', 'docs', 'installer', 'public', 'system', 'vendor',
         'spark', 'preload.php', 'composer.json', 'composer.lock', 'env',
         'LICENSE', 'README.md', 'VERSION',
     ];
@@ -58,13 +58,20 @@ final class WebAppOverlayTest extends CIUnitTestCase
      * @var list<string>
      */
     private const NEVER_SHIPPED = [
-        '.env',
         'tests',
-        'docs',
         'packaging',
         'build',
         'builds',
         'phpunit.dist.xml',
+    ];
+
+    /**
+     * Local development state. It is untracked, so a clean checkout (CI, a
+     * release build) does not hold it; where a developer's checkout does, it
+     * must still never reach the image.
+     */
+    private const LOCAL_STATE = [
+        '.env',
         '.pytest_cache',
         'test_nat_render.html',
         'writable/micron_config.db',
@@ -193,6 +200,13 @@ final class WebAppOverlayTest extends CIUnitTestCase
                 file_exists($this->path($entry)),
                 "this check is vacuous for {$entry}: the repository does not hold it"
             );
+            $this->assertFileDoesNotExist(
+                $overlay . '/' . $entry,
+                "{$entry} reached the appliance overlay"
+            );
+        }
+
+        foreach (self::LOCAL_STATE as $entry) {
             $this->assertFileDoesNotExist(
                 $overlay . '/' . $entry,
                 "{$entry} reached the appliance overlay"

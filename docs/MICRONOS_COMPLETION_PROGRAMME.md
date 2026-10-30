@@ -97,6 +97,33 @@ Severity: **S1** = correctness/security, **S2** = operator-visible defect, **S3*
 | G11 | S2 | **No parity matrix.** Nothing mechanically proves RPC ↔ UI ↔ CLI agreement, so drift (as in G5) is discovered by an operator, not by CI. | — | W1 + W6 |
 | G12 | S3 | **Documentation drift.** Marks: several `.md` specs were edited without regenerating their `.html`. | `git status` on `docs/` | W7 |
 
+### 3.1 Status after the 2026-10-14 completion pass
+
+| # | Status | What was done | Evidence |
+|---|---|---|---|
+| G1 | **Closed** | `vpn.wireguard.sync` writes `/etc/wireguard/<iface>.conf` (0600, hooks refused) from the compiled config and brings the interface in line | `tests/test_micrond_ops.py` (WireGuard block), `CompletionRegressionTest::testWireguardSyncSendsTheCompiledInterfaceConfiguration` |
+| G2 | **Closed** | WireGuard, OpenVPN, HA, IDS, QoS, DNS, FRR, SNMP, SIEM, cron, certificates and service-control messages come from the daemon's answer | `CompletionRegressionTest::testADaemonRefusalIsReportedNotHiddenBehindSuccess` |
+| G3 | **Closed** | captive/portal views import the self-hosted `assets/fonts/fonts.css` | `OfflineAssetsTest` |
+| G4 | **Closed** | `base64.b64decode(..., validate=True)`; key generation no longer fabricates an unrelated public key | `StrictDecodingGuardTest` |
+| G5 | Closed earlier | (peer modal fields) | existing WireGuard tests |
+| G6 | **Closed (with stated residual risk)** | method classes + `SO_PEERCRED` caller limits + audit log | `tests/test_micrond_toolkit.py` (caller classes), contract §7 |
+| G7 | **Partial** | daemon handlers for the additional utilities exist and are tested; **no Web UI page or console command** was delivered for them in this pass | daemon tests only |
+| G8 | **Mostly closed** | `microctl` health/services/service/logs/vpn/plugins/rpc/doctor with `--json` and exit codes | `tests/test_cli_daemon_integration.py` |
+| G9 | **Partial** | installed plugins appear in their functional menus (Network/Routing/VPN/Security/Admin); the per-plugin evidence table in the workspace spec is not filled | `PluginNav::SECTIONS`, `NavGroups::owns()` |
+| G10 | **Partial** | shared footer, flash, confirm dialog, command palette, contrast fix; page-by-page restyling not done | screenshots in the verification report |
+| G11 | **Closed for RPC existence** | `tools/rpc_inventory.py`; build-failing check in `tests/test_micrond_ops.py` | — |
+| G12 | Open | Markdown edited; HTML portals regenerated with `php docs/build_docs.php` where the environment allowed | verification report |
+
+New defects found and fixed in this pass (not in the original register): 54 RPC methods
+called but never implemented; configuration saved but never sent to the daemon (DNS, FRR,
+HA, SNMP, SIEM, QoS, IDS, OpenVPN, cron); fabricated values on the dashboard, services,
+HA, diagnostics, SNMP, SIEM and cron pages; unescaped flash messages (stored XSS via any
+operator-entered name); HA secrets rendered into the page; five route permissions missing
+from the catalogue; dashboard posts failing CSRF after the first request; the dashboard
+service buttons never contacting the daemon; `microctl` exiting 0 on unknown commands and
+writing unvalidated `set-lan` input; a time-zone-dependent key date in the plugin
+repository check; and a test suite whose results changed when a real daemon was running.
+
 ---
 
 ## 4. Workstreams

@@ -35,9 +35,28 @@ class Services extends BaseController
             $query->where('subsystem', $subsystem);
         }
         $services = $query->orderBy('name', 'ASC')->get()->getResultArray();
+        $allServices = $db->table('system_services')->get()->getResultArray();
+
+        // On an appliance the stored state is only a cache: overlay what
+        // systemd reports right now. Units the daemon does not manage keep
+        // their stored state and are marked as such.
+        $live = $this->liveStates();
+        $overlay = static function (array $rows) use ($live): array {
+            foreach ($rows as &$r) {
+                if (isset($live[$r['id']])) {
+                    $r['status']    = $live[$r['id']]['state'];
+                    $r['pid']       = $live[$r['id']]['pid'] ?: null;
+                    $r['memory_mb'] = null;
+                    $r['live']      = true;
+                }
+            }
+
+            return $rows;
+        };
+        $services    = $overlay($services);
+        $allServices = $overlay($allServices);
 
         // Count metrics
-        $allServices = $db->table('system_services')->get()->getResultArray();
         $totalCount   = count($allServices);
         $runningCount = count(array_filter($allServices, fn($s) => $s['status'] === 'running'));
         $stoppedCount = count(array_filter($allServices, fn($s) => $s['status'] === 'stopped'));
@@ -52,78 +71,93 @@ class Services extends BaseController
             'runningCount'  => $runningCount,
             'stoppedCount'  => $stoppedCount,
             'watchdogCount' => $watchdogCount,
+            'liveState'     => $live !== [],
+            'isMock'        => $this->ipc->isMock(),
         ]);
     }
 
     public function start(string $id): \CodeIgniter\HTTP\RedirectResponse
     {
-        $db = \Config\Database::connect();
-        $srv = $db->table('system_services')->where('id', $id)->get()->getRowArray();
-        if (!$srv) {
-            return redirect()->to('services')->with('error', "Service '{$id}' not found.");
-        }
-
-        // Try IPC to micrond on Linux appliance
-        $this->ipc->call('system.service', ['service' => $id, 'action' => 'start']);
-
-        // Update database state
-        $db->table('system_services')->where('id', $id)->update([
-            'status'     => 'running',
-            'pid'        => rand(1800, 4500),
-            'memory_mb'  => $srv['memory_mb'] > 0 ? $srv['memory_mb'] : round(rand(120, 600) / 10, 1),
-            'updated_at' => date('Y-m-d H:i:s'),
-        ]);
-
-        $this->auditLog("service.start", "Started daemon {$srv['name']} ({$srv['id']})");
-
-        return redirect()->to('services')->with('success', "Service '{$srv['name']}' has been started successfully.");
+        return $this->lifecycle($id, 'start');
     }
 
     public function stop(string $id): \CodeIgniter\HTTP\RedirectResponse
     {
-        $db = \Config\Database::connect();
-        $srv = $db->table('system_services')->where('id', $id)->get()->getRowArray();
-        if (!$srv) {
-            return redirect()->to('services')->with('error', "Service '{$id}' not found.");
-        }
-
-        // Critical service protection: warn if stopping packet filter
-        if ($id === 'nftables') {
-            log_message('critical', "Administrator stopped core nftables firewall service!");
-        }
-
-        $this->ipc->call('system.service', ['service' => $id, 'action' => 'stop']);
-
-        $db->table('system_services')->where('id', $id)->update([
-            'status'     => 'stopped',
-            'pid'        => null,
-            'updated_at' => date('Y-m-d H:i:s'),
-        ]);
-
-        $this->auditLog("service.stop", "Stopped daemon {$srv['name']} ({$srv['id']})");
-
-        return redirect()->to('services')->with('success', "Service '{$srv['name']}' has been stopped.");
+        return $this->lifecycle($id, 'stop');
     }
 
     public function restart(string $id): \CodeIgniter\HTTP\RedirectResponse
     {
-        $db = \Config\Database::connect();
+        return $this->lifecycle($id, 'restart');
+    }
+
+    /**
+     * Start / stop / restart through the daemon, then record what systemd
+     * actually reports — never an assumed state or an invented PID.
+     */
+    private function lifecycle(string $id, string $action): \CodeIgniter\HTTP\RedirectResponse
+    {
+        $db  = \Config\Database::connect();
         $srv = $db->table('system_services')->where('id', $id)->get()->getRowArray();
-        if (!$srv) {
+        if (! $srv) {
             return redirect()->to('services')->with('error', "Service '{$id}' not found.");
         }
+        if ($id === 'nftables' && $action === 'stop') {
+            log_message('critical', 'Administrator stopped the nftables firewall service.');
+        }
 
-        $this->ipc->call('system.service', ['service' => $id, 'action' => 'restart']);
+        $response = $this->ipc->call('system.service', ['service' => $id, 'action' => $action]);
+        $outcome  = $this->ipcOutcome($response);
+        $this->auditLog("service.{$action}", ucfirst($action) . " daemon {$srv['name']} ({$srv['id']}): " . ($outcome['ok'] ? 'ok' : 'failed'));
+        if (! $outcome['ok']) {
+            return redirect()->to('services')->with('error', "Could not {$action} '{$srv['name']}': " . $outcome['reason']);
+        }
 
-        $db->table('system_services')->where('id', $id)->update([
-            'status'     => 'running',
-            'pid'        => rand(2000, 5000),
-            'updated_at' => date('Y-m-d H:i:s'),
-        ]);
+        $live = $this->liveStates()[$id] ?? null;
+        if ($live !== null) {
+            $db->table('system_services')->where('id', $id)->update([
+                'status' => $live['state'], 'pid' => $live['pid'] ?: null, 'updated_at' => date('Y-m-d H:i:s'),
+            ]);
+        } elseif ($this->ipc->isMock()) {
+            // Development client: keep the page usable with a plainly fake PID.
+            $db->table('system_services')->where('id', $id)->update([
+                'status' => $action === 'stop' ? 'stopped' : 'running',
+                'pid'    => $action === 'stop' ? null : 0,
+                'updated_at' => date('Y-m-d H:i:s'),
+            ]);
+        }
 
-        $this->auditLog("service.restart", "Restarted daemon {$srv['name']} ({$srv['id']})");
+        $state = $live['state'] ?? ($action === 'stop' ? 'stopped' : 'running');
+        $warn  = implode(' ', (array) ($response['result']['warnings'] ?? []));
 
-        return redirect()->to('services')->with('success', "Service '{$srv['name']}' has been restarted successfully.");
+        $msg = "Service '{$srv['name']}': {$action} completed; it is now {$state}." . ($warn !== '' ? " Note: {$warn}" : '');
+        $back = (string) $this->request->getServer('HTTP_REFERER');
+        return !empty($back) ? redirect()->to($back)->with('success', $msg) : redirect()->to('services')->with('success', $msg);
+    }
+
+    /**
+     * Live systemd state for every managed unit, keyed by service id, or []
+     * when the daemon cannot be asked (development client / daemon down).
+     *
+     * @return array<string, array{state: string, pid: int, installed: bool, since: string}>
+     */
+    private function liveStates(): array
+    {
+        if ($this->ipc->isMock()) {
+            return [];
+        }
+        $read = $this->ipcRead($this->ipc->call('system.services_status'));
+        $out  = [];
+        foreach ((array) ($read['services'] ?? []) as $id => $s) {
+            $out[(string) $id] = [
+                'state'     => ! empty($s['installed']) ? (string) ($s['state'] ?? 'stopped') : 'not-installed',
+                'pid'       => (int) ($s['pid'] ?? 0),
+                'installed' => ! empty($s['installed']),
+                'since'     => (string) ($s['since'] ?? ''),
+            ];
+        }
+
+        return $out;
     }
 
     /**
@@ -147,8 +181,9 @@ class Services extends BaseController
 
         if (! empty($ids)) {
             $rows = \Config\Database::connect()->table('system_services')->whereIn('id', $ids)->get()->getResultArray();
+            $live = $this->liveStates();
             foreach ($rows as $row) {
-                $map[$row['id']] = $row['status'];
+                $map[$row['id']] = $live[$row['id']]['state'] ?? $row['status'];
             }
             $missing = array_filter($ids, static fn ($i) => ! isset($map[$i]) || $map[$i] === 'unknown');
             if (! empty($missing)) {
@@ -224,30 +259,30 @@ class Services extends BaseController
             ]);
         }
 
-        // Ask micrond to act on the real service, then reflect the new state.
-        $this->ipc->call('system.service', ['service' => $id, 'action' => $action]);
-
-        $newStatus = $action === 'stop' ? 'stopped' : 'running';
-        $updates   = ['status' => $newStatus, 'updated_at' => date('Y-m-d H:i:s')];
-        if ($newStatus === 'running') {
-            $updates['pid'] = ! empty($srv['pid']) ? $srv['pid'] : rand(1800, 4500);
-            if ((float) ($srv['memory_mb'] ?? 0) <= 0) {
-                $updates['memory_mb'] = round(rand(120, 600) / 10, 1);
-            }
-        } else {
-            $updates['pid'] = null;
+        // Ask micrond to act on the real service, then reflect what systemd reports.
+        $response = $this->ipc->call('system.service', ['service' => $id, 'action' => $action]);
+        $outcome  = $this->ipcOutcome($response);
+        $past     = ['start' => 'Started', 'stop' => 'Stopped', 'restart' => 'Restarted'][$action];
+        $this->auditLog("service.{$action}", "{$past} daemon {$srv['name']} ({$id}): " . ($outcome['ok'] ? 'ok' : 'failed'));
+        if (! $outcome['ok']) {
+            return $this->response->setStatusCode(502)->setJSON([
+                'ok' => false, 'service' => $id, 'name' => $srv['name'], 'status' => null,
+                'message' => "Could not {$action} {$srv['name']}: " . $outcome['reason'], 'csrf' => csrf_hash(),
+            ]);
         }
-        $db->table('system_services')->where('id', $id)->update($updates);
 
-        $past = ['start' => 'Started', 'stop' => 'Stopped', 'restart' => 'Restarted'][$action];
-        $this->auditLog("service.{$action}", "{$past} daemon {$srv['name']} ({$id})");
+        $live      = $this->liveStates()[$id] ?? null;
+        $newStatus = $live['state'] ?? (string) ($response['result']['state'] ?? ($action === 'stop' ? 'stopped' : 'running'));
+        $db->table('system_services')->where('id', $id)->update([
+            'status' => $newStatus, 'pid' => $live['pid'] ?? null, 'updated_at' => date('Y-m-d H:i:s'),
+        ]);
 
         return $this->response->setJSON([
             'ok'      => true,
             'service' => $id,
             'name'    => $srv['name'],
             'status'  => $newStatus,
-            'message' => "{$past} {$srv['name']}",
+            'message' => "{$past} {$srv['name']} — now {$newStatus}",
             'csrf'    => csrf_hash(),
         ]);
     }
@@ -261,6 +296,11 @@ class Services extends BaseController
         }
 
         $newVal = empty($srv['enabled_at_boot']) ? 1 : 0;
+        $action = $newVal ? 'enable' : 'disable';
+
+        // Call micrond to execute systemctl enable / disable on the live systemd unit
+        $this->ipc->call('system.service', ['service' => $id, 'action' => $action]);
+
         $db->table('system_services')->where('id', $id)->update([
             'enabled_at_boot' => $newVal,
             'updated_at'      => date('Y-m-d H:i:s'),
@@ -269,7 +309,9 @@ class Services extends BaseController
         $actionWord = $newVal ? 'enabled at boot' : 'disabled from boot';
         $this->auditLog("service.boot_toggle", "Service {$srv['name']} is now {$actionWord}");
 
-        return redirect()->to('services')->with('success', "Service '{$srv['name']}' boot state updated ({$actionWord}).");
+        $msg = "Service '{$srv['name']}' boot state updated ({$actionWord}).";
+        $back = (string) $this->request->getServer('HTTP_REFERER');
+        return !empty($back) ? redirect()->to($back)->with('success', $msg) : redirect()->to('services')->with('success', $msg);
     }
 
     public function toggleWatchdog(string $id): \CodeIgniter\HTTP\RedirectResponse
@@ -317,11 +359,26 @@ class Services extends BaseController
 
         // On Linux: journalctl -u {service} -n 30 --no-pager
         $ipcRes = $this->ipc->call('system.service_logs', ['service' => $id, 'lines' => 30]);
-        if (!empty($ipcRes['logs'])) {
-            return $this->response->setJSON(['service' => $srv['name'], 'logs' => $ipcRes['logs']]);
+        $result = is_array($ipcRes['result'] ?? null) ? $ipcRes['result'] : [];
+        if (($result['success'] ?? false) === true) {
+            return $this->response->setJSON([
+                'service' => $srv['name'],
+                'status'  => $srv['status'],
+                'logs'    => (string) ($result['logs'] ?? '') !== '' ? (string) $result['logs'] : '(the journal has no entries for this unit)',
+            ]);
+        }
+        if (! $this->ipc->isMock()) {
+            $reason = (string) ($result['message'] ?? $ipcRes['error']['message'] ?? 'the daemon did not answer');
+
+            return $this->response->setStatusCode(503)->setJSON([
+                'service' => $srv['name'],
+                'status'  => $srv['status'],
+                'error'   => 'Logs unavailable: ' . $reason,
+                'logs'    => 'Logs unavailable: ' . $reason,
+            ]);
         }
 
-        // Realistic daemon log entries for development inspection
+        // Development (mock) client only: sample journal lines
         $now = date('M d H:i:s');
         $name = $srv['name'];
         $pid = $srv['pid'] ?? 2410;
@@ -345,20 +402,28 @@ class Services extends BaseController
 
     public function restartAll(): \CodeIgniter\HTTP\RedirectResponse
     {
-        $db = \Config\Database::connect();
-        $running = $db->table('system_services')->where('status', 'running')->get()->getResultArray();
-        
+        $db      = \Config\Database::connect();
+        $live    = $this->liveStates();
+        $running = array_filter($db->table('system_services')->get()->getResultArray(),
+            static fn ($s) => ($live[$s['id']]['state'] ?? $s['status']) === 'running');
+
+        $ok = [];
+        $failed = [];
         foreach ($running as $s) {
-            $this->ipc->call('system.service', ['service' => $s['id'], 'action' => 'restart']);
-            $db->table('system_services')->where('id', $s['id'])->update([
-                'pid'        => rand(2000, 5000),
-                'updated_at' => date('Y-m-d H:i:s'),
-            ]);
+            $outcome = $this->ipcOutcome($this->ipc->call('system.service', ['service' => $s['id'], 'action' => 'restart']));
+            if ($outcome['ok']) {
+                $ok[] = $s['name'];
+            } else {
+                $failed[] = $s['name'] . ' (' . $outcome['reason'] . ')';
+            }
+        }
+        $this->auditLog('service.restart_all', 'Restarted ' . count($ok) . ' service(s); ' . count($failed) . ' failed');
+
+        if ($failed !== []) {
+            return redirect()->to('services')->with('error', 'Restarted ' . count($ok) . ' service(s); these failed: ' . implode('; ', $failed));
         }
 
-        $this->auditLog("service.restart_all", "Triggered mass restart of " . count($running) . " running services");
-
-        return redirect()->to('services')->with('success', "Successfully sent restart signals to all " . count($running) . " active services.");
+        return redirect()->to('services')->with('success', 'Restarted ' . count($ok) . ' running service(s).');
     }
 
     private function auditLog(string $action, string $details): void

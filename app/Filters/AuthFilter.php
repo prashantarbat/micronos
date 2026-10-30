@@ -2,6 +2,7 @@
 
 namespace App\Filters;
 
+use App\Libraries\DefaultCredentials;
 use App\Libraries\IntendedUrl;
 use CodeIgniter\Filters\FilterInterface;
 use CodeIgniter\HTTP\RequestInterface;
@@ -31,6 +32,13 @@ class AuthFilter implements FilterInterface
             // Remember where to resume, never a POST-only address.
             IntendedUrl::remember($request, $session);
             return redirect()->to(base_url('auth/login'))->with('info', 'Please log in to continue.');
+        }
+
+        // Signed in with the factory password: only the password change is open.
+        if ($session->get(DefaultCredentials::SESSION_FLAG)
+            && ! DefaultCredentials::isAllowedWhileForced(uri_string())) {
+            return redirect()->to(base_url('profile'))->with('warning',
+                'Change the factory default password before using the appliance.');
         }
 
         return null;

@@ -186,7 +186,7 @@ class Diagnostics extends BaseController
 
         // Windows dev fallback — simulate realistic RTT output in the shape the
         // chosen protocol and source address would produce.
-        return $this->json([
+        return $this->simulated([
             'output' => $this->mockPingOutput($host, $proto, $source, $count, $wait),
             'mock'   => $this->ipc->isMock(),
         ]);
@@ -407,7 +407,7 @@ class Diagnostics extends BaseController
 
         // Windows dev fallback — a trace in the shape the chosen protocol,
         // source address, hop limit and switches would produce.
-        return $this->json([
+        return $this->simulated([
             'output' => $this->mockTracerouteOutput($host, $proto, $source, $ttl, $resolve, $useicmp),
             'mock'   => $this->ipc->isMock(),
         ]);
@@ -524,7 +524,7 @@ class Diagnostics extends BaseController
         $output .= "\n;; Query time: " . rand(5, 25) . " msec\n";
         $output .= ";; SERVER: {$server}#53({$server}) (UDP)\n;; WHEN: {$now}\n;; MSG SIZE  rcvd: 102\n";
 
-        return $this->json(['output' => $output, 'mock' => $this->ipc->isMock()]);
+        return $this->simulated(['output' => $output, 'mock' => $this->ipc->isMock()]);
     }
 
     // ─────────────────────────────────────────────────────────────────
@@ -559,7 +559,7 @@ class Diagnostics extends BaseController
         }
         $output .= "{$packets} packets captured\n{$packets} packets received by filter\n0 packets dropped by kernel\n";
 
-        return $this->json(['output' => $output, 'mock' => $this->ipc->isMock()]);
+        return $this->simulated(['output' => $output, 'mock' => $this->ipc->isMock()]);
     }
 
     // ─────────────────────────────────────────────────────────────────
@@ -611,7 +611,7 @@ class Diagnostics extends BaseController
 
         // Windows dev fallback — a short simulated capture, delivered in one
         // piece so the terminal still shows something in mock mode.
-        return $this->json([
+        return $this->simulated([
             'session' => '',
             'output'  => $this->mockCaptureOutput($iface, $filter, $packets),
             'cmd'     => 'tcpdump -i ' . $iface . ' -n -l -c ' . $packets . ($filter === '' ? '' : ' ' . $filter),
@@ -771,7 +771,7 @@ class Diagnostics extends BaseController
 
         // Windows dev fallback — the whole simulated run in one piece, so the
         // terminal still shows something in mock mode.
-        return $this->json([
+        return $this->simulated([
             'session' => '',
             'output'  => $this->mockPingOutput($host, $proto, $source, $count, $wait),
             'cmd'     => '',
@@ -837,7 +837,7 @@ class Diagnostics extends BaseController
         }
 
         // Windows dev fallback — the whole simulated trace in one piece.
-        return $this->json([
+        return $this->simulated([
             'session' => '',
             'output'  => $this->mockTracerouteOutput($host, $proto, $source, $ttl, $resolve, $useicmp),
             'cmd'     => '',
@@ -911,12 +911,13 @@ class Diagnostics extends BaseController
             return $this->json(['output' => (string) $result['output'], 'mock' => false]);
         }
 
-        if (PHP_OS_FAMILY === 'Linux') {
-            $cmd = 'ip route get ' . escapeshellarg($target) . ' 2>&1';
-            $execOut = @shell_exec($cmd);
-            if ($execOut) {
-                return $this->json(['output' => trim($execOut), 'mock' => false]);
-            }
+        // The daemon is the only path to the kernel. Without it a real
+        // appliance says so; the simulation below is for the development
+        // (mock) client only.
+        if (! $this->ipc->isMock()) {
+            $reason = (string) ($response['error']['message'] ?? $result['message'] ?? 'the daemon did not answer');
+
+            return $this->json(['output' => "Route lookup unavailable: {$reason}", 'mock' => false, 'error' => true], 503);
         }
 
         // Realistic kernel route lookup simulation
@@ -955,7 +956,7 @@ class Diagnostics extends BaseController
         $output .= "Raw Kernel:       {$target} via {$gw} dev " . explode(' ', $dev)[0] . " src {$src} metric {$metric}\n";
         $output .= "                  cache <mtu 1500>";
 
-        return $this->json(['output' => $output, 'mock' => $this->ipc->isMock()]);
+        return $this->simulated(['output' => $output, 'mock' => $this->ipc->isMock()]);
     }
 
     // ─────────────────────────────────────────────────────────────────
@@ -1060,6 +1061,9 @@ class Diagnostics extends BaseController
         if (is_array($result) && isset($result['output'])) {
             return $this->json(['output' => (string) $result['output'], 'mock' => false]);
         }
+        if (! $this->ipc->isMock()) {
+            return $this->simulated(['output' => '']);
+        }
 
         $resolvers = [
             ['name' => 'Cloudflare Primary', 'ip' => '1.1.1.1',        'type' => 'Public Anycast'],
@@ -1098,7 +1102,7 @@ class Diagnostics extends BaseController
         $output .= "Summary: Lowest latency resolver is {$bestName} ({$bestTime} ms).\n";
         $output .= "Appliance DNS forwarders recommended for lowest jitter.";
 
-        return $this->json(['output' => $output]);
+        return $this->simulated(['output' => $output]);
     }
 
     // ─────────────────────────────────────────────────────────────────
@@ -1121,8 +1125,12 @@ class Diagnostics extends BaseController
         if (is_array($result) && isset($result['events']) && is_array($result['events'])) {
             return $this->json(['events' => $result['events']]);
         }
+        if (! $this->ipc->isMock()) {
+            return $this->json(['events' => [], 'unavailable' => true,
+                'message' => (string) ($result['message'] ?? $response['error']['message'] ?? 'The firewall log is not available from the daemon.')]);
+        }
 
-        // Realistic dynamic simulation of live traffic stream
+        // Development (mock) client only: a simulated live traffic stream
         $protocols = ['tcp', 'tcp', 'udp', 'tcp', 'icmp', 'tcp'];
         $ifaces = ['wan', 'lan', 'lan', 'wan', 'dmz', 'wg0'];
         $actions = ['pass', 'pass', 'block', 'pass', 'pass', 'block'];
@@ -1242,8 +1250,11 @@ class Diagnostics extends BaseController
         if (is_array($result) && isset($result['states']) && is_array($result['states'])) {
             return $this->nameInterfaces($result['states']);
         }
+        if (! $this->ipc->isMock()) {
+            return [];
+        }
 
-        // Realistic conntrack state entries for Windows prototyping
+        // Development (mock) client only: sample conntrack entries
         return $this->nameInterfaces([
             ['iface' => 'lan', 'proto' => 'tcp', 'src' => '192.168.1.101', 'sport' => 54102, 'dst' => '104.21.50.182',   'dport' => 443, 'state' => 'ESTABLISHED', 'packets' => 381,  'bytes' => 148902, 'ttl' => '431980s'],
             ['iface' => 'lan', 'proto' => 'tcp', 'src' => '192.168.1.102', 'sport' => 49182, 'dst' => '142.250.180.14',  'dport' => 443, 'state' => 'ESTABLISHED', 'packets' => 1240, 'bytes' => 984120, 'ttl' => '431890s'],
@@ -1365,22 +1376,38 @@ class Diagnostics extends BaseController
         $dport = (int) ($this->request->getPost('dport') ?? 0);
         $proto = strtolower(trim($this->request->getPost('proto') ?? 'tcp'));
 
-        $this->ipc->call('diag.conntrack_kill', [
-            'src' => $src, 'sport' => $sport, 'dst' => $dst, 'dport' => $dport, 'proto' => $proto
+        $response = $this->ipc->call('diag.conntrack_kill', [
+            'src' => $src, 'sport' => $sport, 'dst' => $dst, 'dport' => $dport, 'proto' => $proto,
         ]);
+        $outcome = $this->ipcOutcome($response);
+        $count   = (int) ($response['result']['killed_count'] ?? 0);
+        if (! $outcome['ok']) {
+            return $this->json(['success' => false, 'killed_count' => 0,
+                'message' => "Could not remove state {$src}:{$sport} -> {$dst}:{$dport}: " . $outcome['reason']], 422);
+        }
 
-        return $this->json(['success' => true, 'message' => "State {$src}:{$sport} -> {$dst}:{$dport} killed."]);
+        return $this->json(['success' => true, 'killed_count' => $count, 'mock' => $this->ipc->isMock(),
+            'message' => $count > 0
+                ? "Removed {$count} state(s) for {$src}:{$sport} -> {$dst}:{$dport}."
+                : "No matching state for {$src}:{$sport} -> {$dst}:{$dport} (it may already have closed)."]);
     }
 
     public function killHostStates(): \CodeIgniter\HTTP\ResponseInterface
     {
-        $host = $this->sanitizeTarget($this->request->getPost('host') ?? '');
-        $this->ipc->call('diag.conntrack_kill_host', ['host' => $host]);
+        $host     = $this->sanitizeTarget($this->request->getPost('host') ?? '');
+        $response = $this->ipc->call('diag.conntrack_kill_host', ['host' => $host]);
+        $outcome  = $this->ipcOutcome($response);
+        if (! $outcome['ok']) {
+            return $this->json(['success' => false, 'killed_count' => 0,
+                'message' => "Could not remove the states of {$host}: " . $outcome['reason']], 422);
+        }
+        $count = (int) ($response['result']['killed_count'] ?? 0);
 
         return $this->json([
             'success'      => true,
-            'killed_count' => rand(8, 26),
-            'message'      => "All connection states for host {$host} terminated."
+            'killed_count' => $count,
+            'mock'         => $this->ipc->isMock(),
+            'message'      => "Removed {$count} connection state(s) involving {$host}.",
         ]);
     }
 
@@ -1401,6 +1428,29 @@ class Diagnostics extends BaseController
      * next hash back in the body — without it the page's second probe (any tool,
      * not just ping) is refused 403.
      */
+    /**
+     * A simulated tool result — only ever for the development (mock) client.
+     *
+     * On a live appliance the daemon is the only path to the kernel; when it
+     * does not answer, the operator is told so instead of being shown a
+     * plausible-looking but invented result.
+     */
+    private function simulated(array $payload): \CodeIgniter\HTTP\ResponseInterface
+    {
+        if (! $this->ipc->isMock()) {
+            return $this->json([
+                'output'  => "The diagnostics daemon (micrond) did not return a result, so no output is available.\n"
+                    . "Check System → Services (micrond) or run `microctl doctor` on the console.",
+                'mock'    => false,
+                'error'   => true,
+                'running' => false,
+            ], 503);
+        }
+        $payload['mock'] = true;
+
+        return $this->json($payload);
+    }
+
     private function json(array $payload, ?int $status = null): \CodeIgniter\HTTP\ResponseInterface
     {
         if ($status !== null) {
@@ -1497,37 +1547,10 @@ class Diagnostics extends BaseController
             return $result['routes'];
         }
 
-        if (PHP_OS_FAMILY === 'Linux') {
-            $output = @shell_exec('ip -4 route show 2>&1');
-            if ($output) {
-                $lines = explode("\n", trim($output));
-                $routes = [];
-                foreach ($lines as $line) {
-                    $line = trim($line);
-                    if (!$line) continue;
-                    $parts = preg_split('/\s+/', $line);
-                    $dest = $parts[0] === 'default' ? '0.0.0.0/0' : $parts[0];
-                    $gw = 'direct';
-                    $dev = 'eth0';
-                    $proto = 'kernel';
-                    $metric = 0;
-                    for ($i = 0; $i < count($parts); $i++) {
-                        if ($parts[$i] === 'via' && isset($parts[$i+1])) $gw = $parts[$i+1];
-                        if ($parts[$i] === 'dev' && isset($parts[$i+1])) $dev = $parts[$i+1];
-                        if ($parts[$i] === 'proto' && isset($parts[$i+1])) $proto = $parts[$i+1];
-                        if ($parts[$i] === 'metric' && isset($parts[$i+1])) $metric = (int) $parts[$i+1];
-                    }
-                    $routes[] = [
-                        'destination' => $dest,
-                        'gateway'     => $gw,
-                        'interface'   => $dev,
-                        'metric'      => $metric,
-                        'protocol'    => $proto,
-                        'flags'       => ($gw !== 'direct' ? 'UG' : 'U'),
-                    ];
-                }
-                if (!empty($routes)) return $routes;
-            }
+        // Only the development (mock) client gets the sample table; a real
+        // appliance whose daemon did not answer shows an empty table.
+        if (! $this->ipc->isMock()) {
+            return [];
         }
 
         // Realistic routing table mock for Windows prototyping
@@ -1551,24 +1574,8 @@ class Diagnostics extends BaseController
             return $result['neighbors'];
         }
 
-        if (PHP_OS_FAMILY === 'Linux') {
-            $output = @shell_exec('ip -6 neigh show 2>&1');
-            if ($output) {
-                $lines = explode("\n", trim($output));
-                $entries = [];
-                foreach ($lines as $line) {
-                    $parts = preg_split('/\s+/', trim($line));
-                    if (count($parts) >= 4) {
-                        $entries[] = [
-                            'ip'        => $parts[0],
-                            'mac'       => $parts[4] ?? 'incomplete',
-                            'interface' => $parts[2] ?? 'eth0',
-                            'state'     => strtoupper(end($parts)),
-                        ];
-                    }
-                }
-                if (!empty($entries)) return $entries;
-            }
+        if (! $this->ipc->isMock()) {
+            return [];
         }
 
         // Realistic IPv6 NDP mock

@@ -602,10 +602,16 @@ class Certificates extends BaseController
             return redirect()->to('/certificates')->with('error', 'Only a valid, issued certificate can be bound to the portal.');
         }
 
+        $outcome = $this->ipcOutcome($this->applier()->webguiCertificate($cert));
+        if (! $outcome['ok']) {
+            return redirect()->to('/certificates')
+                ->with('error', "Certificate '{$cert['name']}' was not installed: " . $outcome['reason']);
+        }
         $this->settings->saveSettings(['webgui_cert_id' => (int) $id]);
-        $this->ipc->call('cert.install', ['cert_id' => (int) $id, 'service' => 'webgui']);
 
-        return redirect()->to('/certificates')->with('success', "Web GUI / portal now presents '{$cert['name']}'.");
+        return redirect()->to('/certificates')->with('success',
+            "Certificate '{$cert['name']}' installed as the Web GUI certificate (/etc/micron/ssl/webgui.crt) "
+            . 'and every running TLS service was reloaded.');
     }
 
     /** Revert the portal to the system default certificate. */

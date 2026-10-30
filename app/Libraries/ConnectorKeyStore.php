@@ -6,8 +6,8 @@ namespace App\Libraries;
  * Connector master-key file access.
  *
  * The connector secret store (§7) is encrypted with a single 32-byte master key
- * held **outside** the database at `/etc/micron/secrets.key`, mode `0600`, owner
- * `root:www-data`. Keeping it off the database means a database dump — or a
+ * held **outside** the database at `/etc/micron/secrets.key`, mode `0640`, owner
+ * `root:www-data` (the web application runs as www-data and must read it). Keeping it off the database means a database dump — or a
  * plaintext backup — never yields a way to read the ciphertext.
  *
  * This class is deliberately narrow: it reads, installs and compares the key
@@ -99,7 +99,7 @@ final class ConnectorKeyStore
             return false;
         }
 
-        @chmod($tmp, 0600);
+        @chmod($tmp, 0640);
         $this->applyOwnership($tmp);
 
         if (! @rename($tmp, $this->path)) {
@@ -108,7 +108,7 @@ final class ConnectorKeyStore
             return false;
         }
 
-        @chmod($this->path, 0600);
+        @chmod($this->path, 0640);
 
         return true;
     }
@@ -165,6 +165,18 @@ final class ConnectorKeyStore
     }
 
     /**
+     * The CodeIgniter encryption key for this appliance, derived from the master
+     * key with HKDF so the master key itself is never used directly for two
+     * purposes. Null when no master key is installed.
+     */
+    public static function appEncryptionKey(?string $path = null): ?string
+    {
+        $master = (new self($path))->read();
+
+        return $master === null ? null : hash_hkdf('sha256', $master, self::KEY_BYTES, 'micron-app-encryption');
+    }
+
+    /**
      * Generates a fresh 32-byte key (raw) for first-boot install / rotation.
      * Provided so callers do not invent their own key derivation.
      */
@@ -176,7 +188,7 @@ final class ConnectorKeyStore
     /**
      * Best-effort `root:www-data` ownership, matching the specification. On
      * platforms where `chown` is unavailable or not permitted (Windows dev),
-     * failure is not fatal — the file is still `0600`.
+     * failure is not fatal — the file is still `0640`.
      */
     private function applyOwnership(string $path): void
     {

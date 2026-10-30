@@ -1065,6 +1065,46 @@ Suricata 7+ multi-threaded inline engine with AVX-512 acceleration, daily ET rul
 
 The diversion is emitted at `priority 10`, *after* the `priority filter` chains, so the scanner only ever sees traffic the firewall has already accepted. `queue_fail_mode` decides whether a dead engine fails open (the `bypass` flag keeps forwarding) or closed; fail-open is the default, because an IPS must never be able to blackhole the appliance. Both halves read the same `ids_settings` row — which is why the queue controls live there and not in the engine config.
 
+### 15.1 Authenticated Vulnerability Management & CVE Security Advisories (NIST NVD & Debian Security Tracker)
+
+Enterprise edge firewalls and routing appliances must not only inspect transit packets, but continuously guarantee the integrity of the host OS and daemons operating the management and data planes. MicronOS integrates a native, authenticated root vulnerability scanning subsystem (`CveAuditEngine` and `/security/cve`).
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│               AUTHENTICATED CVE SCANNING ARCHITECTURE                  │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │
+    ┌───────────────────────────────┴───────────────────────────────┐
+    ▼                                                               ▼
+1. Local Package Discovery                               2. Security Intelligence Feeds
+   ├── Root IPC: micrond (sys.installed_packages)           ├── Debian Security Bug Tracker
+   ├── Linux Native: dpkg-query -W                          │   (security-tracker.debian.org)
+   ├── Status DB: /var/lib/dpkg/status                      └── NIST National Vulnerability DB (NVD)
+   └── Appliance Core Daemon Baseline Profile                   (nvd.nist.gov/vuln/detail/CVE-*)
+    │                                                               │
+    └───────────────────────────────┬───────────────────────────────┘
+                                    │
+                                    ▼
+3. Debian Epoch & Version Comparison Engine
+   ├── Canonical parse: [epoch:]upstream_version[-debian_revision]
+   ├── Component-wise alphanumeric & lexical comparison
+   ├── Debian tilde (~) pre-release sorting semantics
+   └── Match against known CVE fixed version boundaries
+                                    │
+                                    ▼
+4. Operator Presentation, Remediation & Verification
+   ├── Interactive Severity Badging (CRITICAL, HIGH, MEDIUM, LOW)
+   ├── Direct 1-Click NIST NVD External Verification Links
+   ├── Copy-to-Clipboard Automated apt-get Patch Commands
+   └── Cryptographically Audited Scan History & CSV Compliance Export
+```
+
+**Key Architectural Guarantees:**
+1. **Authenticated In-Device Audit:** Rather than unauthenticated port probing that guesses versions from banners, MicronOS queries the local dpkg database directly via privileged root daemon IPC, guaranteeing 100% accurate package version identification.
+2. **Official NIST NVD Deep-Links:** Every detected vulnerability provides an actionable direct link to `https://nvd.nist.gov/vuln/detail/CVE-YYYY-NNNNN`. Operators can instantly verify CVSS base scores, exploitability metrics, CWE weakness types, and vendor statements directly from the National Institute of Standards and Technology.
+3. **Memory-Bounded Feed Consumption:** To prevent appliance memory exhaustion on minimal hardware, the feed engine bypasses monolithic multi-hundred-megabyte JSON dumps and targets installed package security manifests, with automated fallback to an enterprise offline baseline during disconnected operations.
+4. **Actionable Remediation:** Operators receive exact single-line upgrade commands (`apt-get install --only-upgrade <package>`) tailored to the specific advisory.
+
 ---
 
 ## 16. Traffic Shaping & QoS Bufferbloat Elimination (CAKE / fq_codel)

@@ -158,7 +158,7 @@ final class InterfacesCrudTest extends BaseTestCase
         return $params + ['csrf_test_name' => service('security')->getHash()];
     }
 
-    public function testIndexRendersInterfacesDashboardWithSummaryAndModal(): void
+    public function testIndexRendersInterfacesDashboardAndLinksToCreatePage(): void
     {
         $this->withSession($this->session());
         $result = $this->get('interfaces');
@@ -168,8 +168,21 @@ final class InterfacesCrudTest extends BaseTestCase
 
         $this->assertStringContainsString('Network Interfaces', $body);
         $this->assertStringContainsString('Add Interface / VLAN', $body);
+        $this->assertStringContainsString(base_url('interfaces/new'), $body);
         $this->assertStringContainsString('Physical NICs', $body);
         $this->assertStringContainsString('802.1Q VLANs', $body);
+    }
+
+    public function testCreateInterfaceUsesFullPageAndShowsAdministrativeAccess(): void
+    {
+        $result = $this->withSession($this->session())->get('interfaces/new');
+
+        $result->assertOK();
+        $body = $result->getBody();
+        $this->assertStringContainsString('Add Interface / VLAN', $body);
+        $this->assertStringContainsString('Administrative Access', $body);
+        $this->assertStringContainsString('name="admin_access[]" value="https"', $body);
+        $this->assertStringContainsString('name="physical_device"', $body);
     }
 
     public function testIndexShowsTheNeighbourEachInterfaceIsPatchedInto(): void
@@ -243,6 +256,7 @@ final class InterfacesCrudTest extends BaseTestCase
             'mac_override'       => '00:11:22:33:44:55',
             'speed_duplex'       => '1000baseT-FD',
             'description'        => 'Isolated DMZ Tier',
+            'admin_access'       => ['https', 'ping', 'invalid-service'],
             'enabled'            => '1',
         ]));
 
@@ -258,6 +272,7 @@ final class InterfacesCrudTest extends BaseTestCase
         $this->assertSame(24, (int) $row['ipv4_netmask']);
         $this->assertSame(1452, (int) $row['mss_clamp']);
         $this->assertSame('00:11:22:33:44:55', $row['mac_override']);
+        $this->assertSame(['https', 'ping'], json_decode($row['admin_access'], true));
     }
 
     public function testStoreVlanVirtualInterface(): void
@@ -480,5 +495,54 @@ final class InterfacesCrudTest extends BaseTestCase
 
         $this->db->table('interfaces')->where('id', 'custom_nic_test')->delete();
     }
+
+    public function testEditInterfaceShowsFortigatePageAndAdministrativeAccess(): void
+    {
+        $result = $this->withSession($this->session())->get('interfaces/edit/lan');
+
+        $result->assertOK();
+        $body = (string) $result->getBody();
+        $this->assertStringContainsString('Configure Interface: LAN', $body);
+        $this->assertStringContainsString('Administrative Access', $body);
+        $this->assertStringContainsString('Interface Role (FortiGate Classification)', $body);
+        $this->assertStringContainsString('name="admin_access[]" value="https"', $body);
+        $this->assertStringContainsString('name="admin_access[]" value="ssh"', $body);
+        $this->assertStringContainsString('name="admin_access[]" value="ping"', $body);
+        $this->assertStringContainsString('name="admin_access[]" value="http"', $body);
+        $this->assertStringContainsString('name="admin_access[]" value="snmp"', $body);
+    }
+
+    public function testSaveInterfaceUpdatesAdministrativeAccess(): void
+    {
+        $params = [
+            'id'                 => 'lan',
+            'name'               => 'LAN',
+            'enabled'            => 1,
+            'ip_assignment_type' => 'static',
+            'ipv4_address'       => '10.10.10.10',
+            'ipv4_netmask'       => 24,
+            'admin_access'       => ['https', 'ssh', 'ping'],
+            'mtu'                => 1500,
+        ];
+
+        $result = $this->post('interfaces/save', $this->csrf($params));
+        $result->assertRedirectTo(base_url('interfaces'));
+
+        $row = $this->db->table('interfaces')->where('id', 'lan')->get()->getRowArray();
+        $this->assertNotNull($row);
+        $access = json_decode((string) $row['admin_access'], true);
+        $this->assertSame(['https', 'ping', 'ssh'], $access);
+    }
+
+    public function testIndexDisplaysAdministrativeAccessColumn(): void
+    {
+        $result = $this->withSession($this->session())->get('interfaces');
+
+        $result->assertOK();
+        $body = (string) $result->getBody();
+        $this->assertStringContainsString('Admin Access', $body);
+        $this->assertStringContainsString('badge-cyan', $body);
+    }
 }
+
 

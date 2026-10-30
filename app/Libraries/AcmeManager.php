@@ -487,8 +487,11 @@ final class AcmeManager
 
         $this->forgetChallenges($tokens);
 
-        // Everything that consumes a certificate reads the PKI tables, so the
-        // reload is what actually makes the new certificate live.
+        // Services that read the PKI tables pick the certificate up on reload.
+        // The Web GUI and the Clientless Gateway serve *copies* written to disk,
+        // so a certificate bound to either is written out again first —
+        // otherwise a renewal would never reach them.
+        GatewayCertificate::redeployBindings((int) $stored['cert_id'], $this->ipc);
         $this->ipc->call('cert.reload');
 
         return [

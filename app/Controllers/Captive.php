@@ -56,7 +56,14 @@ class Captive extends BaseController
     public function index(): string
     {
         $zones      = $this->zoneModel->orderBy('name', 'ASC')->findAll();
-        $interfaces = $this->interfaceModel->where('enabled', 1)->findAll();
+        $db = \Config\Database::connect();
+        $unifiedInterfaces = \App\Libraries\VpnInterfaceProvider::getUnifiedInterfaces($db);
+        $interfaces = array_map(static function ($if) {
+            $name = $if['name'] ?? ($if['id'] ?? '');
+            $dev  = $if['physical_device'] ?? '';
+            $if['label'] = ($dev !== '' && $dev !== $name) ? "{$name} ({$dev})" : $name;
+            return $if;
+        }, $unifiedInterfaces);
         $sessions   = $this->sessionModel->getActiveSessions();
         $rolls      = $this->voucherModel->getRollSummaries();
 

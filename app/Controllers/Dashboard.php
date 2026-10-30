@@ -239,168 +239,15 @@ class Dashboard extends BaseController
             $dbInterfaces = $db->table('interfaces')->get()->getResultArray();
         } catch (\Throwable $e) {}
 
-        $baseHardwarePorts = [
-            'eth0' => [
-                'id' => 'WAN', 'name' => 'WAN 1', 'device' => 'eth0', 'status' => 'up',
-                'ip' => '198.51.100.25', 'mask' => 24, 'ipv6' => '2001:db8::1',
-                'mac' => '00:1a:2b:3c:4d:01', 'media' => '1000Base-T <full-duplex>', 'speed' => '1000', 'mtu' => 1500,
-                'rx_mbps' => 41.2, 'tx_mbps' => 14.5, 'rx_packets' => '18,420,119', 'tx_packets' => '11,204,801',
-                'in_bytes' => '22.8 GB', 'out_bytes' => '8.4 GB', 'zone' => 'WAN', 'bay' => 'wan',
-            ],
-            'eth3' => [
-                'id' => 'AUX', 'name' => 'MGMT', 'device' => 'eth3', 'status' => 'down',
-                'ip' => '192.168.100.1', 'mask' => 24, 'ipv6' => '—',
-                'mac' => '00:1a:2b:3c:4d:04', 'media' => '1000Base-T <standby>', 'speed' => '1000', 'mtu' => 1500,
-                'rx_mbps' => 0.0, 'tx_mbps' => 0.0, 'rx_packets' => '0', 'tx_packets' => '0',
-                'in_bytes' => '0 MB', 'out_bytes' => '0 MB', 'zone' => 'MGMT', 'bay' => 'mgmt',
-            ],
-            // 16-Port Internal Switch Matrix (Ports 1-16: Top row 1,3,5,7,9,11,13,15 / Bottom row 2,4,6,8,10,12,14,16)
-            'eth1' => [
-                'id' => 'LAN', 'name' => 'Port 1 (LAN)', 'device' => 'eth1', 'port_num' => 1, 'status' => 'up',
-                'ip' => '192.168.1.1', 'mask' => 24, 'ipv6' => 'fd00:abcd::1',
-                'mac' => '00:1a:2b:3c:4d:02', 'media' => '1000Base-T <full-duplex>', 'speed' => '1000', 'mtu' => 1500,
-                'rx_mbps' => 58.7, 'tx_mbps' => 31.2, 'rx_packets' => '31,529,002', 'tx_packets' => '24,198,340',
-                'in_bytes' => '34.2 GB', 'out_bytes' => '18.9 GB', 'zone' => 'LAN', 'bay' => 'internal',
-            ],
-            'eth2' => [
-                'id' => 'OPT1', 'name' => 'Port 2 (DMZ)', 'device' => 'eth2', 'port_num' => 2, 'status' => 'up',
-                'ip' => '192.168.20.1', 'mask' => 24, 'ipv6' => '—',
-                'mac' => '00:1a:2b:3c:4d:03', 'media' => '1000Base-T <full-duplex>', 'speed' => '1000', 'mtu' => 1500,
-                'rx_mbps' => 6.2, 'tx_mbps' => 3.8, 'rx_packets' => '4,102,890', 'tx_packets' => '3,109,240',
-                'in_bytes' => '4.8 GB', 'out_bytes' => '2.1 GB', 'zone' => 'DMZ', 'bay' => 'internal',
-            ],
-            'eth4' => [
-                'id' => 'PORT3', 'name' => 'Port 3', 'device' => 'eth4', 'port_num' => 3, 'status' => 'down',
-                'ip' => '—', 'mask' => 0, 'ipv6' => '—',
-                'mac' => '00:1a:2b:3c:4d:07', 'media' => '1000Base-T <standby>', 'speed' => '1000', 'mtu' => 1500,
-                'rx_mbps' => 0.0, 'tx_mbps' => 0.0, 'rx_packets' => '0', 'tx_packets' => '0',
-                'in_bytes' => '0 MB', 'out_bytes' => '0 MB', 'zone' => 'INTERNAL', 'bay' => 'internal',
-            ],
-            'eth5' => [
-                'id' => 'PORT4', 'name' => 'Port 4', 'device' => 'eth5', 'port_num' => 4, 'status' => 'down',
-                'ip' => '—', 'mask' => 0, 'ipv6' => '—',
-                'mac' => '00:1a:2b:3c:4d:08', 'media' => '1000Base-T <standby>', 'speed' => '1000', 'mtu' => 1500,
-                'rx_mbps' => 0.0, 'tx_mbps' => 0.0, 'rx_packets' => '0', 'tx_packets' => '0',
-                'in_bytes' => '0 MB', 'out_bytes' => '0 MB', 'zone' => 'INTERNAL', 'bay' => 'internal',
-            ],
-            'eth6' => [
-                'id' => 'PORT5', 'name' => 'Port 5', 'device' => 'eth6', 'port_num' => 5, 'status' => 'down',
-                'ip' => '—', 'mask' => 0, 'ipv6' => '—',
-                'mac' => '00:1a:2b:3c:4d:09', 'media' => '1000Base-T <standby>', 'speed' => '1000', 'mtu' => 1500,
-                'rx_mbps' => 0.0, 'tx_mbps' => 0.0, 'rx_packets' => '0', 'tx_packets' => '0',
-                'in_bytes' => '0 MB', 'out_bytes' => '0 MB', 'zone' => 'INTERNAL', 'bay' => 'internal',
-            ],
-            'eth7' => [
-                'id' => 'PORT6', 'name' => 'Port 6', 'device' => 'eth7', 'port_num' => 6, 'status' => 'down',
-                'ip' => '—', 'mask' => 0, 'ipv6' => '—',
-                'mac' => '00:1a:2b:3c:4d:0a', 'media' => '1000Base-T <standby>', 'speed' => '1000', 'mtu' => 1500,
-                'rx_mbps' => 0.0, 'tx_mbps' => 0.0, 'rx_packets' => '0', 'tx_packets' => '0',
-                'in_bytes' => '0 MB', 'out_bytes' => '0 MB', 'zone' => 'INTERNAL', 'bay' => 'internal',
-            ],
-            'eth8' => [
-                'id' => 'PORT7', 'name' => 'Port 7', 'device' => 'eth8', 'port_num' => 7, 'status' => 'down',
-                'ip' => '—', 'mask' => 0, 'ipv6' => '—',
-                'mac' => '00:1a:2b:3c:4d:0b', 'media' => '1000Base-T <standby>', 'speed' => '1000', 'mtu' => 1500,
-                'rx_mbps' => 0.0, 'tx_mbps' => 0.0, 'rx_packets' => '0', 'tx_packets' => '0',
-                'in_bytes' => '0 MB', 'out_bytes' => '0 MB', 'zone' => 'INTERNAL', 'bay' => 'internal',
-            ],
-            'eth9' => [
-                'id' => 'PORT8', 'name' => 'Port 8', 'device' => 'eth9', 'port_num' => 8, 'status' => 'down',
-                'ip' => '—', 'mask' => 0, 'ipv6' => '—',
-                'mac' => '00:1a:2b:3c:4d:0c', 'media' => '1000Base-T <standby>', 'speed' => '1000', 'mtu' => 1500,
-                'rx_mbps' => 0.0, 'tx_mbps' => 0.0, 'rx_packets' => '0', 'tx_packets' => '0',
-                'in_bytes' => '0 MB', 'out_bytes' => '0 MB', 'zone' => 'INTERNAL', 'bay' => 'internal',
-            ],
-            'eth10' => [
-                'id' => 'PORT9', 'name' => 'Port 9', 'device' => 'eth10', 'port_num' => 9, 'status' => 'down',
-                'ip' => '—', 'mask' => 0, 'ipv6' => '—',
-                'mac' => '00:1a:2b:3c:4d:0d', 'media' => '1000Base-T <standby>', 'speed' => '1000', 'mtu' => 1500,
-                'rx_mbps' => 0.0, 'tx_mbps' => 0.0, 'rx_packets' => '0', 'tx_packets' => '0',
-                'in_bytes' => '0 MB', 'out_bytes' => '0 MB', 'zone' => 'INTERNAL', 'bay' => 'internal',
-            ],
-            'eth11' => [
-                'id' => 'PORT10', 'name' => 'Port 10', 'device' => 'eth11', 'port_num' => 10, 'status' => 'up',
-                'ip' => '10.0.10.10', 'mask' => 24, 'ipv6' => '—',
-                'mac' => '00:1a:2b:3c:4d:0e', 'media' => '1000Base-T <full-duplex>', 'speed' => '1000', 'mtu' => 1500,
-                'rx_mbps' => 18.4, 'tx_mbps' => 9.2, 'rx_packets' => '12,410,200', 'tx_packets' => '8,102,400',
-                'in_bytes' => '14.2 GB', 'out_bytes' => '7.8 GB', 'zone' => 'INTERNAL', 'bay' => 'internal',
-            ],
-            'eth12' => [
-                'id' => 'PORT11', 'name' => 'Port 11', 'device' => 'eth12', 'port_num' => 11, 'status' => 'up',
-                'ip' => '10.0.20.11', 'mask' => 24, 'ipv6' => '—',
-                'mac' => '00:1a:2b:3c:4d:0f', 'media' => '1000Base-T <full-duplex>', 'speed' => '1000', 'mtu' => 1500,
-                'rx_mbps' => 24.1, 'tx_mbps' => 12.8, 'rx_packets' => '16,204,110', 'tx_packets' => '10,410,900',
-                'in_bytes' => '18.9 GB', 'out_bytes' => '9.5 GB', 'zone' => 'INTERNAL', 'bay' => 'internal',
-            ],
-            'eth13' => [
-                'id' => 'PORT12', 'name' => 'Port 12', 'device' => 'eth13', 'port_num' => 12, 'status' => 'up',
-                'ip' => '10.0.20.12', 'mask' => 24, 'ipv6' => '—',
-                'mac' => '00:1a:2b:3c:4d:10', 'media' => '1000Base-T <full-duplex>', 'speed' => '1000', 'mtu' => 1500,
-                'rx_mbps' => 19.5, 'tx_mbps' => 11.2, 'rx_packets' => '14,102,800', 'tx_packets' => '9,120,400',
-                'in_bytes' => '15.4 GB', 'out_bytes' => '8.2 GB', 'zone' => 'INTERNAL', 'bay' => 'internal',
-            ],
-            'eth14' => [
-                'id' => 'PORT13', 'name' => 'Port 13', 'device' => 'eth14', 'port_num' => 13, 'status' => 'up',
-                'ip' => '10.0.20.13', 'mask' => 24, 'ipv6' => '—',
-                'mac' => '00:1a:2b:3c:4d:11', 'media' => '1000Base-T <full-duplex>', 'speed' => '1000', 'mtu' => 1500,
-                'rx_mbps' => 15.2, 'tx_mbps' => 8.4, 'rx_packets' => '9,820,400', 'tx_packets' => '6,400,100',
-                'in_bytes' => '11.8 GB', 'out_bytes' => '6.1 GB', 'zone' => 'INTERNAL', 'bay' => 'internal',
-            ],
-            'eth15' => [
-                'id' => 'PORT14', 'name' => 'Port 14', 'device' => 'eth15', 'port_num' => 14, 'status' => 'up',
-                'ip' => '10.0.30.14', 'mask' => 24, 'ipv6' => '—',
-                'mac' => '00:1a:2b:3c:4d:12', 'media' => '1000Base-T <full-duplex>', 'speed' => '1000', 'mtu' => 1500,
-                'rx_mbps' => 32.8, 'tx_mbps' => 18.9, 'rx_packets' => '22,100,500', 'tx_packets' => '14,800,200',
-                'in_bytes' => '25.6 GB', 'out_bytes' => '14.2 GB', 'zone' => 'INTERNAL', 'bay' => 'internal',
-            ],
-            'eth16' => [
-                'id' => 'PORT15', 'name' => 'Port 15', 'device' => 'eth16', 'port_num' => 15, 'status' => 'down',
-                'ip' => '—', 'mask' => 0, 'ipv6' => '—',
-                'mac' => '00:1a:2b:3c:4d:13', 'media' => '1000Base-T <standby>', 'speed' => '1000', 'mtu' => 1500,
-                'rx_mbps' => 0.0, 'tx_mbps' => 0.0, 'rx_packets' => '0', 'tx_packets' => '0',
-                'in_bytes' => '0 MB', 'out_bytes' => '0 MB', 'zone' => 'INTERNAL', 'bay' => 'internal',
-            ],
-            'eth17' => [
-                'id' => 'PORT16', 'name' => 'Port 16', 'device' => 'eth17', 'port_num' => 16, 'status' => 'up',
-                'ip' => '10.0.10.16', 'mask' => 24, 'ipv6' => '—',
-                'mac' => '00:1a:2b:3c:4d:14', 'media' => '1000Base-T <full-duplex>', 'speed' => '1000', 'mtu' => 1500,
-                'rx_mbps' => 28.4, 'tx_mbps' => 16.1, 'rx_packets' => '19,400,200', 'tx_packets' => '12,500,800',
-                'in_bytes' => '21.5 GB', 'out_bytes' => '12.0 GB', 'zone' => 'INTERNAL', 'bay' => 'internal',
-            ],
-            'sfp0' => [
-                'id' => 'SFP1', 'name' => 'SFP+ 1', 'device' => 'sfp0', 'status' => 'up',
-                'ip' => '10.254.1.1', 'mask' => 30, 'ipv6' => '—',
-                'mac' => '00:1a:2b:3c:4d:05', 'media' => '10GBase-SR Fiber <full-duplex>', 'speed' => '10000', 'mtu' => 9000,
-                'rx_mbps' => 124.5, 'tx_mbps' => 88.2, 'rx_packets' => '54,120,891', 'tx_packets' => '42,901,114',
-                'in_bytes' => '68.4 GB', 'out_bytes' => '49.1 GB', 'zone' => 'FIBER', 'bay' => 'sfp',
-            ],
-            'sfp1' => [
-                'id' => 'SFP2', 'name' => 'SFP+ 2', 'device' => 'sfp1', 'status' => 'down',
-                'ip' => '—', 'mask' => 30, 'ipv6' => '—',
-                'mac' => '00:1a:2b:3c:4d:06', 'media' => '10GBase-SR Fiber <standby>', 'speed' => '10000', 'mtu' => 9000,
-                'rx_mbps' => 0.0, 'tx_mbps' => 0.0, 'rx_packets' => '0', 'tx_packets' => '0',
-                'in_bytes' => '0 MB', 'out_bytes' => '0 MB', 'zone' => 'FIBER', 'bay' => 'sfp',
-            ],
-        ];
-
-        // Overlay with database config if available
-        if (!empty($dbInterfaces)) {
-            foreach ($dbInterfaces as $dbIf) {
-                $dev = $dbIf['physical_device'] ?? 'eth0';
-                if (isset($baseHardwarePorts[$dev])) {
-                    $baseHardwarePorts[$dev]['id']     = $dbIf['id'];
-                    $baseHardwarePorts[$dev]['name']   = $dbIf['name'];
-                    $baseHardwarePorts[$dev]['status'] = ($dbIf['enabled'] ?? 1) ? 'up' : 'down';
-                    if (!empty($dbIf['ipv4_address'])) {
-                        $baseHardwarePorts[$dev]['ip'] = $dbIf['ipv4_address'];
-                    }
-                    if (!empty($dbIf['ipv4_netmask'])) {
-                        $baseHardwarePorts[$dev]['mask'] = $dbIf['ipv4_netmask'];
-                    }
-                }
-            }
+        // The front panel is always drawn from the ports the kernel reports
+        // (/sys/class/net via `system.health`): enp7s0, eno1, wlp2s0 … exactly
+        // as the machine the ISO was installed on has them. In development the
+        // client answers with a simulated machine of the same shape.
+        $interfaces = [];
+        $__ipcPorts = \Config\Services::ipc();
+        if ($__ipcPorts->isMock()) {
+            $interfaces = (new \App\Libraries\LiveTelemetry($__ipcPorts))->snapshot()['interfaces'] ?? [];
         }
-        $interfaces = array_values($baseHardwarePorts);
         $ifUp = count(array_filter($interfaces, fn ($i) => ($i['status'] ?? '') === 'up'));
 
         // 13. Recent firewall filter log
@@ -413,6 +260,77 @@ class Dashboard extends BaseController
             ['time' => date('H:i:s', time() - 35), 'action' => 'block', 'iface' => 'LAN', 'proto' => 'ICMP', 'src' => '192.168.1.199',        'dst' => '192.168.20.15',      'desc' => 'Isolate Guest LAN from DMZ Subnet'],
         ];
 
+        // 13b. Real telemetry. Everything above is the development sample set;
+        // on an appliance the daemon's /proc + /sys readings replace it, and when
+        // the daemon does not answer the page says so instead of showing samples.
+        $ipc           = \Config\Services::ipc();
+        $telemetryMode = $ipc->isMock() ? 'simulated' : 'live';
+        $blockedRecent = null;
+        if (! $ipc->isMock()) {
+            $live = new \App\Libraries\LiveTelemetry($ipc);
+            $snap = $live->snapshot();
+            if ($snap === null) {
+                $telemetryMode = 'unavailable';
+                $uptimeSec = 0; $uptimeStr = 'Unknown';
+                $cpuLoad1 = $cpuLoad5 = $cpuLoad15 = 0.0; $cpuPct = 0; $cpuModel = '—';
+                $memTotal = $memUsed = $memPct = $memCache = 0;
+                $diskTotal = $diskUsed = $diskPct = 0;
+                $statesActive = 0; $statesMax = 0; $statesPct = 0;
+                $temperature = null; $interfaces = []; $services = []; $recentLogs = []; $gateways = [];
+            } else {
+                $uptimeSec = $snap['uptime_sec'];
+                $uptimeStr = $this->formatUptime($uptimeSec);
+                [$cpuLoad1, $cpuLoad5, $cpuLoad15] = $snap['load'];
+                $cpuCores  = $snap['cpu_cores'];
+                $cpuPct    = $snap['cpu_pct'];
+                $cpuModel  = $snap['cpu_model'] ?? '—';
+                $memTotal  = $snap['mem_total'];
+                $memUsed   = $snap['mem_used'];
+                $memPct    = $snap['mem_pct'];
+                $memCache  = 0;
+                $swapTotal = $snap['swap_total'];
+                $swapUsed  = $snap['swap_used'];
+                $swapPct   = $swapTotal > 0 ? (int) round($swapUsed / $swapTotal * 100) : 0;
+                $diskTotal = $snap['disk_total'];
+                $diskUsed  = $snap['disk_used'];
+                $diskPct   = $snap['disk_pct'];
+                $statesActive = (int) ($snap['states'] ?? 0);
+                $statesMax    = (int) ($snap['states_max'] ?? 0);
+                $statesPct    = $statesMax > 0 ? round($statesActive / $statesMax * 100, 2) : 0;
+                $temperature  = $snap['temperature'];
+                $cryptoEngine = '—';
+                $mbufActive   = 0; $mbufMax = 0; $mbufPct = 0;
+                // Counts that had development defaults: on an appliance they
+                // are what the database and the daemon actually hold.
+                $dnsblFeedsCount = 0;
+                $dnsblSignatures = 0;
+                try {
+                    $feeds           = $db->table('dns_feeds')->where('enabled', 1)->get()->getResultArray();
+                    $dnsblFeedsCount = count($feeds);
+                    $dnsblSignatures = (int) array_sum(array_column($feeds, 'entries_count'));
+                } catch (\Throwable) {
+                }
+                $leaseList        = $ipc->call('dhcp.leases')['result']['leases'] ?? null;
+                $dhcpActiveLeases = is_array($leaseList) ? count($leaseList) : 0;
+                $interfaces   = $snap['interfaces'];
+                $services     = $live->services() ?? [];
+                $recentLogs   = $live->firewallLog() ?? [];
+                $blockedRecent = count(array_filter($recentLogs, static fn ($l) => $l['action'] === 'block'));
+                // Gateway quality comes from the SD-WAN probe when it runs; otherwise none is claimed.
+                $gateways = [];
+                $sla = \Config\Services::ipc()->call('sdwan.probe_status')['result']['data'] ?? [];
+                foreach ((array) ($sla['members'] ?? $sla) as $name => $m) {
+                    if (is_array($m) && isset($m['rtt_ms'])) {
+                        $gateways[] = ['name' => (string) $name, 'iface' => (string) ($m['interface'] ?? $name),
+                            'ip' => (string) ($m['gateway'] ?? '—'), 'monitor' => (string) ($m['target'] ?? '—'),
+                            'rtt' => $m['rtt_ms'], 'rttsd' => $m['jitter_ms'] ?? null, 'loss' => $m['loss_pct'] ?? null,
+                            'status' => ($m['loss_pct'] ?? 0) >= 50 ? 'offline' : 'online', 'tier' => '', 'subtext' => ''];
+                    }
+                }
+            }
+            $ifUp = count(array_filter($interfaces, fn ($i) => ($i['status'] ?? '') === 'up'));
+        }
+
         // 14. Modular User Dashboard Layout (pfSense / FortiGate Style)
         $layoutModel = new \App\Models\DashboardLayoutModel();
         $userId      = (int) (session('user_id') ?? 1);
@@ -420,10 +338,15 @@ class Dashboard extends BaseController
         $layoutRow   = $layoutModel->getLayoutForUser($userId, $profile);
         $userLayout  = $layoutRow['parsed_layout'] ?? $layoutModel->getDefaultLayout($profile);
 
+        // Data for the widget cards (DHCP leases, connection states, plugins).
+        $widgetData = $this->widgetData($ipc, $dhcpActiveLeases);
+
         return view('dashboard/index', [
+            'widgetData'       => $widgetData,
             'title'            => 'Enterprise Firewall Dashboard — Micron OS',
             'systemInfo'       => $systemInfo,
             'uptimeStr'        => $uptimeStr,
+            'bootSlot'         => (new \App\Libraries\BootSlot())->detect(),
             'uptimeSec'        => $uptimeSec,
             'cpuPct'           => $cpuPct,
             'cpuLoad1'         => $cpuLoad1,
@@ -471,7 +394,82 @@ class Dashboard extends BaseController
             'lastRollback'     => $lastRollback,
             'userLayout'       => $userLayout,
             'userProfile'      => $profile,
+            'telemetryMode'    => $telemetryMode,
+            'blockedRecent'    => $blockedRecent,
         ]);
+    }
+
+    /**
+     * Real data for the add-on widget cards. On an appliance every value comes
+     * from the daemon or the database; the development client gets a small,
+     * clearly simulated set so the cards can be laid out offline.
+     *
+     * @return array<string, mixed>
+     */
+    private function widgetData(\App\Libraries\IpcClient $ipc, int $dhcpActiveLeases): array
+    {
+        $mock = $ipc->isMock();
+
+        // DHCP leases (Kea lease file).
+        $leases = [];
+        if (! $mock) {
+            $leases = (array) ($ipc->call('dhcp.leases', ['limit' => 200])['result']['leases'] ?? []);
+        } else {
+            $leases = [
+                ['ip' => '192.168.1.101', 'mac' => '52:54:00:5a:01:01', 'hostname' => 'workstation-01', 'expires' => date('Y-m-d H:i', time() + 3600)],
+                ['ip' => '192.168.1.102', 'mac' => '52:54:00:5a:01:02', 'hostname' => 'nas', 'expires' => date('Y-m-d H:i', time() + 7200)],
+                ['ip' => '192.168.1.105', 'mac' => '52:54:00:5a:01:05', 'hostname' => '', 'expires' => date('Y-m-d H:i', time() + 1800)],
+            ];
+        }
+        usort($leases, static fn ($a, $b) => strcmp((string) ($b['expires'] ?? ''), (string) ($a['expires'] ?? '')));
+
+        // Connection-tracking states, summarised by protocol and TCP state.
+        $states = null;
+        $resp   = $ipc->call('diag.conntrack_states', ['limit' => 2000]);
+        if (is_array($resp['result']['states'] ?? null)) {
+            $states = $resp['result']['states'];
+        } elseif ($mock) {
+            $states = [
+                ['proto' => 'tcp', 'state' => 'ESTABLISHED'], ['proto' => 'tcp', 'state' => 'ESTABLISHED'],
+                ['proto' => 'tcp', 'state' => 'TIME_WAIT'], ['proto' => 'udp', 'state' => 'ASSURED'],
+                ['proto' => 'udp', 'state' => ''], ['proto' => 'icmp', 'state' => ''],
+            ];
+        }
+        $byProto = [];
+        $byState = [];
+        foreach ((array) $states as $st) {
+            $proto = strtoupper((string) ($st['proto'] ?? '?'));
+            $byProto[$proto] = ($byProto[$proto] ?? 0) + 1;
+            if ($proto === 'TCP' && ! empty($st['state'])) {
+                $k           = strtoupper((string) $st['state']);
+                $byState[$k] = ($byState[$k] ?? 0) + 1;
+            }
+        }
+        arsort($byProto);
+        arsort($byState);
+
+        // Installed plugins.
+        $plugins = [];
+        try {
+            $db = \Config\Database::connect();
+            if ($db->tableExists('plugins')) {
+                foreach ($db->table('plugins')->orderBy('name', 'ASC')->get()->getResultArray() as $row) {
+                    $plugins[] = ['id' => (string) $row['id'], 'name' => (string) $row['name'],
+                        'version' => (string) ($row['version'] ?? ''), 'enabled' => (int) ($row['enabled'] ?? 0) === 1];
+                }
+            }
+        } catch (\Throwable) {
+        }
+
+        return [
+            'leases'       => array_slice($leases, 0, 8),
+            'lease_count'  => $mock ? count($leases) : max($dhcpActiveLeases, count($leases)),
+            'states_known' => $states !== null,
+            'states_total' => $states === null ? null : count($states),
+            'by_proto'     => $byProto,
+            'by_state'     => array_slice($byState, 0, 6, true),
+            'plugins'      => $plugins,
+        ];
     }
 
     /**
@@ -532,9 +530,40 @@ class Dashboard extends BaseController
      */
     public function traffic(): \CodeIgniter\HTTP\ResponseInterface
     {
-        $iface = $this->request->getGet('iface') ?? 'WAN';
-        
-        // Realistic dynamic jitter simulation for live graphs
+        $iface = (string) ($this->request->getGet('iface') ?? 'WAN');
+
+        // On an appliance: the real rate of the requested port (by device or
+        // configured name), measured from /sys counters by LiveTelemetry.
+        $ipc = \Config\Services::ipc();
+        if (! $ipc->isMock()) {
+            $snap = (new \App\Libraries\LiveTelemetry($ipc))->snapshot();
+            if ($snap === null) {
+                return $this->response->setStatusCode(503)->setJSON(['iface' => $iface, 'mode' => 'unavailable',
+                    'error' => 'The appliance daemon did not answer; telemetry is unavailable.']);
+            }
+            $port = null;
+            foreach ($snap['interfaces'] as $p) {
+                if (strcasecmp((string) $p['device'], $iface) === 0 || strcasecmp((string) $p['id'], $iface) === 0
+                    || strcasecmp((string) $p['zone'], $iface) === 0) {
+                    $port = $p;
+                    break;
+                }
+            }
+
+            return $this->response->setJSON([
+                'iface'     => $iface,
+                'mode'      => 'live',
+                'timestamp' => date('H:i:s'),
+                'in_mbps'   => $port['rx_mbps'] ?? null,
+                'out_mbps'  => $port['tx_mbps'] ?? null,
+                'in_pps'    => null,
+                'out_pps'   => null,
+                'cpu_pct'   => $snap['cpu_pct'],
+                'states'    => $snap['states'],
+            ]);
+        }
+
+        // Development (mock) client only: jitter simulation for live graphs
         $baseIn = strtoupper($iface) === 'WAN' ? 38.5 : (strtoupper($iface) === 'LAN' ? 55.2 : 9.4);
         $baseOut = strtoupper($iface) === 'WAN' ? 14.2 : (strtoupper($iface) === 'LAN' ? 26.8 : 4.1);
 
@@ -567,15 +596,20 @@ class Dashboard extends BaseController
         $service = $this->request->getPost('service');
         $action  = $this->request->getPost('action'); // restart, stop, start
 
-        $allowedServices = ['nftables', 'kea-dhcp4', 'unbound', 'wireguard', 'openvpn', 'frr-ospfd', 'gateway-monitor', 'squid', 'keepalived', 'chrony'];
-        if (!in_array($service, $allowedServices)) {
-            return $this->response->setStatusCode(400)->setJSON(['success' => false, 'message' => 'Invalid service']);
+        // Dashboard card id → managed service id understood by the daemon.
+        $map = ['nftables' => 'nftables', 'kea-dhcp4' => 'kea-dhcp4', 'unbound' => 'unbound', 'wireguard' => 'wireguard',
+            'openvpn' => 'openvpn', 'frr-ospfd' => 'frr', 'frr' => 'frr', 'gateway-monitor' => 'gateway-monitor',
+            'squid' => 'squid', 'keepalived' => 'keepalived', 'chrony' => 'chrony', 'suricata' => 'suricata',
+            'strongswan' => 'strongswan', 'snmpd' => 'snmpd', 'rsyslog' => 'rsyslog'];
+        if (! isset($map[$service]) || ! in_array($action, ['start', 'stop', 'restart'], true)) {
+            return $this->response->setStatusCode(400)->setJSON(['csrf' => csrf_hash(), 'success' => false, 'message' => 'Invalid service or action']);
         }
 
-        // Audit log action
+        $response = \Config\Services::ipc()->call('system.service', ['service' => $map[$service], 'action' => $action]);
+        $outcome  = $this->ipcOutcome($response);
+
         try {
-            $db = \Config\Database::connect();
-            $db->table('audit_logs')->insert([
+            \Config\Database::connect()->table('audit_logs')->insert([
                 // See Cron::auditLog() for why every column is supplied.
                 'admin_user'      => session('username') ?? 'admin',
                 'client_ip'       => $this->request->getIPAddress(),
@@ -585,19 +619,27 @@ class Dashboard extends BaseController
                 'target_resource' => 'System Services',
                 'action'          => "service.{$action}",
                 'target'          => $service,
-                // `audit_logs` has no `details` column; the description goes in
-                // `new_state`, as the other writers do.
-                'new_state'       => "Subsystem {$service} requested {$action} from Dashboard",
+                'new_state'       => "Dashboard {$action} of {$service}: " . ($outcome['ok'] ? 'ok' : 'failed — ' . $outcome['reason']),
                 'ip_address'      => $this->request->getIPAddress(),
                 'created_at'      => date('Y-m-d H:i:s'),
             ]);
-        } catch (\Throwable $e) {}
+        } catch (\Throwable $e) {
+        }
 
-        return $this->response->setJSON([
+        if (! $outcome['ok']) {
+            return $this->response->setStatusCode(502)->setJSON(['csrf' => csrf_hash(), 
+                'success' => false, 'service' => $service, 'action' => $action,
+                'message' => "Could not {$action} {$service}: " . $outcome['reason'],
+            ]);
+        }
+        $state = (string) ($response['result']['state'] ?? '');
+
+        return $this->response->setJSON(['csrf' => csrf_hash(), 
             'success' => true,
             'service' => $service,
             'action'  => $action,
-            'message' => "Service '{$service}' successfully {$action}ed.",
+            'state'   => $state,
+            'message' => "{$service}: {$action} completed" . ($state !== '' ? " — now {$state}" : '') . '.',
         ]);
     }
 
@@ -643,7 +685,7 @@ class Dashboard extends BaseController
         }
 
         if (!is_array($layoutData)) {
-            return $this->response->setStatusCode(400)->setJSON([
+            return $this->response->setStatusCode(400)->setJSON(['csrf' => csrf_hash(), 
                 'success' => false,
                 'message' => 'Invalid layout data structure',
             ]);
@@ -652,7 +694,7 @@ class Dashboard extends BaseController
         $model = new \App\Models\DashboardLayoutModel();
         $model->saveLayoutForUser($userId, $profile, $layoutData);
 
-        return $this->response->setJSON([
+        return $this->response->setJSON(['csrf' => csrf_hash(), 
             'success' => true,
             'message' => 'Dashboard layout saved successfully',
             'layout'  => $layoutData,
@@ -670,7 +712,7 @@ class Dashboard extends BaseController
         $default = $model->getDefaultLayout($profile);
         $model->saveLayoutForUser($userId, $profile, $default);
 
-        return $this->response->setJSON([
+        return $this->response->setJSON(['csrf' => csrf_hash(), 
             'success' => true,
             'message' => 'Dashboard layout reset to factory default',
             'layout'  => $default,
@@ -682,152 +724,48 @@ class Dashboard extends BaseController
      */
     public function telemetry(): \CodeIgniter\HTTP\ResponseInterface
     {
+        $ipc = \Config\Services::ipc();
+        if (! $ipc->isMock()) {
+            $snap = (new \App\Libraries\LiveTelemetry($ipc))->snapshot();
+            if ($snap === null) {
+                return $this->response->setStatusCode(503)->setJSON([
+                    'timestamp' => date('H:i:s'), 'mode' => 'unavailable',
+                    'error' => 'The appliance daemon did not answer; telemetry is unavailable.',
+                ]);
+            }
+
+            return $this->response->setJSON([
+                'timestamp' => date('H:i:s'),
+                'mode'      => 'live',
+                'gauges'    => [
+                    'cpu_pct'     => $snap['cpu_pct'],
+                    'mem_pct'     => $snap['mem_pct'],
+                    'states'      => $snap['states'],
+                    'mbuf_pct'    => null,
+                    'disk_pct'    => $snap['disk_pct'],
+                    'temperature' => $snap['temperature'],
+                ],
+                'ports'     => $snap['interfaces'],
+                'traffic'   => [
+                    'total_rx_mbps' => round(array_sum(array_column($snap['interfaces'], 'rx_mbps')), 2),
+                    'total_tx_mbps' => round(array_sum(array_column($snap['interfaces'], 'tx_mbps')), 2),
+                ],
+            ]);
+        }
+
+        // Development (mock) client only: animated sample telemetry.
         $db = \Config\Database::connect();
         
-        // 1. Interfaces & Physical Ports Live Status
-        $dbInterfaces = [];
-        try {
-            $dbInterfaces = $db->table('interfaces')->get()->getResultArray();
-        } catch (\Throwable $e) {}
-
-        $basePorts = [
-            'eth0' => [
-                'id' => 'WAN', 'name' => 'WAN 1', 'device' => 'eth0', 'status' => 'up', 'carrier' => 1,
-                'speed' => '1000', 'duplex' => 'full', 'ip' => '198.51.100.25', 'mask' => 24,
-                'mac' => '00:1a:2b:3c:4d:01', 'mtu' => 1500, 'rx_mbps' => round(38.5 + (lcg_value() - 0.5) * 6, 1),
-                'tx_mbps' => round(14.2 + (lcg_value() - 0.5) * 3, 1), 'rx_pps' => rand(4800, 6200),
-                'tx_pps' => rand(2200, 3100), 'errors' => 0, 'drops' => 0, 'zone' => 'WAN'
-            ],
-            'eth3' => [
-                'id' => 'AUX', 'name' => 'MGMT', 'device' => 'eth3', 'status' => 'down', 'carrier' => 0,
-                'speed' => '1000', 'duplex' => 'half', 'ip' => '192.168.100.1', 'mask' => 24,
-                'mac' => '00:1a:2b:3c:4d:04', 'mtu' => 1500, 'rx_mbps' => 0.0,
-                'tx_mbps' => 0.0, 'rx_pps' => 0, 'tx_pps' => 0, 'errors' => 0, 'drops' => 0, 'zone' => 'MGMT'
-            ],
-            'eth1' => [
-                'id' => 'LAN', 'name' => 'Port 1 (LAN)', 'device' => 'eth1', 'port_num' => 1, 'status' => 'up', 'carrier' => 1,
-                'speed' => '1000', 'duplex' => 'full', 'ip' => '192.168.1.1', 'mask' => 24,
-                'mac' => '00:1a:2b:3c:4d:02', 'mtu' => 1500, 'rx_mbps' => round(54.2 + (lcg_value() - 0.5) * 9, 1),
-                'tx_mbps' => round(28.4 + (lcg_value() - 0.5) * 5, 1), 'rx_pps' => rand(6500, 8900),
-                'tx_pps' => rand(3800, 5200), 'errors' => 0, 'drops' => 0, 'zone' => 'LAN'
-            ],
-            'eth2' => [
-                'id' => 'OPT1', 'name' => 'Port 2 (DMZ)', 'device' => 'eth2', 'port_num' => 2, 'status' => 'up', 'carrier' => 1,
-                'speed' => '1000', 'duplex' => 'full', 'ip' => '192.168.20.1', 'mask' => 24,
-                'mac' => '00:1a:2b:3c:4d:03', 'mtu' => 1500, 'rx_mbps' => round(6.2 + (lcg_value() - 0.5) * 2, 1),
-                'tx_mbps' => round(3.8 + (lcg_value() - 0.5) * 1.5, 1), 'rx_pps' => rand(1200, 1900),
-                'tx_pps' => rand(700, 1100), 'errors' => 0, 'drops' => 0, 'zone' => 'DMZ'
-            ],
-            'eth4' => [
-                'id' => 'PORT3', 'name' => 'Port 3', 'device' => 'eth4', 'port_num' => 3, 'status' => 'down', 'carrier' => 0,
-                'speed' => '1000', 'duplex' => 'full', 'ip' => '—', 'mask' => 0,
-                'mac' => '00:1a:2b:3c:4d:07', 'mtu' => 1500, 'rx_mbps' => 0.0, 'tx_mbps' => 0.0, 'rx_pps' => 0, 'tx_pps' => 0, 'errors' => 0, 'drops' => 0, 'zone' => 'INTERNAL'
-            ],
-            'eth5' => [
-                'id' => 'PORT4', 'name' => 'Port 4', 'device' => 'eth5', 'port_num' => 4, 'status' => 'down', 'carrier' => 0,
-                'speed' => '1000', 'duplex' => 'full', 'ip' => '—', 'mask' => 0,
-                'mac' => '00:1a:2b:3c:4d:08', 'mtu' => 1500, 'rx_mbps' => 0.0, 'tx_mbps' => 0.0, 'rx_pps' => 0, 'tx_pps' => 0, 'errors' => 0, 'drops' => 0, 'zone' => 'INTERNAL'
-            ],
-            'eth6' => [
-                'id' => 'PORT5', 'name' => 'Port 5', 'device' => 'eth6', 'port_num' => 5, 'status' => 'down', 'carrier' => 0,
-                'speed' => '1000', 'duplex' => 'full', 'ip' => '—', 'mask' => 0,
-                'mac' => '00:1a:2b:3c:4d:09', 'mtu' => 1500, 'rx_mbps' => 0.0, 'tx_mbps' => 0.0, 'rx_pps' => 0, 'tx_pps' => 0, 'errors' => 0, 'drops' => 0, 'zone' => 'INTERNAL'
-            ],
-            'eth7' => [
-                'id' => 'PORT6', 'name' => 'Port 6', 'device' => 'eth7', 'port_num' => 6, 'status' => 'down', 'carrier' => 0,
-                'speed' => '1000', 'duplex' => 'full', 'ip' => '—', 'mask' => 0,
-                'mac' => '00:1a:2b:3c:4d:0a', 'mtu' => 1500, 'rx_mbps' => 0.0, 'tx_mbps' => 0.0, 'rx_pps' => 0, 'tx_pps' => 0, 'errors' => 0, 'drops' => 0, 'zone' => 'INTERNAL'
-            ],
-            'eth8' => [
-                'id' => 'PORT7', 'name' => 'Port 7', 'device' => 'eth8', 'port_num' => 7, 'status' => 'down', 'carrier' => 0,
-                'speed' => '1000', 'duplex' => 'full', 'ip' => '—', 'mask' => 0,
-                'mac' => '00:1a:2b:3c:4d:0b', 'mtu' => 1500, 'rx_mbps' => 0.0, 'tx_mbps' => 0.0, 'rx_pps' => 0, 'tx_pps' => 0, 'errors' => 0, 'drops' => 0, 'zone' => 'INTERNAL'
-            ],
-            'eth9' => [
-                'id' => 'PORT8', 'name' => 'Port 8', 'device' => 'eth9', 'port_num' => 8, 'status' => 'down', 'carrier' => 0,
-                'speed' => '1000', 'duplex' => 'full', 'ip' => '—', 'mask' => 0,
-                'mac' => '00:1a:2b:3c:4d:0c', 'mtu' => 1500, 'rx_mbps' => 0.0, 'tx_mbps' => 0.0, 'rx_pps' => 0, 'tx_pps' => 0, 'errors' => 0, 'drops' => 0, 'zone' => 'INTERNAL'
-            ],
-            'eth10' => [
-                'id' => 'PORT9', 'name' => 'Port 9', 'device' => 'eth10', 'port_num' => 9, 'status' => 'down', 'carrier' => 0,
-                'speed' => '1000', 'duplex' => 'full', 'ip' => '—', 'mask' => 0,
-                'mac' => '00:1a:2b:3c:4d:0d', 'mtu' => 1500, 'rx_mbps' => 0.0, 'tx_mbps' => 0.0, 'rx_pps' => 0, 'tx_pps' => 0, 'errors' => 0, 'drops' => 0, 'zone' => 'INTERNAL'
-            ],
-            'eth11' => [
-                'id' => 'PORT10', 'name' => 'Port 10', 'device' => 'eth11', 'port_num' => 10, 'status' => 'up', 'carrier' => 1,
-                'speed' => '1000', 'duplex' => 'full', 'ip' => '10.0.10.10', 'mask' => 24,
-                'mac' => '00:1a:2b:3c:4d:0e', 'mtu' => 1500, 'rx_mbps' => round(18.4 + (lcg_value() - 0.5) * 3, 1),
-                'tx_mbps' => round(9.2 + (lcg_value() - 0.5) * 2, 1), 'rx_pps' => rand(2200, 3100),
-                'tx_pps' => rand(1100, 1900), 'errors' => 0, 'drops' => 0, 'zone' => 'INTERNAL'
-            ],
-            'eth12' => [
-                'id' => 'PORT11', 'name' => 'Port 11', 'device' => 'eth12', 'port_num' => 11, 'status' => 'up', 'carrier' => 1,
-                'speed' => '1000', 'duplex' => 'full', 'ip' => '10.0.20.11', 'mask' => 24,
-                'mac' => '00:1a:2b:3c:4d:0f', 'mtu' => 1500, 'rx_mbps' => round(24.1 + (lcg_value() - 0.5) * 4, 1),
-                'tx_mbps' => round(12.8 + (lcg_value() - 0.5) * 2.5, 1), 'rx_pps' => rand(2800, 3900),
-                'tx_pps' => rand(1500, 2400), 'errors' => 0, 'drops' => 0, 'zone' => 'INTERNAL'
-            ],
-            'eth13' => [
-                'id' => 'PORT12', 'name' => 'Port 12', 'device' => 'eth13', 'port_num' => 12, 'status' => 'up', 'carrier' => 1,
-                'speed' => '1000', 'duplex' => 'full', 'ip' => '10.0.20.12', 'mask' => 24,
-                'mac' => '00:1a:2b:3c:4d:10', 'mtu' => 1500, 'rx_mbps' => round(19.5 + (lcg_value() - 0.5) * 3, 1),
-                'tx_mbps' => round(11.2 + (lcg_value() - 0.5) * 2, 1), 'rx_pps' => rand(2300, 3300),
-                'tx_pps' => rand(1300, 2100), 'errors' => 0, 'drops' => 0, 'zone' => 'INTERNAL'
-            ],
-            'eth14' => [
-                'id' => 'PORT13', 'name' => 'Port 13', 'device' => 'eth14', 'port_num' => 13, 'status' => 'up', 'carrier' => 1,
-                'speed' => '1000', 'duplex' => 'full', 'ip' => '10.0.20.13', 'mask' => 24,
-                'mac' => '00:1a:2b:3c:4d:11', 'mtu' => 1500, 'rx_mbps' => round(15.2 + (lcg_value() - 0.5) * 2.5, 1),
-                'tx_mbps' => round(8.4 + (lcg_value() - 0.5) * 1.5, 1), 'rx_pps' => rand(1800, 2700),
-                'tx_pps' => rand(950, 1600), 'errors' => 0, 'drops' => 0, 'zone' => 'INTERNAL'
-            ],
-            'eth15' => [
-                'id' => 'PORT14', 'name' => 'Port 14', 'device' => 'eth15', 'port_num' => 14, 'status' => 'up', 'carrier' => 1,
-                'speed' => '1000', 'duplex' => 'full', 'ip' => '10.0.30.14', 'mask' => 24,
-                'mac' => '00:1a:2b:3c:4d:12', 'mtu' => 1500, 'rx_mbps' => round(32.8 + (lcg_value() - 0.5) * 5, 1),
-                'tx_mbps' => round(18.9 + (lcg_value() - 0.5) * 3, 1), 'rx_pps' => rand(3900, 5200),
-                'tx_pps' => rand(2100, 3100), 'errors' => 0, 'drops' => 0, 'zone' => 'INTERNAL'
-            ],
-            'eth16' => [
-                'id' => 'PORT15', 'name' => 'Port 15', 'device' => 'eth16', 'port_num' => 15, 'status' => 'down', 'carrier' => 0,
-                'speed' => '1000', 'duplex' => 'full', 'ip' => '—', 'mask' => 0,
-                'mac' => '00:1a:2b:3c:4d:13', 'mtu' => 1500, 'rx_mbps' => 0.0, 'tx_mbps' => 0.0, 'rx_pps' => 0, 'tx_pps' => 0, 'errors' => 0, 'drops' => 0, 'zone' => 'INTERNAL'
-            ],
-            'eth17' => [
-                'id' => 'PORT16', 'name' => 'Port 16', 'device' => 'eth17', 'port_num' => 16, 'status' => 'up', 'carrier' => 1,
-                'speed' => '1000', 'duplex' => 'full', 'ip' => '10.0.10.16', 'mask' => 24,
-                'mac' => '00:1a:2b:3c:4d:14', 'mtu' => 1500, 'rx_mbps' => round(28.4 + (lcg_value() - 0.5) * 4, 1),
-                'tx_mbps' => round(16.1 + (lcg_value() - 0.5) * 2.5, 1), 'rx_pps' => rand(3400, 4600),
-                'tx_pps' => rand(1900, 2700), 'errors' => 0, 'drops' => 0, 'zone' => 'INTERNAL'
-            ],
-            'sfp0' => [
-                'id' => 'SFP1', 'name' => 'SFP+ 1', 'device' => 'sfp0', 'status' => 'up', 'carrier' => 1,
-                'speed' => '10000', 'duplex' => 'full', 'ip' => '10.254.1.1', 'mask' => 30,
-                'mac' => '00:1a:2b:3c:4d:05', 'mtu' => 9000, 'rx_mbps' => round(120.5 + (lcg_value() - 0.5) * 15, 1),
-                'tx_mbps' => round(84.1 + (lcg_value() - 0.5) * 10, 1), 'rx_pps' => rand(14200, 17500),
-                'tx_pps' => rand(10200, 13100), 'errors' => 0, 'drops' => 0, 'zone' => 'FIBER'
-            ],
-            'sfp1' => [
-                'id' => 'SFP2', 'name' => 'SFP+ 2', 'device' => 'sfp1', 'status' => 'down', 'carrier' => 0,
-                'speed' => '10000', 'duplex' => 'half', 'ip' => '—', 'mask' => 0,
-                'mac' => '00:1a:2b:3c:4d:06', 'mtu' => 9000, 'rx_mbps' => 0.0,
-                'tx_mbps' => 0.0, 'rx_pps' => 0, 'tx_pps' => 0, 'errors' => 0, 'drops' => 0, 'zone' => 'FIBER'
-            ],
-        ];
-
-        if (!empty($dbInterfaces)) {
-            foreach ($dbInterfaces as $dbIf) {
-                $dev = $dbIf['physical_device'] ?? 'eth0';
-                if (isset($basePorts[$dev])) {
-                    $basePorts[$dev]['id']      = $dbIf['id'];
-                    $basePorts[$dev]['name']    = $dbIf['name'];
-                    $basePorts[$dev]['status']  = ($dbIf['enabled'] ?? 1) ? 'up' : 'down';
-                    $basePorts[$dev]['carrier'] = ($dbIf['enabled'] ?? 1) ? 1 : 0;
-                    if (!empty($dbIf['ipv4_address'])) $basePorts[$dev]['ip'] = $dbIf['ipv4_address'];
-                }
+        // 1. Ports: the simulated machine's real-shaped port list, with a
+        //    little jitter on the counters of linked ports so the page animates.
+        $ports = (new \App\Libraries\LiveTelemetry($ipc))->snapshot()['interfaces'] ?? [];
+        foreach ($ports as &$p) {
+            if (($p['status'] ?? '') === 'up' && empty($p['virtual'])) {
+                $p['rx_mbps'] = round(20 + lcg_value() * 40, 1);
+                $p['tx_mbps'] = round(8 + lcg_value() * 18, 1);
             }
         }
-        $ports = array_values($basePorts);
+        unset($p);
 
         // 2. Resource gauges
         $cpuPct    = rand(12, 28);
@@ -843,6 +781,7 @@ class Dashboard extends BaseController
 
         return $this->response->setJSON([
             'timestamp'  => date('H:i:s'),
+            'mode'       => 'simulated',
             'gauges'     => [
                 'cpu_pct'     => $cpuPct,
                 'mem_pct'     => $memPct,
@@ -868,7 +807,7 @@ class Dashboard extends BaseController
         $action = (string) $this->request->getPost('action'); // toggle, ping, pcap
 
         if (empty($device)) {
-            return $this->response->setStatusCode(400)->setJSON([
+            return $this->response->setStatusCode(400)->setJSON(['csrf' => csrf_hash(), 
                 'success' => false,
                 'message' => 'Device parameter required',
             ]);
@@ -883,41 +822,46 @@ class Dashboard extends BaseController
                     $newEnabled = ($iface['enabled'] ?? 1) ? 0 : 1;
                     $db->table('interfaces')->where('id', $iface['id'])->update(['enabled' => $newEnabled]);
                     $newState = $newEnabled ? 'UP' : 'DOWN';
-                    return $this->response->setJSON([
+                    return $this->response->setJSON(['csrf' => csrf_hash(), 
                         'success' => true,
                         'device'  => $device,
                         'enabled' => $newEnabled,
-                        'message' => "Port {$device} administratively switched to {$newState}.",
+                        // Only the stored state changes here; the data plane follows on the next
+                        // interface apply, and the message says exactly that.
+                        'message' => "Port {$device} marked administratively {$newState}. Apply the change under Network → Interfaces to bring the link " . ($newEnabled ? 'up' : 'down') . '.',
+                        'pending_apply' => true,
                     ]);
                 }
             } catch (\Throwable $e) {}
 
-            return $this->response->setJSON([
-                'success' => true,
+            return $this->response->setStatusCode(404)->setJSON(['csrf' => csrf_hash(), 
+                'success' => false,
                 'device'  => $device,
-                'message' => "Simulated toggle for {$device}.",
+                'message' => "{$device} is not a configured interface, so it cannot be toggled here. Configure it under Network → Interfaces.",
             ]);
         }
 
         if ($action === 'pcap') {
+            if (! \Config\Services::ipc()->isMock()) {
+                return $this->response->setStatusCode(400)->setJSON(['csrf' => csrf_hash(), 
+                    'success' => false,
+                    'device'  => $device,
+                    'message' => 'Use Diagnostics → Packet Capture for a live capture on this port.',
+                    'redirect'=> base_url('diag') . '?tab=pcap&interface=' . rawurlencode($device),
+                ]);
+            }
             $packets = [
-                date('H:i:s.u') . " IP 192.168.1.104.53812 > 1.1.1.1.53: 49201+ A? micronos.network. (34)",
-                date('H:i:s.u') . " IP 1.1.1.1.53 > 192.168.1.104.53812: 49201 1/0/0 A 104.21.48.19 (50)",
-                date('H:i:s.u') . " IP 198.51.100.25.443 > 198.51.100.88.54210: Flags [P.], seq 1:1420, ack 1",
-                date('H:i:s.u') . " IP 185.220.101.5.41829 > 198.51.100.25.22: Flags [S], seq 184920192, win 1024",
-                date('H:i:s.u') . " IP 198.51.100.25.22 > 185.220.101.5.41829: Flags [R.], seq 0, ack 184920193",
+                '[SIMULATED — development mode] ' . date('H:i:s') . ' IP 192.168.1.104.53812 > 1.1.1.1.53: A? example.com. (29)',
+                '[SIMULATED — development mode] ' . date('H:i:s') . ' IP 1.1.1.1.53 > 192.168.1.104.53812: 1/0/0 A 93.184.216.34 (45)',
             ];
-            return $this->response->setJSON([
-                'success' => true,
-                'device'  => $device,
-                'packets' => $packets,
-            ]);
+
+            return $this->response->setJSON(['csrf' => csrf_hash(), 'success' => true, 'device' => $device, 'packets' => $packets, 'mock' => true]);
         }
 
-        return $this->response->setJSON([
-            'success' => true,
+        return $this->response->setStatusCode(400)->setJSON(['csrf' => csrf_hash(), 
+            'success' => false,
             'device'  => $device,
-            'message' => "Action '{$action}' performed on {$device}.",
+            'message' => "Unsupported port action '{$action}'.",
         ]);
     }
 

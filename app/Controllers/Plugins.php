@@ -97,6 +97,17 @@ class Plugins extends BaseController
 
         $this->persistInstall($manifest, $grants);
 
+        // darkstat's package ships switched off (START_DARKSTAT=no), so an
+        // install alone leaves nothing on its web port. Start it with working
+        // defaults — the LAN port, web UI on 666, opened on the LAN only — so
+        // the console answers straight away; the settings page can change it.
+        if ($id === 'darkstat') {
+            $note = $this->darkstatFirstStart($manager);
+            if ($note !== null) {
+                return redirect()->back()->with('warning', "Plugin '{$manifest->name()}' installed, but " . $note);
+            }
+        }
+
         return redirect()->back()->with('success', "Plugin '{$manifest->name()}' installed.");
     }
 
@@ -117,9 +128,16 @@ class Plugins extends BaseController
 
         $db = \Config\Database::connect();
         $db->table('plugin_grants')->where('plugin_id', $id)->delete();
+        $hadWebPort = $db->tableExists('plugin_settings')
+            && $db->table('plugin_settings')->where('plugin_id', $id)->where('setting_key', 'web_port')->countAllResults() > 0;
         $db->table('plugins')->where('id', $id)->delete();
         if ($purge) {
             $db->table('plugin_settings')->where('plugin_id', $id)->delete();
+        }
+        // A removed plugin's web port is closed: the compiler only opens it
+        // while the plugin row exists and is enabled.
+        if ($hadWebPort) {
+            $this->reapplyFirewallForPlugins();
         }
 
         return redirect()->back()->with('success', "Plugin '{$manifest->name()}' removed" . ($purge ? ' and its data purged.' : ' (data retained).'));
@@ -201,6 +219,11 @@ class Plugins extends BaseController
         // Views/plugins/apps/<id>.php it replaces the generic metadata page, so
         // an installed plugin's menu entry lands on something usable (the iperf3
         // speed-test runner, for instance) without special-casing here.
+        // Capture/analyser plugins pick from the ports this machine really has.
+        if ($id === 'darkstat') {
+            $data['nics'] = (new \App\Libraries\NetworkHardware(\Config\Services::ipc()))->names();
+        }
+
         if (preg_match('#^[a-z0-9][a-z0-9-]*$#', $id) === 1
             && is_file(APPPATH . 'Views/plugins/apps/' . $id . '.php')) {
             return view('plugins/apps/' . $id, $data);
@@ -634,6 +657,25 @@ class Plugins extends BaseController
             'hosts_max'     => (int) ($body['hosts_max'] ?? 1000),
             'hosts_keep'    => (int) ($body['hosts_keep'] ?? 30),
         ]);
+
+        // darkstat serves its own web UI on the configured port; the input
+        // chain drops everything it does not list, so the port is recorded and
+        // the ruleset reloaded — otherwise the analyser runs but its page
+        // never loads from the LAN.
+        if (($result['success'] ?? false) === true) {
+            $enabled = (bool) ($body['enabled'] ?? true);
+            $port    = (int) ($body['port'] ?? 666);
+            if ($this->recordPluginWebPort('darkstat', $enabled ? $port : null)) {
+                $warning = $this->reapplyFirewallForPlugins();
+                if ($warning !== null) {
+                    $result['warnings']   = $result['warnings'] ?? [];
+                    $result['warnings'][] = $warning;
+                } elseif ($enabled) {
+                    $result['steps']   = $result['steps'] ?? [];
+                    $result['steps'][] = "firewall: opened TCP {$port} on the LAN for the darkstat web UI";
+                }
+            }
+        }
 
         return $this->pluginApplyResponse($result);
     }
@@ -1321,6 +1363,71 @@ class Plugins extends BaseController
     /**
      * @return array<string, array<string, mixed>> installed plugins keyed by id
      */
+    /**
+     * First start of darkstat after install, on the LAN port with port 666.
+     * Returns null on success, or what went wrong (the plugin stays installed).
+     */
+    private function darkstatFirstStart(\App\Libraries\PackageManager $manager): ?string
+    {
+        $db  = \Config\Database::connect();
+        $lan = '';
+        try {
+            $lan = (string) ($db->table('interfaces')->where('id', 'lan')->get()->getRowArray()['physical_device'] ?? '');
+        } catch (\Throwable) {
+        }
+        $names = (new \App\Libraries\NetworkHardware(\Config\Services::ipc()))->names();
+        if ($lan === '' || ($names !== [] && ! in_array($lan, $names, true) && ! str_starts_with($lan, 'br'))) {
+            $lan = $names[1] ?? $names[0] ?? '';
+        }
+        if ($lan === '') {
+            return 'no capture interface could be chosen; set one on the darkstat page.';
+        }
+
+        $result = $manager->darkstatApply(['enabled' => true, 'interface' => $lan, 'port' => 666]);
+        if (($result['success'] ?? false) !== true) {
+            return 'darkstat could not be started: ' . (string) ($result['message'] ?? 'daemon error');
+        }
+        if ($this->recordPluginWebPort('darkstat', 666)) {
+            return $this->reapplyFirewallForPlugins();
+        }
+
+        return null;
+    }
+
+    /**
+     * Record (or clear, with null) the web port a plugin listens on, which the
+     * firewall compiler opens on the LAN. Returns true when the stored value
+     * changed and the ruleset therefore needs reloading.
+     */
+    private function recordPluginWebPort(string $id, ?int $port): bool
+    {
+        $db = \Config\Database::connect();
+        if (! $db->tableExists('plugin_settings')) {
+            return false;
+        }
+
+        $table   = $db->table('plugin_settings');
+        $current = $table->where('plugin_id', $id)->where('setting_key', 'web_port')->get()->getRowArray();
+        $value   = $port === null ? null : (string) $port;
+
+        if ($current === null && $value === null) {
+            return false;
+        }
+        if ($current !== null && (string) $current['value'] === (string) $value) {
+            return false;
+        }
+
+        if ($value === null) {
+            $db->table('plugin_settings')->where('plugin_id', $id)->where('setting_key', 'web_port')->delete();
+        } elseif ($current === null) {
+            $db->table('plugin_settings')->insert(['plugin_id' => $id, 'setting_key' => 'web_port', 'value' => $value, 'is_secret' => 0]);
+        } else {
+            $db->table('plugin_settings')->where('id', $current['id'])->update(['value' => $value]);
+        }
+
+        return true;
+    }
+
     private function installedRows(): array
     {
         $db = \Config\Database::connect();

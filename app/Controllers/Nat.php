@@ -56,7 +56,9 @@ class Nat extends BaseController
             'snatPools'  => $db->table('nat_snat_pools')->orderBy('name', 'ASC')->get()->getResultArray(),
             'nptRules'   => $db->table('nat_nptv6')->orderBy('created_at', 'ASC')->get()->getResultArray(),
             'settings'   => $settings,
-            'interfaces' => $db->table('interfaces')->orderBy('name', 'ASC')->get()->getResultArray(),
+            'interfaces'         => \App\Libraries\VpnInterfaceProvider::getUnifiedInterfaces($db),
+            'physicalInterfaces' => $db->table('interfaces')->orderBy('name', 'ASC')->get()->getResultArray(),
+            'vpnInterfaces'      => \App\Libraries\VpnInterfaceProvider::getVpnInterfaces($db),
             'schedules'  => $db->table('firewall_schedules')->orderBy('name', 'ASC')->get()->getResultArray(),
             'isMock'     => $this->ipc->isMock(),
         ]);

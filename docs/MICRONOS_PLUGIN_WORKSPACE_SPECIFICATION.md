@@ -164,6 +164,28 @@ to need a package. Keep the **plugin** as the packaging/lifecycle wrapper, but e
 Record the decision and its rationale here as each is implemented; a core page must not
 duplicate the plugin's logic — both must call the same RPC.
 
+### 8.1 Implemented (2026-10-14): functional menu placement
+
+Rather than a second, duplicate page per plugin, each **installed** plugin's existing page
+(`/plugins/<id>`, same controller, same RPCs) is now also linked from the functional menu
+an operator would look in. The map is `App\Libraries\PluginNav::SECTIONS`:
+
+| Plugin | Appears under | Rationale |
+|---|---|---|
+| `lldpd`, `ipv6-tunnel` | Network | neighbours and a 6in4 tunnel are interface concerns |
+| `nat64` | Routing & Clustering | a routing feature |
+| `zerotier`, `netbird` | VPN | overlays are looked for under VPN |
+| `iperf3` | Administration | throughput testing sits with diagnostics |
+| `darkstat`, `lightsquid` | Security | traffic accounting and proxy usage reports |
+
+Semantics, all unchanged from §4: an entry appears only when the plugin is installed
+and the session holds the entry's permission; the route behind it carries the same
+permission filter. `NavGroups::owns()` resolves `/plugins/<id>` to the functional section,
+so that section opens and is highlighted on the plugin's page. The Plugins group still
+lists every installed plugin for installation, configuration and troubleshooting, and the
+links appear in both the sidebar and the top-bar layouts. The §7 evidence table has not
+been filled in by this pass.
+
 ---
 
 ## 9. Tests

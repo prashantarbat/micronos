@@ -232,7 +232,6 @@ class WireguardCompiler
         if (! empty($tunnel['mtu'])) {
             $lines[] = 'MTU = ' . (int) $tunnel['mtu'];
         }
-        $lines[] = 'SaveConfig = false';
         $lines[] = '';
 
         if ($peers === []) {
@@ -348,9 +347,7 @@ class WireguardCompiler
     public function generateClientProfile(array $peer, array $tunnel, string $endpointHost, array $routes = []): string
     {
         $peerAddress = trim((string) ($peer['peer_address'] ?? ''));
-        if ($peerAddress === '') {
-            $peerAddress = '10.9.0.2/32';
-        } elseif (! str_contains($peerAddress, '/')) {
+        if ($peerAddress !== '' && ! str_contains($peerAddress, '/')) {
             $peerAddress .= '/32';
         }
 
@@ -370,8 +367,12 @@ class WireguardCompiler
         $lines[] = '# Tunnel: ' . ($tunnel['name'] ?? $this->interfaceName($tunnel));
         $lines[] = '';
         $lines[] = '[Interface]';
-        $lines[] = '# This client\'s tunnel interface address (the peer address configured on the appliance)';
-        $lines[] = 'Address = ' . $peerAddress;
+        if ($peerAddress !== '') {
+            $lines[] = '# This client\'s tunnel interface address (the peer address configured on the appliance)';
+            $lines[] = 'Address = ' . $peerAddress;
+        } else {
+            $lines[] = '# No tunnel interface address is configured for this peer.';
+        }
         $lines[] = 'PrivateKey = ' . (($peer['private_key'] ?? '') !== '' ? $peer['private_key'] : 'INSERT_CLIENT_PRIVATE_KEY_HERE');
         if ($dns !== []) {
             $lines[] = 'DNS = ' . implode(', ', $dns);
@@ -386,7 +387,7 @@ class WireguardCompiler
         }
         $lines[] = 'Endpoint = ' . $endpointHost . ':' . (int) ($tunnel['listen_port'] ?? 51820);
         $lines[] = 'AllowedIPs = ' . implode(', ', $allowed);
-        $lines[] = 'PersistentKeepalive = ' . (int) ($peer['persistent_keepalive'] ?? 25);
+        $lines[] = 'PersistentKeepalive = ' . (int) ($peer['persistent_keepalive'] ?? 2);
         $lines[] = '';
 
         return implode("\n", $lines);

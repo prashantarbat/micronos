@@ -6,7 +6,7 @@
   <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
   <title><?= esc($branding['title'] ?? 'Connected!') ?> — You\'re Online</title>
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap');
+    @import url('<?= base_url('assets/fonts/fonts.css') ?>'); /* self-hosted: the portal must render with no internet */
     *, *::before, *::after { box-sizing: border-box; }
     :root {
       --bg:     <?= esc($branding['bg_color']     ?? '#0f172a') ?>;

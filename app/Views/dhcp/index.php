@@ -44,8 +44,35 @@
 .dhcp-stats-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 16px;
+  gap: 14px;
   margin-bottom: 24px;
+}
+.dhcp-stats-grid > .stat-card {
+  min-height: 190px;
+  padding: 18px 20px;
+  border-radius: var(--radius-md);
+}
+.dhcp-stats-grid .stat-icon {
+  width: 38px;
+  height: 38px;
+  margin-bottom: 10px;
+}
+.dhcp-stats-grid .stat-value {
+  font-size: 1.125rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+  margin-bottom: 3px;
+}
+.dhcp-stats-grid .stat-label {
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+.dhcp-stats-grid .stat-sublabel {
+  font-size: 0.75rem;
+  line-height: 1.45;
+  margin-top: 6px;
 }
 </style>
 
@@ -813,13 +840,6 @@ document.addEventListener('keydown', e => {
   }
 });
 
-document.querySelectorAll('.mno-modal-backdrop').forEach(modal => {
-  modal.addEventListener('click', e => {
-    if (e.target === modal) {
-      modal.classList.remove('active');
-    }
-  });
-});
 </script>
 
 <?= $this->endSection() ?>

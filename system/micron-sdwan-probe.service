@@ -3,6 +3,8 @@ Description=Micron OS Dynamic SD-WAN SLA Probing Daemon (micron-sdwan-probe)
 Documentation=https://github.com/micronos/micronos
 After=network.target network-online.target micrond.service
 Wants=micrond.service
+StartLimitIntervalSec=60s
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -10,7 +12,9 @@ User=root
 Group=root
 ExecStart=/usr/local/bin/micron-sdwan-probe
 Restart=always
-RestartSec=5s
+RestartSec=2s
+TimeoutStopSec=10s
+OOMScoreAdjust=-500
 KillMode=process
 StandardOutput=journal
 StandardError=journal
@@ -18,3 +22,4 @@ AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
 
 [Install]
 WantedBy=multi-user.target
+Alias=gateway-monitor.service

@@ -55,6 +55,8 @@ final class DnsDomainOverridesTest extends BaseTestCase
         $result->assertSee('Local DNS Host Overrides');
         $result->assertSee('corp.internal');
         $result->assertSee('10.0.0.53');
+        $this->assertStringContainsString('.dns-panel { display: none; }', $result->getBody());
+        $this->assertStringContainsString('.dns-panel.active { display: block; }', $result->getBody());
     }
 
     public function testStoreCreatesEnabledOverride(): void

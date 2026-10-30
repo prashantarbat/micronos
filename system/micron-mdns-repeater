@@ -1,0 +1,109 @@
+#!/usr/bin/env python3
+"""
+MicronOS mDNS Multicast Repeater & Reflector Daemon
+Reads /etc/mdns-repeater.conf and repeats mDNS (224.0.0.251:5353)
+between configured local interfaces (e.g., LAN, IoT, VLANs).
+Uses mdns-repeater or mdns-reflector binary if present, or native Python multicast loop.
+"""
+
+import os
+import sys
+import shutil
+import subprocess
+import signal
+import socket
+import struct
+import select
+import time
+
+CONF_FILE = "/etc/mdns-repeater.conf"
+MDNS_ADDR = "224.0.0.251"
+MDNS_PORT = 5353
+
+def read_interfaces():
+    if not os.path.isfile(CONF_FILE):
+        return []
+    ifaces = []
+    with open(CONF_FILE, "r", encoding="utf-8", errors="replace") as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith("#"):
+                ifaces.append(line)
+    return ifaces
+
+def run_native_reflector(interfaces):
+    """Fallback pure-Python multicast repeater between interfaces."""
+    sys.stdout.write(f"Starting native mDNS reflector across: {', '.join(interfaces)}\n")
+    sys.stdout.flush()
+
+    # Create raw or UDP sockets bound to each interface
+    socks = {}
+    for iface in interfaces:
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+            except AttributeError:
+                pass
+            # Bind to port
+            s.bind(('', MDNS_PORT))
+            # Bind to device if SO_BINDTODEVICE exists
+            if hasattr(socket, "SO_BINDTODEVICE"):
+                s.setsockopt(socket.SOL_SOCKET, socket.SO_BINDTODEVICE, iface.encode())
+            # Join multicast group
+            mreq = struct.pack("4sl", socket.inet_aton(MDNS_ADDR), socket.INADDR_ANY)
+            s.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
+            s.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 255)
+            s.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_LOOP, 0)
+            socks[s] = iface
+        except Exception as e:
+            sys.stderr.write(f"Failed to bind socket on {iface}: {e}\n")
+
+    if not socks:
+        sys.stderr.write("No valid sockets could be initialized. Exiting.\n")
+        sys.exit(1)
+
+    while True:
+        r, _, _ = select.select(list(socks.keys()), [], [], 5.0)
+        for s in r:
+            try:
+                data, addr = s.recvfrom(9000)
+                src_iface = socks[s]
+                # Reflect to all other interfaces
+                for target_sock, target_iface in socks.items():
+                    if target_iface != src_iface:
+                        try:
+                            target_sock.sendto(data, (MDNS_ADDR, MDNS_PORT))
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
+def main():
+    ifaces = read_interfaces()
+    if len(ifaces) < 2:
+        sys.stderr.write(f"mDNS repeater needs at least 2 interfaces in {CONF_FILE}. Found: {len(ifaces)}\n")
+        # Sleep until killed or reconfigured
+        time.sleep(10)
+        sys.exit(0)
+
+    # 1. Prefer /usr/bin/mdns-repeater or /usr/local/bin/mdns-repeater
+    bin_repeater = shutil.which("mdns-repeater")
+    if bin_repeater:
+        args = [bin_repeater, "-f"] + ifaces
+        os.execv(bin_repeater, args)
+
+    # 2. Prefer /usr/bin/mdns-reflector
+    bin_reflector = shutil.which("mdns-reflector")
+    if bin_reflector:
+        args = [bin_reflector, "-f"]
+        for iface in ifaces:
+            args.extend(["-i", iface])
+        os.execv(bin_reflector, args)
+
+    # 3. Fallback to native python reflector
+    run_native_reflector(ifaces)
+
+if __name__ == "__main__":
+    main()

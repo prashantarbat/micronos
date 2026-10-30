@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 /**
  * OSPF Comprehensive Panel — included by routing/index.php
  *
@@ -105,6 +105,24 @@ $subTabs   = ['general', 'areas', 'interfaces', 'networks', 'neighbors', 'policy
 .ospf-sub-panel { display: none; }
 .ospf-sub-panel.active { display: block; }
 
+/* OSPF status section cards use shared grid rules in ospf.php */
+.ospf-status-grid { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:12px; }
+.ospf-status-section { min-width:0; margin:0; overflow:hidden; }
+.ospf-status-title { padding:10px 14px; border-bottom:1px solid var(--color-border); color:var(--color-amber); font-size:.78rem; font-weight:700; }
+.ospf-status-grid { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:12px; }
+.ospf-status-section { min-width:0; margin:0; overflow:hidden; }
+.ospf-status-title { padding:10px 14px; border-bottom:1px solid var(--color-border); color:var(--color-amber); font-size:.78rem; font-weight:700; }
+.ospf-status-section pre {
+  max-height:320px; overflow:auto; margin:0; padding:12px 14px; color:var(--text-secondary);
+  font: .74rem/1.55 var(--font-mono); white-space:pre; background:transparent; }
+.ospf-status-section pre .ospf-status-empty { display:block; color:var(--text-muted); font-style:italic; }
+.ospf-status-grid > section:first-child { break-inside:avoid; }
+.ospf-status-section + .ospf-status-section { margin-top:12px; }
+.ospf-status-empty { display:block; color:var(--text-muted); font-style:italic; }
+.ospf-empty-hint { margin-bottom:14px; padding:10px 14px; background:rgba(148,163,184,0.08); border:1px dashed var(--color-border); border-radius:var(--radius-sm); color:var(--text-muted); font-size:0.83rem; }
+.ospf-empty-hint > div:first-child { margin-bottom:4px; }
+.ospf-empty-hint > div:last-child { font-size:0.78rem; line-height:1.5; }
+@media (max-width: 900px) { .ospf-status-grid { grid-template-columns:1fr; } }
 @media (max-width: 640px) {
   .frr-row { grid-template-columns: 1fr; }
   .frr-lbl { border-right: none; border-bottom: 1px solid var(--color-border); padding: 8px 14px; }
@@ -183,29 +201,29 @@ $subTabs   = ['general', 'areas', 'interfaces', 'networks', 'neighbors', 'policy
       </div>
 
       <div class="frr-row">
-        <div class="frr-lbl">Router ID<span class="sub">Optional</span></div>
+        <div class="frr-lbl">Router ID<span class="sub">Optional — defaults to auto</span></div>
         <div class="frr-val">
           <input type="text" name="router_id" class="frr-input frr-input-mono frr-input-md"
                  value="<?= esc($os['router_id'] ?? '')?>" spellcheck="false" placeholder="e.g. 192.168.1.1">
-          <p class="hint">Override the default Router ID. RID is the highest logical (loopback) IP configured on a router. Leave blank for auto-detection.</p>
+          <p class="hint">A stable identifier for this OSPF router. If left blank, OSPF picks the highest IP on any active interface (frequently a loopback). Set it explicitly so a flapping interface doesn't change your Router ID.</p>
         </div>
       </div>
 
       <div class="frr-row">
-        <div class="frr-lbl">SPF Hold Time<span class="sub">milliseconds</span></div>
+        <div class="frr-lbl">SPF Hold Time<span class="sub">ms — throttle between SPF runs</span></div>
         <div class="frr-val">
           <input type="number" name="spf_hold_time" class="frr-input frr-input-sm"
                  value="<?= esc($os['spf_hold_time'] ?? 1000) ?>" min="0" max="60000">
-          <p class="hint">Set the SPF holdtime in milliseconds. Minimum time between two consecutive shortest path first calculations. (0–60000, Default: 1000)</p>
+          <p class="hint">Minimum gap between two SPF calculations. Prevents SPF from running constantly during a flapping-topology event. Default: 1000 ms. Lower values react faster but burn more CPU during instability.</p>
         </div>
       </div>
 
       <div class="frr-row">
-        <div class="frr-lbl">SPF Delay<span class="sub">milliseconds</span></div>
+        <div class="frr-lbl">SPF Delay<span class="sub">ms — wait before first SPF</span></div>
         <div class="frr-val">
           <input type="number" name="spf_delay" class="frr-input frr-input-sm"
                  value="<?= esc($os['spf_delay'] ?? 200) ?>" min="0" max="600000">
-          <p class="hint">Set SPF delay in milliseconds. The delay between receiving a link-state update and starting the SPF calculation. (0–600000, Default: 200)</p>
+          <p class="hint">How long OSPF waits after receiving a link-state update before starting a new SPF calculation. Default: 200 ms. Together with the hold time this throttles SPF to keep the router responsive under load.</p>
         </div>
       </div>
 
@@ -214,35 +232,36 @@ $subTabs   = ['general', 'areas', 'interfaces', 'networks', 'neighbors', 'policy
         <div class="frr-val">
           <input type="text" name="default_area" class="frr-input frr-input-mono frr-input-sm"
                  value="<?= esc($os['default_area'] ?? '0.0.0.0')?>" spellcheck="false" placeholder="0.0.0.0">
-          <p class="hint">Settings for the default area if not overridden. Use the Areas tab for more control.</p>
+          <p class="hint">The area ID used for interfaces that don't have an explicit area assignment. Area 0.0.0.0 is the backbone — required if you have multi-area OSPF. Most single-area setups can leave this as 0.0.0.0.</p>
         </div>
       </div>
 
       <div class="frr-row">
-        <div class="frr-lbl">Reference Bandwidth<span class="sub">Mbps</span></div>
+        <div class="frr-lbl">Reference Bandwidth<span class="sub">Mbps — cost calculation basis</span></div>
         <div class="frr-val">
           <input type="number" name="reference_bandwidth" class="frr-input frr-input-sm"
-                 value="<?= esc($os['reference_bandwidth'] ?? 100) ?>" min="1" max="4294967">
-          <p class="hint">Auto-cost reference bandwidth used to calculate interface costs. Default: 100 Mbps. Set to 1000 for Gigabit, 10000 for 10G networks.</p>
+                 value="<?= esc(isset($os['reference_bandwidth']) && (int)$os['reference_bandwidth'] !== 100 && (int)$os['reference_bandwidth'] > 0 ? $os['reference_bandwidth'] : '') ?>" placeholder="100 (default)" min="1" max="4294967">
+          <p class="hint">OSPF calculates interface cost as reference_bandwidth ÷ interface_bandwidth. The default 100 Mbps makes a 100 Mbps link cost 1 — which means Gigabit and 10G links all cost 1 too. Raise this to 1000 or 10000 so faster links get lower (better) costs and OSPF prefers them correctly.</p>
         </div>
       </div>
 
       <div class="frr-row">
-        <div class="frr-lbl">Max Paths (ECMP)</div>
+        <div class="frr-lbl">Max Paths (ECMP)<span class="sub">equal-cost load balancing</span></div>
         <div class="frr-val">
           <input type="number" name="max_paths" class="frr-input frr-input-sm"
-                 value="<?= esc($os['max_paths'] ?? 4) ?>" min="1" max="64">
-          <p class="hint">Maximum number of equal-cost paths to install in the routing table.</p>
+                 value="<?= esc(isset($os['max_paths']) && (int)$os['max_paths'] !== 4 && (int)$os['max_paths'] > 0 ? $os['max_paths'] : '') ?>" placeholder="4 (default)" min="1" max="64">
+          <p class="hint">How many equal-cost routes OSPF installs into the routing table. 4 is a common default — raise it if you have many redundant equal-cost paths you want used at once.</p>
         </div>
       </div>
 
       <div class="frr-row">
-        <div class="frr-lbl">Passive Default</div>
+        <div class="frr-lbl">Passive Default<span class="sub">Hello suppression on all interfaces</span></div>
         <div class="frr-val">
           <label class="frr-chk">
             <input type="checkbox" name="passive_default" value="1" <?= !empty($os['passive_default']) ? 'checked' : '' ?>>
-            Make all interfaces passive by default (suppress Hello packets; override per-interface in Interfaces tab)
+            Treat all interfaces as passive by default (no Hello packets sent)
           </label>
+          <p class="hint">A passive interface still advertises its connected subnet into OSPF, but it doesn't send or listen for Hello packets — so no neighbor adjacency forms on it. Useful when you only want to advertise the subnet on an interface but don't expect to peer with anyone on it (e.g. a LAN segment). Override individual interfaces in the Interfaces tab.</p>
         </div>
       </div>
     </div>
@@ -263,7 +282,7 @@ $subTabs   = ['general', 'areas', 'interfaces', 'networks', 'neighbors', 'policy
 
     <!-- Redistribution -->
     <div class="frr-form">
-      <div class="frr-section-hdr">Route Redistribution into OSPF</div>
+      <div class="frr-section-hdr">Route Redistribution — inject other sources into OSPF</div>
 
       <div class="frr-row">
         <div class="frr-lbl">Redistribute</div>
@@ -328,7 +347,7 @@ $subTabs   = ['general', 'areas', 'interfaces', 'networks', 'neighbors', 'policy
               </select>
             </div>
           </div>
-          <p class="hint">Attach a route-map to filter which routes from each source are redistributed into OSPF. Create route-maps on the Policy tab.</p>
+          <p class="hint">Attach a route-map to filter which routes from each source get redistributed into OSPF. Leave the route-map blank to permit all matching routes. Create route-maps on the Policy tab.</p>
         </div>
       </div>
 
@@ -349,14 +368,14 @@ $subTabs   = ['general', 'areas', 'interfaces', 'networks', 'neighbors', 'policy
               </select>
             </div>
           </div>
-          <p class="hint">E1 = total path cost (internal+external). E2 = external cost only. E2 is the default and preferred.</p>
+          <p class="hint">E2 (default) = only the external cost is considered — the internal path to the ASBR is ignored. E1 = the full path cost (internal + external) — preferred when you have multiple ASBRs advertising the same prefix and want OSPF to pick the closest one.</p>
         </div>
       </div>
     </div>
 
     <!-- Administrative Distances -->
     <div class="frr-form">
-      <div class="frr-section-hdr">Administrative Distances (optional)</div>
+      <div class="frr-section-hdr">Administrative Distance — tweak route preference (optional)</div>
       <div class="frr-row">
         <div class="frr-lbl">Distance<span class="sub">Override default AD</span></div>
         <div class="frr-val">
@@ -377,7 +396,7 @@ $subTabs   = ['general', 'areas', 'interfaces', 'networks', 'neighbors', 'policy
                      value="<?= esc($os['distance_external'] ?? '') ?>" placeholder="110" min="1" max="255">
             </div>
           </div>
-          <p class="hint">Default OSPF AD is 110. Lower value = preferred. Leave blank to use the FRRouting default.</p>
+          <p class="hint">Administrative Distance is the trustworthiness of a route source — lower wins when the same prefix comes from two sources. Default OSPF AD is 110 (BGP eBGP = 20, iBGP = 200, static = 1, connected = 0). Leave blank to keep the FRR defaults — change only if you need to prefer or deprioritize OSPF relative to another source.</p>
         </div>
       </div>
     </div>
@@ -414,7 +433,13 @@ $subTabs   = ['general', 'areas', 'interfaces', 'networks', 'neighbors', 'policy
       </tr></thead>
       <tbody>
         <?php if (empty($ospfAreas)): ?>
-          <tr><td colspan="7" style="text-align:center; padding:30px; color:var(--text-muted);">No areas configured. The backbone area (0.0.0.0) is implicit. Add areas for multi-area topologies.</td></tr>
+          <tr><td colspan="7" style="text-align:center; padding:30px; color:var(--text-muted);">
+              <div style="display:flex; flex-direction:column; align-items:center; gap:6px;">
+                <svg width="28" height="28" fill="none" viewBox="0 0 24 24" stroke="var(--color-amber)" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/></svg>
+                <p style="font-size:0.88rem; color:var(--text-secondary); margin:0;">No OSPF areas configured yet.</p>
+                <p style="font-size:0.8rem; color:var(--text-muted); margin:0; max-width:380px;">Area 0.0.0.0 (the backbone) is always implied. Add named areas when you need multi-area OSPF — stub and NSSA areas limit external route propagation for smaller branch sites.</p>
+              </div>
+            </td></tr>
         <?php else: ?>
           <?php foreach ($ospfAreas as $area): ?>
             <?php
@@ -460,7 +485,7 @@ $subTabs   = ['general', 'areas', 'interfaces', 'networks', 'neighbors', 'policy
   <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
     <span style="font-size:0.875rem; font-weight:700; color:var(--text-primary);">OSPF Interfaces</span>
     <?php if ($can): ?>
-      <button type="button" class="btn btn-primary btn-sm" onclick="openModal('ospfIfaceModal')">
+      <button type="button" class="btn btn-primary btn-sm" onclick="openAddOspfIface()">
         <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
         Add Interface
       </button>
@@ -610,7 +635,7 @@ $subTabs   = ['general', 'areas', 'interfaces', 'networks', 'neighbors', 'policy
   <p style="font-size:0.78rem; color:var(--text-muted); margin-bottom:14px;">
     Prefix-lists select which networks a route-map matches. A route-map is then applied to an OSPF
     redistribution source on the <a href="#" onclick="switchOspfSub('general', document.querySelector('.ospf-sub-tab[onclick*=general]')); return false;" style="color:var(--color-cyan);">OSPF tab</a>
-    (e.g. <code class="wg-input-mono">redistribute static route-map Banking_Applications</code>).
+    (e.g. <code class="wg-input-mono">redistribute static route-map RM_INTERNAL_STATIC</code>).
     Distribute-lists filter routes accepted from or advertised to neighbors; area filter-lists filter
     inter-area (type-3) LSAs into or out of an area.
     The <strong>Used By</strong> column lists every place an object is referenced — an object that is
@@ -875,66 +900,66 @@ $subTabs   = ['general', 'areas', 'interfaces', 'networks', 'neighbors', 'policy
 </div>
 
 <!-- ================================================================
-     SUB-PANEL: Status (Live OSPF neighbor table + routes)
+     SUB-PANEL: Live OSPF Status
      ================================================================ -->
 <div class="ospf-sub-panel <?= $activeSub === 'status' ? 'active' : '' ?>" id="ospf-sub-status">
   <?php if (!empty($isMock)): ?>
-    <div class="alert alert-info" style="margin-bottom:16px;">Simulation mode — showing example OSPF state data.</div>
+    <div class="alert alert-info" style="margin-bottom:16px;">Simulation mode — OSPF status output is simulated.</div>
   <?php endif; ?>
-
-  <!-- Live Neighbor Table -->
-  <div style="margin-bottom:6px; font-size:0.8rem; font-weight:700; color:var(--color-amber);">OSPF Neighbors</div>
-  <div class="card" style="padding:0; overflow-x:auto; margin-bottom:20px;">
-    <table class="rt-table">
-      <thead><tr>
-        <th>Neighbor ID</th><th>Pri</th><th>State</th><th>Dead Time</th><th>Address</th><th>Interface</th>
-        <th style="text-align:center;">RXmtL</th><th style="text-align:center;">RqstL</th><th style="text-align:center;">DBsmL</th>
-      </tr></thead>
-      <tbody>
-        <?php if (empty($ospfLiveNeighbors)): ?>
-          <tr><td colspan="9" style="text-align:center; padding:24px; color:var(--text-muted);">No active OSPF adjacencies.</td></tr>
-        <?php else: ?>
-          <?php foreach ($ospfLiveNeighbors as $ln): ?>
-            <?php
-              $stClass = str_contains($ln['state'], 'Full') ? 'rt-chip-green' : (str_contains($ln['state'], '2-Way') ? 'rt-chip-amber' : 'rt-chip-red');
-            ?>
-            <tr>
-              <td><span class="rt-chip rt-chip-cyan"><?= esc($ln['neighbor_id']) ?></span></td>
-              <td style="font-family:var(--font-mono); font-size:0.78rem; color:var(--text-secondary); text-align:center;"><?= esc($ln['priority']) ?></td>
-              <td><span class="rt-chip <?= $stClass ?>"><?= esc($ln['state']) ?></span></td>
-              <td style="font-family:var(--font-mono); font-size:0.78rem; color:var(--text-secondary);"><?= esc($ln['dead_time']) ?></td>
-              <td style="font-family:var(--font-mono); font-size:0.78rem; color:var(--color-cyan);"><?= esc($ln['address']) ?></td>
-              <td style="font-family:var(--font-mono); font-size:0.75rem; color:var(--text-secondary);"><?= esc($ln['interface']) ?></td>
-              <td style="text-align:center; font-family:var(--font-mono); font-size:0.78rem; color:var(--text-muted);"><?= esc($ln['rxmtl']) ?></td>
-              <td style="text-align:center; font-family:var(--font-mono); font-size:0.78rem; color:var(--text-muted);"><?= esc($ln['rqstl']) ?></td>
-              <td style="text-align:center; font-family:var(--font-mono); font-size:0.78rem; color:var(--text-muted);"><?= esc($ln['dbsml']) ?></td>
-            </tr>
-          <?php endforeach; ?>
-        <?php endif; ?>
-      </tbody>
-    </table>
+  <div id="ospf-empty-hint" class="ospf-empty-hint"
+       style="display:<?= empty($ospfStatusSections) || empty(array_filter($ospfStatusSections, fn($s) => !empty($s['output']))) ? '' : 'none' ?>;">
+    <div>OSPF status is not available yet.</div>
+    <div>
+      <?php if (empty($ospfStatusSections)): ?>
+        The daemon has not returned any OSPF diagnostics.
+      <?php else: ?>
+        All collected OSPF sections are currently empty.
+      <?php endif; ?>
+      Click <strong>Refresh Status</strong> to poll the routing daemon again.
+    </div>
   </div>
-
-  <!-- OSPF Routes dump (monospace terminal style) -->
-  <div style="margin-bottom:6px; font-size:0.8rem; font-weight:700; color:var(--color-amber);">OSPF Routes</div>
-  <div style="background:var(--color-surface-3); border:1px solid var(--color-border); border-radius:var(--radius-md); padding:16px 20px; font-family:var(--font-mono); font-size:0.78rem; color:var(--text-secondary); line-height:1.7; overflow-x:auto; max-height:360px; overflow-y:auto;">
-    <span style="color:var(--text-muted);">============ OSPF network routing table ============</span><br>
-    N  8.8.8.8/32&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; [0] area: 0.0.0.0<br>
-    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <span style="color:var(--color-cyan);">directly attached to lo0</span><br>
-    N  172.16.100.0/28&nbsp;&nbsp;&nbsp;&nbsp; [10] area: 0.0.0.0<br>
-    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <span style="color:var(--color-cyan);">directly attached to re0</span><br>
-    N  172.16.110.0/24&nbsp;&nbsp;&nbsp;&nbsp; [20] area: 0.0.0.0<br>
-    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <span style="color:var(--color-cyan);">via 172.16.100.1, re0</span><br>
-    <br>
-    <span style="color:var(--text-muted);">============ OSPF router routing table =============</span><br>
-    R  10.10.10.10&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; [10] area: 0.0.0.0, ASBR<br>
-    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <span style="color:var(--color-cyan);">via 172.16.100.1, re0</span><br>
-    <br>
-    <span style="color:var(--text-muted);">============ OSPF external routing table ===========</span><br>
-    N E2 0.0.0.0/0&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; [10/1] tag: 1<br>
-    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <span style="color:var(--color-cyan);">via 172.16.100.1, re0</span><br>
-    N E2 10.0.0.0/8&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; [10/20] tag: 0<br>
-    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <span style="color:var(--color-cyan);">via 172.16.100.1, re0</span><br>
+  <?php
+    $anyRenderedServer = !empty($ospfStatusSections) && array_reduce(array_keys($ospfSectionTitles), function($carry, $k) use ($ospfStatusSections) {
+      return $carry || !empty($ospfStatusSections[$k]['output']);
+    }, false);
+  ?>
+  <div id="ospf-ajax-rendered" data-rendered="<?= $anyRenderedServer ? '1' : '0' ?>" style="display:none;"></div>
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; flex-wrap:wrap; gap:8px;">
+    <div style="font-size:0.83rem; color:var(--text-secondary); flex:1; min-width:200px;">
+      Live diagnostics from FRRouting <code>ospfd</code> via <code>vtysh</code>
+    </div>
+    <button type="button" class="btn btn-secondary btn-sm" id="btnRefreshOspfStatus" onclick="refreshOspfStatus(this)" title="Fetch live OSPF diagnostics from the routing daemon">
+      <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="margin-right:4px;"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+      Refresh Status
+    </button>
+  </div>
+  <?php
+    $ospfStatusSections = is_array($ospfStatus['sections'] ?? null) ? $ospfStatus['sections'] : [];
+    $ospfResources = is_array($ospfStatus['resources'] ?? null) ? $ospfStatus['resources'] : [];
+    $ospfSectionTitles = [
+      'general' => 'OSPF General',
+      'neighbors' => 'OSPF Neighbors',
+      'routes' => 'OSPF Routes',
+      'database' => 'OSPF Database',
+      'router_database' => 'OSPF Router Database',
+      'interfaces' => 'OSPF Interfaces',
+    ];
+  ?>
+  <div class="ospf-status-grid">
+    <?php foreach ($ospfSectionTitles as $sectionKey => $sectionTitle): ?>
+      <section class="card ospf-status-section">
+        <div class="ospf-status-title"><?= esc($sectionTitle) ?></div>
+        <pre id="ospf-status-<?= esc($sectionKey) ?>"><?= esc((string) ($ospfStatusSections[$sectionKey]['output'] ?? 'OSPF status is unavailable.')) ?></pre>
+      </section>
+    <?php endforeach; ?>
+    <section class="card ospf-status-section">
+      <div class="ospf-status-title">OSPF CPU Usage</div>
+      <pre id="ospf-status-cpu"><?= esc((string) ($ospfResources['cpu_output'] ?? 'ospfd CPU usage is unavailable.')) ?></pre>
+    </section>
+    <section class="card ospf-status-section">
+      <div class="ospf-status-title">OSPF Memory</div>
+      <pre id="ospf-status-memory"><?= esc((string) ($ospfResources['memory_output'] ?? 'ospfd memory usage is unavailable.')) ?></pre>
+    </section>
   </div>
 </div>
 
@@ -1078,13 +1103,43 @@ $subTabs   = ['general', 'areas', 'interfaces', 'networks', 'neighbors', 'policy
           <div class="frr-row">
             <div class="frr-lbl">Interface *</div>
             <div class="frr-val">
-              <select name="interface" id="oifIface" class="frr-input frr-select">
-                <?php foreach ($interfaces as $if): ?>
-                  <option value="<?= esc($if['physical_device']) ?>"><?= esc($if['name']) ?> (<?= esc($if['physical_device']) ?>)</option>
-                <?php endforeach; ?>
-                <option value="lo">lo (Loopback)</option>
+              <select name="interface" id="oifIface" class="frr-input frr-select" onchange="onOspfIfaceChange(this.value)">
+                <optgroup label="Physical & System Interfaces">
+                  <?php foreach ($interfaces as $if): ?>
+                    <option value="<?= esc($if['physical_device'] ?: $if['name']) ?>"><?= esc($if['name']) ?> (<?= esc($if['physical_device'] ?: $if['name']) ?>)</option>
+                  <?php endforeach; ?>
+                  <option value="lo">lo (Loopback)</option>
+                </optgroup>
+                <?php if (!empty($vpnInterfaces['wireguard'])): ?>
+                  <optgroup label="WireGuard VPN Tunnels">
+                    <?php foreach ($vpnInterfaces['wireguard'] as $wg): ?>
+                      <option value="<?= esc($wg['physical_device']) ?>"><?= esc($wg['name']) ?> (<?= esc($wg['physical_device']) ?><?= !empty($wg['ipv4_address']) ? ' — ' . esc($wg['ipv4_address']) : '' ?>)</option>
+                    <?php endforeach; ?>
+                  </optgroup>
+                <?php endif; ?>
+                <?php if (!empty($vpnInterfaces['openvpn'])): ?>
+                  <optgroup label="OpenVPN Tunnels">
+                    <?php foreach ($vpnInterfaces['openvpn'] as $ovpn): ?>
+                      <option value="<?= esc($ovpn['physical_device']) ?>"><?= esc($ovpn['name']) ?> (<?= esc($ovpn['physical_device']) ?><?= !empty($ovpn['ipv4_address']) ? ' — ' . esc($ovpn['ipv4_address']) : '' ?>)</option>
+                    <?php endforeach; ?>
+                  </optgroup>
+                <?php endif; ?>
+                <?php if (!empty($vpnInterfaces['ipsec'])): ?>
+                  <optgroup label="IPsec VTI Tunnels">
+                    <?php foreach ($vpnInterfaces['ipsec'] as $ipsec): ?>
+                      <option value="<?= esc($ipsec['physical_device']) ?>"><?= esc($ipsec['name']) ?> (<?= esc($ipsec['physical_device']) ?><?= !empty($ipsec['ipv4_address']) ? ' — ' . esc($ipsec['ipv4_address']) : '' ?>)</option>
+                    <?php endforeach; ?>
+                  </optgroup>
+                <?php endif; ?>
+                <optgroup label="Custom / Other Device">
+                  <option value="__custom__">Custom Device Entry…</option>
+                </optgroup>
               </select>
-              <p class="hint">Enter the desired participating interface here.</p>
+              <div id="oifCustomWrap" style="display:none; margin-top:8px;">
+                <input type="text" name="interface_custom" id="oifCustomInput" class="frr-input frr-input-md frr-input-mono" placeholder="e.g. wg538, tun0, vti0, eth3" spellcheck="false">
+                <p class="hint" style="margin-top:4px;">Specify any valid Linux kernel network interface device name.</p>
+              </div>
+              <p class="hint">Select a physical or VPN tunnel interface (WireGuard, OpenVPN, IPsec VTI), or enter a custom device name.</p>
             </div>
           </div>
           <div class="frr-row">
@@ -1302,8 +1357,8 @@ $subTabs   = ['general', 'areas', 'interfaces', 'networks', 'neighbors', 'policy
       <?= csrf_field() ?>
       <div class="rt-modal-body" style="overflow-y:auto; flex:1; min-height:0;">
         <div class="rt-grid-2">
-          <div class="rt-field"><label>Name *</label><input type="text" name="name" id="plName" required placeholder="Banking_Applications" class="wg-input-mono" spellcheck="false"></div>
-          <div class="rt-field"><label>Description</label><input type="text" name="description" id="plDesc" placeholder="Banking application prefixes"></div>
+          <div class="rt-field"><label>Name *</label><input type="text" name="name" id="plName" required placeholder="PL_INTERNAL_NETWORKS" class="wg-input-mono" spellcheck="false"></div>
+          <div class="rt-field"><label>Description</label><input type="text" name="description" id="plDesc" placeholder="Corporate internal network prefixes"></div>
         </div>
         <div class="rt-field">
           <label>Rules</label>
@@ -1336,8 +1391,8 @@ $subTabs   = ['general', 'areas', 'interfaces', 'networks', 'neighbors', 'policy
       <?= csrf_field() ?>
       <div class="rt-modal-body" style="overflow-y:auto; flex:1; min-height:0;">
         <div class="rt-grid-2">
-          <div class="rt-field"><label>Name *</label><input type="text" name="name" id="rmName" required placeholder="Banking_Applications" class="wg-input-mono" spellcheck="false"></div>
-          <div class="rt-field"><label>Description</label><input type="text" name="description" id="rmDesc" placeholder="Permit banking prefixes into OSPF"></div>
+          <div class="rt-field"><label>Name *</label><input type="text" name="name" id="rmName" required placeholder="RM_INTERNAL_STATIC" class="wg-input-mono" spellcheck="false"></div>
+          <div class="rt-field"><label>Description</label><input type="text" name="description" id="rmDesc" placeholder="Permit internal prefixes into OSPF"></div>
         </div>
         <div class="rt-field">
           <label>Rules</label>
@@ -1468,6 +1523,81 @@ function switchOspfSub(name, btn) {
   url.searchParams.set('tab', 'ospf');
   url.searchParams.set('sub', name);
   history.replaceState(null, '', url);
+
+  if (name === 'status') {
+    refreshOspfStatus();
+  }
+}
+
+// ── Refresh Live OSPF Status via AJAX ──
+function refreshOspfStatus(btn) {
+  var b = btn || document.getElementById('btnRefreshOspfStatus');
+  var origHtml = b ? b.innerHTML : null;
+  if (b) {
+    b.disabled = true;
+    b.style.opacity = '0.7';
+    b.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="animation:spin 1s linear infinite; margin-right:4px;"><path d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83"/></svg> Refreshing...';
+  }
+
+  MicronScheduler.fetch('<?= base_url('routing/ospf/status') ?>', {
+    headers: {
+      'X-Requested-With': 'XMLHttpRequest',
+      'Accept': 'application/json'
+    }
+  })
+  .then(function(res) {
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return res.json();
+  })
+  .then(function(data) {
+    if (!data) return;
+    var sections = data.sections || {};
+    var secKeys = ['general', 'neighbors', 'routes', 'database', 'router_database', 'interfaces'];
+    var anyRendered = false;
+    var anyRendered = false;
+    var anyRendered = false;
+    var anyRendered = false;
+    var anyRendered = false;
+    secKeys.forEach(function(k) {
+      var el = document.getElementById('ospf-status-' + k);
+      if (el && sections[k]) {
+        var raw = sections[k].output || 'No OSPF data returned.';
+        el.textContent = raw;
+        anyRendered = anyRendered || raw.trim().length > 0;
+      }
+    });
+    var hint = document.getElementById('ospf-empty-hint');
+    if (hint) {
+      hint.style.display = anyRendered ? 'none' : '';
+    }
+
+    var res = data.resources || {};
+    var cpuEl = document.getElementById('ospf-status-cpu');
+    if (cpuEl && res.cpu_output) cpuEl.textContent = res.cpu_output;
+    var memEl = document.getElementById('ospf-status-memory');
+    if (memEl && res.memory_output) memEl.textContent = res.memory_output;
+    var hint = document.getElementById('ospf-empty-hint');
+    if (hint) {
+      hint.style.display = anyRendered ? 'none' : '';
+    }
+
+    if (Array.isArray(data.live_neighbors)) {
+      var statusBadge = document.querySelector('.ospf-sub-tab[onclick*="\'status\'"] .rt-tab-count');
+      if (statusBadge) {
+        statusBadge.textContent = data.live_neighbors.length;
+      }
+    }
+  })
+  .catch(function(err) {
+    console.warn('Live OSPF status fetch error:', err);
+  })
+  .finally(function() {
+    if (b && origHtml !== null) {
+      b.disabled = false;
+      b.style.opacity = '1';
+      b.innerHTML = origHtml;
+    }
+  });
 }
 
 // ── Auto-activate sub-tab from ?sub= param ──
@@ -1532,7 +1662,7 @@ function openEditOspfArea(area) {
 function plRowHtml(seq, action, prefix, ge, le, desc) {
   return '<td><input type="number" name="pl_seq[]" value="' + (seq||'') + '" min="1" max="42949" style="width:100%;"></td>' +
     '<td><select name="pl_action[]" style="width:100%;"><option value="permit"' + (action==='deny'?'':' selected') + '>permit</option><option value="deny"' + (action==='deny'?' selected':'') + '>deny</option></select></td>' +
-    '<td><input type="text" name="pl_prefix[]" value="' + (prefix||'') + '" placeholder="10.11.83.0/24" style="width:100%;"></td>' +
+    '<td><input type="text" name="pl_prefix[]" value="' + (prefix||'') + '" placeholder="192.168.1.0/24" style="width:100%;"></td>' +
     '<td><input type="number" name="pl_ge[]" value="' + (ge==null?'':ge) + '" min="0" max="128" style="width:100%;"></td>' +
     '<td><input type="number" name="pl_le[]" value="' + (le==null?'':le) + '" min="0" max="128" style="width:100%;"></td>' +
     '<td><input type="text" name="pl_desc[]" value="' + (desc||'') + '" placeholder="optional" style="width:100%;"></td>' +
@@ -1669,12 +1799,74 @@ function openEditAreaFilter(af) {
   openModal('ospfAfModal');
 }
 
+// ── OSPF Interface helpers ──
+function onOspfIfaceChange(val) {
+  var wrap = document.getElementById('oifCustomWrap');
+  var inp = document.getElementById('oifCustomInput');
+  if (wrap) wrap.style.display = (val === '__custom__') ? '' : 'none';
+  if (inp && val === '__custom__') inp.focus();
+}
+
+function openAddOspfIface() {
+  document.getElementById('ospfIfaceModalTitle').innerText = 'Add OSPF Interface';
+  document.getElementById('ospfIfaceForm').action = '<?= base_url('routing/ospf/ifaces/store') ?>';
+  document.getElementById('ospfIfaceSubmit').innerText = 'Save Interface';
+  var sel = document.getElementById('oifIface');
+  if (sel) sel.selectedIndex = 0;
+  var customWrap = document.getElementById('oifCustomWrap');
+  if (customWrap) customWrap.style.display = 'none';
+  var customInput = document.getElementById('oifCustomInput');
+  if (customInput) customInput.value = '';
+  document.getElementById('oifDesc').value = '';
+  document.getElementById('oifNetType').value = 'broadcast';
+  document.getElementById('oifArea').value = '';
+  document.getElementById('oifMetric').value = '';
+  document.getElementById('oifPassive').checked = false;
+  document.getElementById('oifIgnMtu').checked = false;
+  document.getElementById('oifAccept').checked = false;
+  document.getElementById('oifAuthType').value = 'none';
+  document.getElementById('oifAuthPw').value = '';
+  document.getElementById('oifPriority').value = 1;
+  document.getElementById('oifRetransmit').value = 5;
+  document.getElementById('oifHello').value = 10;
+  document.getElementById('oifDead').value = 40;
+  document.getElementById('oifTxDelay').value = 1;
+  document.getElementById('oifMinHello').value = '';
+  document.getElementById('oifBfd').checked = false;
+  toggleAuthPw('none');
+  openModal('ospfIfaceModal');
+}
+
 // ── Open Edit OSPF Interface modal ──
 function openEditOspfIface(iface) {
   document.getElementById('ospfIfaceModalTitle').innerText = 'Edit OSPF Interface: ' + iface.interface;
   document.getElementById('ospfIfaceForm').action = '<?= base_url('routing/ospf/ifaces') ?>/' + encodeURIComponent(iface.id) + '/update';
   document.getElementById('ospfIfaceSubmit').innerText = 'Update Interface';
-  document.getElementById('oifIface').value      = iface.interface       || '';
+  
+  var sel = document.getElementById('oifIface');
+  var customWrap = document.getElementById('oifCustomWrap');
+  var customInput = document.getElementById('oifCustomInput');
+  var targetIface = String(iface.interface || '').trim();
+  var found = false;
+
+  if (sel) {
+    for (var i = 0; i < sel.options.length; i++) {
+      if (sel.options[i].value.toLowerCase() === targetIface.toLowerCase()) {
+        sel.selectedIndex = i;
+        found = true;
+        break;
+      }
+    }
+    if (!found && targetIface) {
+      sel.value = '__custom__';
+      if (customInput) customInput.value = targetIface;
+      if (customWrap) customWrap.style.display = '';
+    } else {
+      if (customInput) customInput.value = '';
+      if (customWrap) customWrap.style.display = (sel.value === '__custom__') ? '' : 'none';
+    }
+  }
+
   document.getElementById('oifDesc').value       = iface.description     || '';
   document.getElementById('oifNetType').value    = iface.network_type    || 'broadcast';
   document.getElementById('oifArea').value       = iface.area            || '';

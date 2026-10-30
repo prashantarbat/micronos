@@ -7,7 +7,7 @@
     <a href="https://frrouting.org"><img src="https://img.shields.io/badge/Routing-FRRouting_(BGP%2FOSPF)-1E90FF.svg" alt="FRR"></a>
     <a href="https://www.wireguard.com"><img src="https://img.shields.io/badge/VPN-WireGuard_%26_IPsec-88171A.svg?logo=wireguard&logoColor=white" alt="WireGuard"></a>
     <a href="https://codeigniter.com"><img src="https://img.shields.io/badge/Control_Plane-PHP_8.4_%7C_CI4-EF4423.svg?logo=codeigniter&logoColor=white" alt="CodeIgniter"></a>
-    <a href="LICENSE.md"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License"></a>
+    <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License"></a>
   </p>
 </p>
 
@@ -137,6 +137,43 @@ Thank you from the bottom of my heart for reading this and trying Micron OS. I h
    Enterprise dual-slot updates (`MICRON_ROOT_A` / `MICRON_ROOT_B`) with automated health-check watchdog rollback.
 8. **pfSense-Style Console Menu:**  
    Interactive Ncurses / Bash physical console menu on `tty1` for instant interface assignment, IP reconfiguration, ping checks, and factory reset.
+9. **CVEs Security Advisories & Vulnerability Scanner:**  
+   Authenticated root-level appliance scanner auditing installed MicronOS and Debian packages against the NIST National Vulnerability Database (NVD) and Debian Security Bug Tracker, with one-click NIST NVD reference verification and automated remediation guidance.
+
+---
+
+## 📦 Download & Install
+
+1. Download `micronos-<version>-amd64.hybrid.iso` and `SHA256SUMS` from the [Releases](https://github.com/prashantarbat/micronos/releases) page and verify the checksum.
+2. Write the ISO to a USB drive (or attach it to a VM) and boot it.
+3. Follow the five-step installer. **Set your own administrator password** at step 4.
+4. Browse to the LAN address shown on the console and sign in as `Ministrator`.
+
+Minimum hardware: 64-bit x86 CPU, 2 GB RAM, 32 GB disk, two NICs. Full walk-through: [`docs/INSTALL.md`](docs/INSTALL.md).
+
+> **Preview features:** High availability ships in 1.0 but does not yet synchronise configuration to the peer. See the [release notes](docs/RELEASE_NOTES_1.0.0.md).
+
+---
+
+## 🧭 Editions & Support
+
+Micron OS has **one edition**: the open-source **Community Edition**, licensed under Apache 2.0 with every feature included and free forever.
+
+Organisations that need more than community help can buy **services** around the same software: Standard and Enterprise Support (with SLAs and a long-term-support update channel), a Managed Firewall Service, Professional Services for design and migration, training, and certified hardware. Paid services never unlock extra features. See [`SUPPORT.md`](SUPPORT.md).
+
+| | Community Edition | With a support subscription |
+| :--- | :--- | :--- |
+| All features, ISO and updates | ✅ | ✅ |
+| Security fixes | ✅ Latest release | ✅ Latest release + LTS backports |
+| Help | GitHub Discussions & Issues (best-effort) | Private channel with response-time SLA |
+| Update channel | `stable` | `stable` or `lts` |
+
+---
+
+## 🔐 Security
+
+* Harden every deployment with [`docs/SECURITY_HARDENING.md`](docs/SECURITY_HARDENING.md).
+* Found a vulnerability? Please **do not** open a public issue. Report it privately as described in [`SECURITY.md`](SECURITY.md).
 
 ---
 
@@ -145,8 +182,10 @@ Thank you from the bottom of my heart for reading this and trying Micron OS. I h
 To test the control plane, database migrations, and RPC verification locally:
 
 ```bash
-# 1. Install dependencies
+# 1. Install dependencies and create a local configuration
 composer install
+cp env .env
+php spark key:generate
 
 # 2. Initialize configuration database
 php spark migrate --all
@@ -194,6 +233,10 @@ The resulting ISO can be burned to a USB drive or mounted directly in Proxmox, V
 
 Complete technical blueprints, API contracts, and implementation guides are available directly inside the appliance web interface under **Admin → Documentation**, or in the [`docs/`](docs/) directory:
 
+* 📄 **Installation Guide:** [`docs/INSTALL.md`](docs/INSTALL.md)
+* 📄 **Security Hardening Guide:** [`docs/SECURITY_HARDENING.md`](docs/SECURITY_HARDENING.md)
+* 📄 **Release Notes:** [`docs/RELEASE_NOTES_1.0.0.md`](docs/RELEASE_NOTES_1.0.0.md) · **Changelog:** [`CHANGELOG.md`](CHANGELOG.md)
+* 📄 **Module Reference:** [`docs/MICRONOS_MODULE_REFERENCE.md`](docs/MICRONOS_MODULE_REFERENCE.md)
 * 📄 **System Architecture Specification:** [`docs/MICRON_FIREWALL_OS_ARCHITECTURE.md`](docs/MICRON_FIREWALL_OS_ARCHITECTURE.md)
 * 📄 **Appliance ISO Creation & Installer Guide:** [`docs/ISO_CREATION_AND_INSTALLER_GUIDE.md`](docs/ISO_CREATION_AND_INSTALLER_GUIDE.md)
 * 📄 **Daemon & RPC Interface Contract:** [`docs/MICRONOS_IPC_RPC_CLI_CONTRACT.md`](docs/MICRONOS_IPC_RPC_CLI_CONTRACT.md)
@@ -208,12 +251,29 @@ Micron OS is an open-source project created for network engineers, system admini
 
 Whether you are a Linux kernel hacker, a frontend designer, a documentation writer, or a network engineer testing on different hardware NICs: **you are warmly welcome here.**
 
-* **Found a bug?** Open an issue on GitHub.
-* **Have an improvement?** Pull requests are gratefully reviewed and welcomed.
+* **Found a bug?** Open an issue on GitHub using the bug report template.
+* **Have an improvement?** Read [`CONTRIBUTING.md`](CONTRIBUTING.md), then open a pull request. Commits must be signed off (`git commit -s`, Developer Certificate of Origin).
+* **Security issue?** Follow [`SECURITY.md`](SECURITY.md). Never use a public issue.
 * **Questions or feedback?** Reach out directly to [prashant.arbat@gmail.com](mailto:prashant.arbat@gmail.com).
+
+Everyone taking part is expected to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ---
 
 ## 📄 License
 
-This project is licensed under the **[Apache License, Version 2.0](LICENSE.md)** — meaning you are free to use, modify, distribute, and deploy it for personal, commercial, or enterprise deployments with clear patent grant and trademark protections.
+Micron OS is licensed under the **[Apache License, Version 2.0](LICENSE)**. You are free to use, modify, distribute and deploy it for personal, commercial or enterprise use, with an explicit patent grant. Redistributions must keep the [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE) files.
+
+Copyright 2026 Prashant Arbat and the Micron OS contributors.
+
+### Third-party software
+
+Bundled third-party components and their licences are listed in [`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md).
+
+### Source code for the ISO image
+
+The appliance ISO combines Micron OS with unmodified Debian GNU/Linux packages (the Linux kernel, FRRouting, nftables, strongSwan, nginx, Apache httpd, PHP, Python, guacd and others). Each keeps its own licence, some of which are the GNU GPL. The exact package list for each release is published beside the ISO as `packages.list`, and the corresponding source code for every package is available from the Debian archive at <https://snapshot.debian.org/> for the build date shown in the release notes, or on request to the maintainer for three years after the release.
+
+### Trademarks
+
+"Micron OS" is the name of this project. The Apache License does not grant permission to use the name or logo (section 6). If you distribute a modified version, please give it a different name so users are not confused about its origin.

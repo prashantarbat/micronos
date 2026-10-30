@@ -251,9 +251,34 @@
             <select name="interface" id="addrInterface"
                     style="width:100%; background:var(--color-surface-3); border:1px solid var(--color-border); color:var(--text-primary); padding:8px 12px; border-radius:var(--radius-sm); font-size:0.875rem;">
               <option value="any">any (All Interfaces)</option>
-              <?php foreach ($interfaces as $if): ?>
-                <option value="<?= esc($if['id']) ?>"><?= esc($if['name']) ?> (<?= esc($if['physical_device']) ?>)</option>
-              <?php endforeach; ?>
+              <?php if (!empty($physicalInterfaces)): ?>
+                <optgroup label="Physical &amp; System Interfaces">
+                  <?php foreach ($physicalInterfaces as $if): ?>
+                    <option value="<?= esc($if['id']) ?>"><?= esc($if['name']) ?> (<?= esc($if['physical_device']) ?>)</option>
+                  <?php endforeach; ?>
+                </optgroup>
+              <?php endif; ?>
+              <?php if (!empty($vpnInterfaces['wireguard'])): ?>
+                <optgroup label="WireGuard VPN Tunnels">
+                  <?php foreach ($vpnInterfaces['wireguard'] as $wg): ?>
+                    <option value="<?= esc($wg['interface']) ?>"><?= esc($wg['name'] ?? $wg['interface']) ?> (<?= esc($wg['interface']) ?>) <?= !empty($wg['addresses']) ? '[' . esc($wg['addresses']) . ']' : '' ?></option>
+                  <?php endforeach; ?>
+                </optgroup>
+              <?php endif; ?>
+              <?php if (!empty($vpnInterfaces['openvpn'])): ?>
+                <optgroup label="OpenVPN Tunnels">
+                  <?php foreach ($vpnInterfaces['openvpn'] as $ovpn): ?>
+                    <option value="<?= esc($ovpn['interface']) ?>"><?= esc($ovpn['name'] ?? $ovpn['interface']) ?> (<?= esc($ovpn['interface']) ?>)</option>
+                  <?php endforeach; ?>
+                </optgroup>
+              <?php endif; ?>
+              <?php if (!empty($vpnInterfaces['ipsec'])): ?>
+                <optgroup label="IPsec VTI Tunnels">
+                  <?php foreach ($vpnInterfaces['ipsec'] as $ipsec): ?>
+                    <option value="<?= esc($ipsec['interface']) ?>"><?= esc($ipsec['name'] ?? $ipsec['interface']) ?> (<?= esc($ipsec['interface']) ?>)</option>
+                  <?php endforeach; ?>
+                </optgroup>
+              <?php endif; ?>
             </select>
           </div>
 
@@ -507,8 +532,22 @@ function editAddress(data) {
   document.getElementById('addressModalTitle').innerText = 'Edit Address Object: ' + data.name;
   document.getElementById('addressForm').action = '<?= base_url('firewall/addresses') ?>/' + encodeURIComponent(data.id) + '/update';
   document.getElementById('addrName').value = data.name || '';
-  document.getElementById('addrType').value = data.type || 'ipmask';
-  document.getElementById('addrInterface').value = data.interface || 'any';
+  const ifaceSelect = document.getElementById('addrInterface');
+  const targetIface = data.interface || 'any';
+  let ifaceFound = false;
+  for (let i = 0; i < ifaceSelect.options.length; i++) {
+    if (ifaceSelect.options[i].value.toLowerCase() === String(targetIface).toLowerCase()) {
+      ifaceSelect.selectedIndex = i;
+      ifaceFound = true;
+      break;
+    }
+  }
+  if (!ifaceFound && targetIface !== 'any') {
+    ifaceSelect.add(new Option(targetIface + ' (Virtual/Tunnel)', targetIface, true, true));
+    ifaceSelect.value = targetIface;
+  } else if (!ifaceFound) {
+    ifaceSelect.value = 'any';
+  }
   document.getElementById('addrValue').value = data.value || '';
   document.getElementById('addrComment').value = data.comment || '';
   setGeoSelection(data.type === 'geoip' ? data.value : '');

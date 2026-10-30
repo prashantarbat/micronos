@@ -62,7 +62,7 @@ class Snmp extends BaseController
         $db->table('snmp_settings')->where('id', 1)->update($data);
 
         // Dispatch IPC to compile /etc/snmp/snmpd.conf and reload
-        $response = $this->ipc->call('snmp.reconfigure', $data);
+        $response = $this->applier()->snmp('snmp.reconfigure');
         $this->auditLog("snmp.update_settings", "Updated Net-SNMP daemon parameters & communities");
 
         [$key, $message] = $this->ipcFlash($response, 'SNMP Agent configuration updated and daemon reloaded.', 'Saved, but the SNMP reload');
@@ -110,7 +110,7 @@ class Snmp extends BaseController
             'updated_at'      => date('Y-m-d H:i:s'),
         ]);
 
-        $response = $this->ipc->call('snmp.sync_users', []);
+        $response = $this->applier()->snmp('snmp.sync_users');
         $this->auditLog("snmp.create_v3_user", "Created SNMPv3 user {$username} ({$secLevel})");
 
         [$key, $message] = $this->ipcFlash($response, "SNMPv3 User '{$username}' added successfully.", 'Added, but the SNMP sync');
@@ -123,7 +123,7 @@ class Snmp extends BaseController
         $db = \Config\Database::connect();
         $db->table('snmp_v3_users')->where('id', $id)->delete();
 
-        $response = $this->ipc->call('snmp.sync_users', []);
+        $response = $this->applier()->snmp('snmp.sync_users');
         $this->auditLog("snmp.delete_v3_user", "Deleted SNMPv3 user ID {$id}");
 
         [$key, $message] = $this->ipcFlash($response, 'SNMPv3 User deleted.', 'Deleted, but the SNMP sync');
@@ -169,7 +169,7 @@ class Snmp extends BaseController
         ];
 
         $db->table('snmp_settings')->where('id', 1)->update($data);
-        $response = $this->ipc->call('snmp.sync_traps', $data);
+        $response = $this->applier()->snmp('snmp.sync_traps');
         $this->auditLog("snmp.update_traps", "Updated SNMP Trap sink to {$data['trap_receiver_ip']}:{$data['trap_receiver_port']}");
 
         [$key, $message] = $this->ipcFlash($response, 'SNMP Trap notification settings saved.', 'Saved, but the SNMP reload');
@@ -215,8 +215,17 @@ class Snmp extends BaseController
         $ipcRes = $this->ipc->call('snmp.get_logs', ['lines' => 40]);
         $logs = [];
 
-        if (!empty($ipcRes['logs']) && is_array($ipcRes['logs'])) {
-            $logs = $ipcRes['logs'];
+        $read        = $this->ipcRead($ipcRes);
+        $unavailable = null;
+        if ($read !== null) {
+            foreach ((array) ($read['logs'] ?? []) as $line) {
+                $j      = $this->journalLine((string) $line);
+                $logs[] = ['timestamp' => $j['timestamp'], 'subsystem' => $j['ident'] ?: 'snmpd',
+                    'level' => preg_match('/error|fail|denied/i', $j['message']) ? 'ERROR' : 'INFO',
+                    'message' => $j['message']];
+            }
+        } elseif (! $this->ipc->isMock()) {
+            $unavailable = (string) ($ipcRes['error']['message'] ?? $ipcRes['result']['message'] ?? 'the daemon did not answer');
         } else {
             $now = time();
             $hostname = gethostname() ?: 'micronos-fw01';
@@ -270,6 +279,8 @@ class Snmp extends BaseController
             'status'     => $enabled ? 'active' : 'inactive',
             'listenPort' => $port,
             'logs'       => $logs,
+            'unavailable'=> $unavailable,
+            'mock'       => $this->ipc->isMock(),
             'timestamp'  => date('Y-m-d H:i:s'),
         ]);
     }
@@ -281,17 +292,31 @@ class Snmp extends BaseController
         $version   = $this->request->getPost('version') ?? 'v2c';
 
         // Check if IPC can run snmpwalk or generate rich MIB response
+        // Named subtrees the page offers, as the numeric OIDs the daemon accepts.
+        $named = ['system' => '1.3.6.1.2.1.1', 'interfaces' => '1.3.6.1.2.1.2', 'ifTable' => '1.3.6.1.2.1.2.2',
+            'ip' => '1.3.6.1.2.1.4', 'host' => '1.3.6.1.2.1.25', 'ucd' => '1.3.6.1.4.1.2021'];
+        $numericOid = $named[$targetOid] ?? ltrim((string) $targetOid, '.');
+
         $ipcRes = $this->ipc->call('snmp.test_query', [
-            'oid'       => $targetOid,
+            'oid'       => $numericOid,
             'community' => $community,
             'version'   => $version,
         ]);
-
-        if (!empty($ipcRes['output'])) {
+        $read = $this->ipcRead($ipcRes);
+        if ($read !== null && isset($read['output'])) {
             return $this->response->setJSON([
                 'success' => true,
                 'oid'     => $targetOid,
-                'output'  => $ipcRes['output'],
+                'output'  => (string) $read['output'],
+            ]);
+        }
+        if (! $this->ipc->isMock()) {
+            $reason = (string) ($ipcRes['result']['message'] ?? $ipcRes['result']['output'] ?? $ipcRes['error']['message'] ?? 'the daemon did not answer');
+
+            return $this->response->setStatusCode(502)->setJSON([
+                'success' => false,
+                'oid'     => $targetOid,
+                'output'  => 'SNMP query failed: ' . trim($reason),
             ]);
         }
 

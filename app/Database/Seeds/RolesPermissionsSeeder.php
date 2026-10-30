@@ -65,6 +65,8 @@ class RolesPermissionsSeeder extends Seeder
         ['module' => 'Routing', 'key' => 'routing.pbr.manage',       'label' => 'Manage Policy-Based Routing'],
 
         // --- VPN — WireGuard ---
+        ['module' => 'VPN', 'key' => 'vpn.ipsec.view',             'label' => 'View IPsec Tunnels'],
+        ['module' => 'VPN', 'key' => 'vpn.ipsec.manage',           'label' => 'Manage IPsec Tunnels'],
         ['module' => 'VPN', 'key' => 'vpn.wireguard.view',         'label' => 'View WireGuard Status'],
         ['module' => 'VPN', 'key' => 'vpn.wireguard.manage',       'label' => 'Manage WireGuard Tunnels & Peers'],
         ['module' => 'VPN', 'key' => 'vpn.wireguard.keys.export',  'label' => 'Export WireGuard Key Configs'],
@@ -149,6 +151,10 @@ class RolesPermissionsSeeder extends Seeder
         ['module' => 'System', 'key' => 'system.factory_reset',  'label' => 'Factory Reset Appliance'],
         ['module' => 'System', 'key' => 'system.noc.register',   'label' => 'Register with Central NOC'],
 
+        // --- Terminal / Console ---
+        ['module' => 'Terminal', 'key' => 'terminal.access',      'label' => 'Open Terminal'],
+        ['module' => 'Terminal', 'key' => 'terminal.admin',       'label' => 'Open Root Terminal'],
+
         // --- Diagnostics ---
         ['module' => 'Diagnostics', 'key' => 'diag.ping',        'label' => 'Run Ping / Traceroute'],
         ['module' => 'Diagnostics', 'key' => 'diag.packet_capture','label' => 'Run Packet Capture (tcpdump)'],
@@ -182,6 +188,7 @@ class RolesPermissionsSeeder extends Seeder
                 'cert.view', 'cert.create',
                 'diag.*',
                 'system.info.view',
+                'terminal.access',
             ],
         ],
         [
@@ -198,6 +205,7 @@ class RolesPermissionsSeeder extends Seeder
                 'users.view', 'totp.manage',
                 'diag.logs.view', 'diag.audit.view', 'diag.ping',
                 'system.info.view', 'backup.view',
+                'terminal.access',
             ],
         ],
         [

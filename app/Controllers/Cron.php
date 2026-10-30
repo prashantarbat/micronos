@@ -18,6 +18,9 @@ class Cron extends BaseController
 {
     private IpcClient $ipc;
 
+    /** The daemon's answer to the last crontab sync, for truthful flashes. */
+    private array $lastCrontabSync = [];
+
     public function initController(\CodeIgniter\HTTP\RequestInterface $request,
                                    \CodeIgniter\HTTP\ResponseInterface $response,
                                    \Psr\Log\LoggerInterface $logger): void
@@ -80,7 +83,7 @@ class Cron extends BaseController
         $this->syncCrontab();
         $this->auditLog("cron.create", "Created scheduled cron job {$id} ({$description})");
 
-        return redirect()->to('cron')->with('success', "Scheduled task '{$description}' created successfully.");
+        return redirect()->to('cron')->with(...$this->cronFlash("Scheduled task '{$description}' created successfully."));
     }
 
     public function update(string $id): \CodeIgniter\HTTP\RedirectResponse
@@ -117,7 +120,7 @@ class Cron extends BaseController
         $this->syncCrontab();
         $this->auditLog("cron.update", "Updated scheduled cron job {$id}");
 
-        return redirect()->to('cron')->with('success', "Scheduled task '{$description}' updated successfully.");
+        return redirect()->to('cron')->with(...$this->cronFlash("Scheduled task '{$description}' updated successfully."));
     }
 
     public function toggle(string $id): \CodeIgniter\HTTP\RedirectResponse
@@ -138,7 +141,7 @@ class Cron extends BaseController
         $statusWord = $newVal ? 'enabled' : 'disabled';
         $this->auditLog("cron.toggle", "Task {$id} is now {$statusWord}");
 
-        return redirect()->to('cron')->with('success', "Task '{$job['description']}' is now {$statusWord}.");
+        return redirect()->to('cron')->with(...$this->cronFlash("Task '{$job['description']}' is now {$statusWord}."));
     }
 
     public function delete(string $id): \CodeIgniter\HTTP\RedirectResponse
@@ -151,7 +154,7 @@ class Cron extends BaseController
             $this->auditLog("cron.delete", "Deleted cron job {$id} ({$job['description']})");
         }
 
-        return redirect()->to('cron')->with('success', "Scheduled task deleted.");
+        return redirect()->to('cron')->with(...$this->cronFlash("Scheduled task deleted."));
     }
 
     public function runNow(string $id): \CodeIgniter\HTTP\RedirectResponse
@@ -163,7 +166,19 @@ class Cron extends BaseController
         }
 
         // On Linux: dispatch via IPC daemon
-        $ipcRes = $this->ipc->call('system.cron_run', ['id' => $id, 'command' => $job['command']]);
+        $ipcRes  = $this->ipc->call('system.cron_run', ['id' => $id, 'command' => $job['command']]);
+        $outcome = $this->ipcOutcome($ipcRes);
+        $result  = is_array($ipcRes['result'] ?? null) ? $ipcRes['result'] : [];
+        $status  = $outcome['ok'] ? 'success' : 'failed';
+        $output  = trim((string) ($result['output'] ?? ''));
+        if ($output === '') {
+            $output = $outcome['ok']
+                ? 'Completed with no output (exit ' . (int) ($result['returncode'] ?? 0) . ').'
+                : (string) $outcome['reason'];
+        }
+        if ($this->ipc->isMock()) {
+            $output = '[simulated — development mode] ' . $output;
+        }
 
         // A task that keeps its own history (the PPPoE redial and the repository
         // drift sweep do) must not have that history overwritten by a manual run:
@@ -171,26 +186,21 @@ class Cron extends BaseController
         // with one blob erases exactly that.
         if (CronJobLog::keepsHistory($id)) {
             $history = new CronJobLog($id, null, $db);
-            $summary = $ipcRes['output'] ?? 'executed manually from the Cron page';
-            $history->record($summary, 'success', 'triggered by an administrator');
-
-            $this->auditLog("cron.run_now", "Manually executed cron job {$id}");
-
-            return redirect()->to('cron')->with('success', "Task '{$job['description']}' executed successfully.");
+            $history->record($output, $status, 'triggered by an administrator');
+        } else {
+            $db->table('cron_jobs')->where('id', $id)->update([
+                'last_run_at' => date('Y-m-d H:i:s'),
+                'last_status' => $status,
+                'last_output' => mb_substr($output, 0, 16000),
+                'updated_at'  => date('Y-m-d H:i:s'),
+            ]);
         }
 
-        $output = $ipcRes['output'] ?? "Executed at " . date('Y-m-d H:i:s') . " by admin.\nCommand: " . $job['command'] . "\nExit code: 0 (OK)";
+        $this->auditLog("cron.run_now", "Manually executed cron job {$id} ({$status})");
 
-        $db->table('cron_jobs')->where('id', $id)->update([
-            'last_run_at' => date('Y-m-d H:i:s'),
-            'last_status' => 'success',
-            'last_output' => $output,
-            'updated_at'  => date('Y-m-d H:i:s'),
-        ]);
-
-        $this->auditLog("cron.run_now", "Manually executed cron job {$id}");
-
-        return redirect()->to('cron')->with('success', "Task '{$job['description']}' executed successfully.");
+        return $outcome['ok']
+            ? redirect()->to('cron')->with('success', "Task '{$job['description']}' completed successfully.")
+            : redirect()->to('cron')->with('error', "Task '{$job['description']}' failed: " . $outcome['reason']);
     }
 
     public function logs(): \CodeIgniter\HTTP\ResponseInterface
@@ -202,8 +212,18 @@ class Cron extends BaseController
         $ipcRes = $this->ipc->call('system.cron_logs', ['lines' => 30]);
         $entries = [];
 
-        if (!empty($ipcRes['logs']) && is_array($ipcRes['logs'])) {
-            $entries = $ipcRes['logs'];
+        $read        = $this->ipcRead($ipcRes);
+        $unavailable = null;
+        if ($read !== null) {
+            foreach ((array) ($read['logs'] ?? []) as $line) {
+                $j = $this->journalLine((string) $line);
+                preg_match('/^\((\S+)\)\s+CMD\s+\((.*)\)$/', $j['message'], $cmd);
+                $entries[] = ['timestamp' => $j['timestamp'], 'pid' => $j['pid'] ?? 0,
+                    'user' => $cmd[1] ?? '', 'command' => $cmd[2] ?? $j['message'],
+                    'status' => $cmd ? 'STARTED' : 'INFO', 'duration' => '—', 'output' => $cmd ? '' : $j['message']];
+            }
+        } elseif (! $this->ipc->isMock()) {
+            $unavailable = (string) ($ipcRes['error']['message'] ?? $ipcRes['result']['message'] ?? 'the daemon did not answer');
         } else {
             $now = time();
             // Illustrative entries for a host with no daemon to ask. There is
@@ -255,8 +275,31 @@ class Cron extends BaseController
 
         return $this->response->setJSON([
             'entries'   => $entries,
+            'unavailable' => $unavailable,
+            'mock'      => $this->ipc->isMock(),
             'timestamp' => date('Y-m-d H:i:s'),
         ]);
+    }
+
+    /**
+     * Flash pair after a change that re-syncs the crontab: success only when
+     * the daemon installed it; otherwise the refusal (with the offending line).
+     *
+     * @return array{0: string, 1: string}
+     */
+    private function cronFlash(string $saved): array
+    {
+        if ($this->lastCrontabSync === []) {
+            return ['success', $saved];
+        }
+        $outcome = $this->ipcOutcome($this->lastCrontabSync);
+        if ($outcome['ok']) {
+            return ['success', $saved];
+        }
+        $refused = $this->lastCrontabSync['result']['refused'][0] ?? null;
+        $detail  = is_array($refused) ? ' — ' . $refused['reason'] . ': ' . $refused['line'] : '';
+
+        return ['error', rtrim($saved, '.') . ', but the crontab was not installed: ' . $outcome['reason'] . $detail];
     }
 
     private function syncCrontab(): void
@@ -267,11 +310,13 @@ class Cron extends BaseController
         $lines = ["# /etc/cron.d/micronos — Auto-generated by MicronOS Engine. DO NOT EDIT DIRECTLY.", "SHELL=/bin/sh", "PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin", ""];
         
         foreach ($jobs as $j) {
-            $line = "{$j['minute']} {$j['hour']} {$j['day_of_month']} {$j['month']} {$j['day_of_week']} {$j['user']} {$j['command']} # ID: {$j['id']}";
-            $lines[] = $line;
+            // The id goes on its own comment line: a trailing `# …` would be
+            // handed to the shell as part of the command.
+            $lines[] = '# ID: ' . preg_replace('/[^A-Za-z0-9_.-]/', '', (string) $j['id']);
+            $lines[] = "{$j['minute']} {$j['hour']} {$j['day_of_month']} {$j['month']} {$j['day_of_week']} {$j['user']} {$j['command']}";
         }
 
-        $this->ipc->call('system.crontab_sync', ['crontab' => implode("\n", $lines)]);
+        $this->lastCrontabSync = $this->applier()->crontab(implode("\n", $lines));
     }
 
     private function auditLog(string $action, string $details): void

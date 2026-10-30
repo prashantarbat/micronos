@@ -184,7 +184,7 @@ check_option_no_restart() { # check_option_no_restart <option> <input>
 check_option_no_restart 0   '0\n'
 check_option_no_restart 1   '1\nn\n\n\n\n\n\n0\n'
 check_option_no_restart 2   '2\n1\nS\n10.10.10.10/24\n\n0\n'
-check_option_no_restart 3   '3\nTestPass123\n\n0\n'
+check_option_no_restart 3   '3\nTestPass123\nTestPass123\n\n0\n'
 check_option_no_restart 4   '4\nY\n\n0\n'
 check_option_no_restart 7   '7\n1.1.1.1\n\n0\n'
 check_option_no_restart 9   '9\n0\n'

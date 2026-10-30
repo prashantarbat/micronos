@@ -807,6 +807,7 @@
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
       <span style="font-size:0.8rem; color:var(--text-secondary);">Active kernel routing entries parsed directly from the system FIB table.</span>
       <a href="<?= base_url('routing') ?>" class="btn btn-secondary" style="font-size:0.75rem; padding:4px 10px;">Configure Static Routes &rarr;</a>
+      <a href="<?= base_url('routing/full-table') ?>" class="btn btn-secondary" style="font-size:0.75rem; padding:4px 10px;">View Full Routing Table &rarr;</a>
     </div>
     <div style="overflow-x:auto;">
       <table class="iface-table">

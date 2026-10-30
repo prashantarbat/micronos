@@ -132,6 +132,12 @@ if [ -f "${root}/system/micron-network.service" ]; then
     install -m 0644 "${root}/system/micron-network.service" "${out}/etc/systemd/system/micron-network.service"
 fi
 
+if [ -f "${root}/system/wireguard.service" ]; then
+    install -d "${out}/etc/systemd/system/multi-user.target.wants"
+    install -m 0644 "${root}/system/wireguard.service" "${out}/etc/systemd/system/wireguard.service"
+    ln -sf /etc/systemd/system/wireguard.service "${out}/etc/systemd/system/multi-user.target.wants/wireguard.service" 2>/dev/null || true
+fi
+
 if [ -f "${root}/system/99-micron-routing.conf" ]; then
     install -d "${out}/etc/sysctl.d"
     install -m 0644 "${root}/system/99-micron-routing.conf" "${out}/etc/sysctl.d/99-micron-routing.conf"
@@ -153,6 +159,16 @@ fi
 if [ -f "${root}/system/micron-sdwan-probe.service" ]; then
     install -d "${out}/etc/systemd/system"
     install -m 0644 "${root}/system/micron-sdwan-probe.service" "${out}/etc/systemd/system/micron-sdwan-probe.service"
+    ln -sf micron-sdwan-probe.service "${out}/etc/systemd/system/gateway-monitor.service" 2>/dev/null || true
+fi
+
+if [ -f "${root}/system/micron-mdns-repeater" ]; then
+    install -m 0755 "${root}/system/micron-mdns-repeater" "${out}/usr/local/bin/micron-mdns-repeater"
+fi
+
+if [ -f "${root}/system/mdns-repeater.service" ]; then
+    install -d "${out}/etc/systemd/system"
+    install -m 0644 "${root}/system/mdns-repeater.service" "${out}/etc/systemd/system/mdns-repeater.service"
 fi
 
 install -d "${out}/etc/modules-load.d"
@@ -194,6 +210,7 @@ install -m 0644 "${completion}" "${out}/usr/share/bash-completion/completions/mi
 shipped=(
     app
     bin
+    docs
     installer
     public
     system
@@ -238,6 +255,9 @@ for executable in \
     installer/micron-healthcheck \
     system/micron-banner \
     system/micron-network \
+    system/micron_netcfg.py \
+    system/micron-terminald \
+    system/micron-guacd-bridge \
     system/micron-ready-beep \
     system/micrond/micrond.py
 do

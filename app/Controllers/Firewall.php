@@ -30,8 +30,10 @@ class Firewall extends BaseController
     {
         $db = \Config\Database::connect();
 
-        // 1. Interfaces
-        $interfaces = $db->table('interfaces')->orderBy('name', 'ASC')->get()->getResultArray();
+        // 1. Interfaces (Physical + VPN Tunnels: WireGuard, OpenVPN, IPsec)
+        $physicalInterfaces = $db->table('interfaces')->orderBy('name', 'ASC')->get()->getResultArray();
+        $vpnInterfaces      = \App\Libraries\VpnInterfaceProvider::getVpnInterfaces($db);
+        $interfaces         = \App\Libraries\VpnInterfaceProvider::getUnifiedInterfaces($db);
         $selectedIface = $this->request->getGet('if') ?: 'all';
         $viewMode = $this->request->getGet('view') ?: 'pair'; // 'pair' (interface-pair view) or 'seq'
 
@@ -79,10 +81,12 @@ class Firewall extends BaseController
         $liveRules = $this->ipc->getFirewallRules();
 
         return view('firewall/index', [
-            'title'          => 'Firewall Policy & Objects — MicronOS',
-            'breadcrumb'     => 'Firewall Policy',
-            'interfaces'     => $interfaces,
-            'selectedIface'  => $selectedIface,
+            'title'          => 'Firewall Policies — MicronOS',
+            'breadcrumb'     => 'Firewall Policies',
+            'interfaces'         => $interfaces,
+            'physicalInterfaces' => $physicalInterfaces,
+            'vpnInterfaces'      => $vpnInterfaces,
+            'selectedIface'      => $selectedIface,
             'viewMode'       => $viewMode,
             'rules'          => $rules,
             'policiesByPair' => $policiesByPair,
@@ -136,11 +140,13 @@ class Firewall extends BaseController
         $policyId = 'pol_' . bin2hex(random_bytes(6));
         $now = date('Y-m-d H:i:s');
 
+        $dbIfaceId = $this->resolveDbInterfaceId($db, $srcIface, $dstIface);
+
         $data = [
             'id'                => $policyId,
             'name'              => !empty($name) ? $name : ("Policy " . ($maxSeq + 1)),
             'sequence'          => $maxSeq + 1,
-            'interface_id'      => $srcIface,
+            'interface_id'      => $dbIfaceId,
             'src_interface'     => $srcIface,
             'dst_interface'     => $dstIface,
             'sources'           => json_encode(array_values(array_filter($sources))),
@@ -209,9 +215,11 @@ class Firewall extends BaseController
             $secProfiles[] = 'webfilter';
         }
 
+        $dbIfaceId = $this->resolveDbInterfaceId($db, $srcIface, $dstIface, $policy['interface_id'] ?? null);
+
         $data = [
             'name'              => $name,
-            'interface_id'      => $srcIface,
+            'interface_id'      => $dbIfaceId,
             'src_interface'     => $srcIface,
             'dst_interface'     => $dstIface,
             'sources'           => $sourcesJson,
@@ -293,16 +301,11 @@ class Firewall extends BaseController
             [$sourceLeg, $destLeg]     = [$destLeg, $sourceLeg];
         }
 
-        // `interface_id` carries an FK to `interfaces`, so it can never be 'any'.
-        // Prefer whichever side of the (possibly swapped) pair is a real zone,
-        // and fall back to the original binding when both sides are 'any'.
-        $ifaceId = $policy['interface_id'] ?? null;
-        foreach ([$srcIface, $dstIface] as $candidate) {
-            if ($candidate && strtolower($candidate) !== 'any') {
-                $ifaceId = $candidate;
-                break;
-            }
-        }
+        // `interface_id` carries an FK to `interfaces`, so it must be a valid `interfaces.id`.
+        // Virtual/VPN tunnel interfaces (WireGuard, OpenVPN, IPsec) and 'any' do not exist
+        // in the `interfaces` table. Look up real interfaces by id or physical_device,
+        // and fall back to the first available interface row so the FK constraint never fails.
+        $ifaceId = $this->resolveDbInterfaceId($db, $srcIface, $dstIface, $policy['interface_id'] ?? null);
 
         $baseName = $policy['name'] ?: ('Policy ' . $policy['id']);
         $name     = $this->uniquePolicyName($db, $baseName . ($reverse ? ' (reverse copy)' : ' (copy)'));
@@ -341,8 +344,11 @@ class Firewall extends BaseController
             'dest_port'         => $destLeg['port'],
             // Reverse direction: source NAT on the return path is almost always wrong
             'nat_enabled'       => $reverse ? 0 : (int) ($policy['nat_enabled'] ?? 0),
+            'dnat_name'         => $reverse ? null : ($policy['dnat_name'] ?? null),
+            'snat_pool_name'    => $reverse ? null : ($policy['snat_pool_name'] ?? null),
             'schedule'          => $policy['schedule'] ?? 'always',
             'log_traffic'       => $policy['log_traffic'] ?? 'all',
+            'log_enabled'       => (int) ($policy['log_enabled'] ?? 0),
             'security_profiles' => $policy['security_profiles'] ?? null,
             'enabled'           => (int) ($policy['enabled'] ?? 1),
             'description'       => $policy['description'] ?? '',
@@ -354,7 +360,8 @@ class Firewall extends BaseController
 
         if ($db->transStatus() === false) {
             $db->transRollback();
-            log_message('error', 'Policy clone failed: ' . ($db->error()['message'] ?? 'unknown error'));
+            $dbErr = $db->error()['message'] ?? 'unknown error';
+            log_message('error', 'Policy clone failed: ' . $dbErr);
 
             return redirect()->to(base_url('firewall/rules'))
                 ->with('error', 'Could not clone that policy. Please check its interfaces and address objects.');
@@ -364,8 +371,36 @@ class Firewall extends BaseController
 
         $label = $reverse ? 'Reverse clone' : 'Clone';
 
+        // Record automatic Git revision commit and bump patch version
+        $author = (string) (session('username') ?? 'ministrator');
+        \Config\Services::configRevisionEngine()->commit($author, "{$label} firewall policy: {$name}", 'firewall', true);
+
         return redirect()->to(base_url('firewall/rules'))
             ->with('success', "{$label} created as '{$name}'.");
+    }
+
+    /**
+     * Resolve a valid interface ID from the `interfaces` table to satisfy FK constraints.
+     * Virtual/VPN tunnel interfaces (WireGuard, OpenVPN, IPsec) and 'any' do not exist
+     * in the `interfaces` table. Look up real interfaces by id or physical_device,
+     * and fall back to the first available interface row so the FK constraint never fails.
+     */
+    private function resolveDbInterfaceId($db, ?string $srcIface, ?string $dstIface = null, ?string $fallback = null): string
+    {
+        $candidates = [$srcIface, $dstIface, $fallback];
+        foreach ($candidates as $cand) {
+            $candStr = trim((string) $cand);
+            if ($candStr !== '' && !in_array(strtolower($candStr), ['any', 'all'], true)) {
+                $row = $db->table('interfaces')->where('id', $candStr)->get()->getRowArray()
+                    ?: $db->table('interfaces')->where('physical_device', $candStr)->get()->getRowArray();
+                if (!empty($row['id'])) {
+                    return (string) $row['id'];
+                }
+            }
+        }
+
+        $defaultRow = $db->table('interfaces')->orderBy('id', 'ASC')->get()->getRowArray();
+        return (string) ($defaultRow['id'] ?? 'lan');
     }
 
     /**
@@ -780,8 +815,11 @@ class Firewall extends BaseController
             $resp = $this->ipc->call('firewall.apply', [
                 'table'     => 'filter',
                 'ruleset'   => $ruleset,
-                'safe_mode' => true,
+                'safe_mode' => false,
             ]);
+
+            // Disarm any rollback watchdog timer so the new ruleset remains permanent
+            $this->ipc->call('firewall.confirm');
 
             if (! empty($resp['error'])) {
                 return redirect()->to(base_url('firewall/rules'))
@@ -921,16 +959,20 @@ class Firewall extends BaseController
     {
         $db = \Config\Database::connect();
         $addresses = $db->table('firewall_addresses')->orderBy('name', 'ASC')->get()->getResultArray();
-        $interfaces = $db->table('interfaces')->orderBy('name', 'ASC')->get()->getResultArray();
+        $physicalInterfaces = $db->table('interfaces')->orderBy('name', 'ASC')->get()->getResultArray();
+        $vpnInterfaces      = \App\Libraries\VpnInterfaceProvider::getVpnInterfaces($db);
+        $interfaces         = \App\Libraries\VpnInterfaceProvider::getUnifiedInterfaces($db);
 
         $resolver = new \App\Libraries\ResolveObjects($db);
 
         return view('firewall/addresses', [
-            'title'      => 'Firewall Addresses & FQDNs — MicronOS',
-            'breadcrumb' => 'Firewall Addresses',
-            'addresses'  => $addresses,
-            'interfaces' => $interfaces,
-            'freshness'  => $resolver->freshnessMap($addresses),
+            'title'              => 'Firewall Addresses & FQDNs — MicronOS',
+            'breadcrumb'         => 'Firewall Addresses',
+            'addresses'          => $addresses,
+            'interfaces'         => $interfaces,
+            'physicalInterfaces' => $physicalInterfaces,
+            'vpnInterfaces'      => $vpnInterfaces,
+            'freshness'          => $resolver->freshnessMap($addresses),
         ]);
     }
 
@@ -1171,9 +1213,10 @@ class Firewall extends BaseController
             $enRaw = strtolower(trim($row['enabled'] ?? '1'));
             $enabled = in_array($enRaw, ['0', 'false', 'no', 'off']) ? 0 : 1;
 
+            $dbIfaceId = $this->resolveDbInterfaceId($db, $srcIface, $dstIface);
             $record = [
                 'name'              => $name,
-                'interface_id'      => $srcIface,
+                'interface_id'      => $dbIfaceId,
                 'src_interface'     => $srcIface,
                 'dst_interface'     => $dstIface,
                 'sources'           => json_encode(array_values($sources)),

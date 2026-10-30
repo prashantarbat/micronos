@@ -1,0 +1,139 @@
+#!/bin/bash
+# ==============================================================================
+# MicronOS Extra Packages Hook
+# ==============================================================================
+# Debian 13 (trixie) ships neither of these, and no apt repository publishes
+# amd64 builds for it, so both are compiled here inside the trixie chroot. That
+# links them against exactly the libraries the image ships.
+#
+#   guacd   Apache Guacamole server (guacd + libguac RDP/SSH/VNC/telnet clients)
+#           for the Clientless Gateway. Built from the upstream source release.
+#   netdiag Network diagnostics suite. Rebuilt from the Debian unstable source
+#           package, which re-entered unstable after trixie froze.
+#
+# Build dependencies are purged at the end; only the runtime libraries stay.
+# Runs before 01-micronos-setup so that hook can configure and enable guacd.
+set -e
+export DEBIAN_FRONTEND=noninteractive
+export LC_ALL=C
+
+GUAC_VER="1.6.0"
+GUAC_URLS="https://archive.apache.org/dist/guacamole/${GUAC_VER}/source https://dlcdn.apache.org/guacamole/${GUAC_VER}/source"
+SID_SRC_LIST=/etc/apt/sources.list.d/micronos-sid-src.list
+BUILD_ROOT=/tmp/micronos-src
+
+echo "===> [MicronOS Hook] Building guacd ${GUAC_VER} and netdiag from source..."
+
+rm -rf "${BUILD_ROOT}"
+mkdir -p "${BUILD_ROOT}"
+dpkg-query -W -f='${Package}\n' | sort > "${BUILD_ROOT}/pkgs.before"
+
+cleanup() {
+    rm -f "${SID_SRC_LIST}"
+}
+trap cleanup EXIT
+
+apt-get update
+apt-get install -y --no-install-recommends \
+    build-essential dpkg-dev pkg-config autoconf automake libtool-bin \
+    ca-certificates curl \
+    libcairo2-dev libjpeg62-turbo-dev libpng-dev uuid-dev \
+    freerdp3-dev libssh2-1-dev libssl-dev libvncserver-dev libtelnet-dev \
+    libpango1.0-dev libpulse-dev libvorbis-dev libwebp-dev
+
+# ------------------------------------------------------------------------------
+# guacd
+# ------------------------------------------------------------------------------
+cd "${BUILD_ROOT}"
+tarball="guacamole-server-${GUAC_VER}.tar.gz"
+fetched=""
+for base in ${GUAC_URLS}; do
+    if curl -fsSL -o "${tarball}" "${base}/${tarball}" \
+        && curl -fsSL -o "${tarball}.sha256" "${base}/${tarball}.sha256"; then
+        fetched="${base}"
+        break
+    fi
+done
+[ -n "${fetched}" ] || { echo "ERROR: could not download ${tarball}" >&2; exit 1; }
+echo "$(awk '{print $1}' "${tarball}.sha256")  ${tarball}" | sha256sum -c -
+
+tar xzf "${tarball}"
+cd "guacamole-server-${GUAC_VER}"
+# Upstream compiles with -Werror, and so do configure's FreeRDP feature probes.
+# Debian 13's FreeRDP 3 headers mark codecs_free() deprecated, so with -Werror
+# the "do freerdp structs have a context" probe fails, FREERDP_HAS_CONTEXT is
+# left undefined, and the RDP plugin is then compiled against the FreeRDP 2
+# layout (rdp_inst->input) and breaks. Silencing deprecation warnings in both
+# CPPFLAGS (used by the probes) and CFLAGS (used by the build) fixes both.
+CPPFLAGS="-Wno-deprecated-declarations" \
+CFLAGS="-O2 -Wno-error -Wno-deprecated-declarations" ./configure \
+    --prefix=/usr \
+    --sysconfdir=/etc \
+    --with-systemd-dir=/lib/systemd/system \
+    --disable-guacenc \
+    --disable-guaclog \
+    --disable-kubernetes
+if ! grep -q '^#define FREERDP_HAS_CONTEXT' config.h; then
+    echo "ERROR: configure did not detect FreeRDP 3's context layout; the RDP plugin would not compile." >&2
+    echo "       See the 'whether freerdp structs have a context' check in config.log." >&2
+    exit 1
+fi
+make -j"$(nproc)"
+
+touch "${BUILD_ROOT}/install.marker"
+make install
+ldconfig
+
+for proto in rdp ssh vnc; do
+    if ! ls /usr/lib/libguac-client-${proto}.so* >/dev/null 2>&1; then
+        echo "ERROR: guacd was built without ${proto} support; check configure output above" >&2
+        exit 1
+    fi
+done
+
+# Keep every shared library the installed guacd files link against.
+find /usr /etc -xdev -type f -newer "${BUILD_ROOT}/install.marker" 2>/dev/null \
+    | while read -r f; do
+        [ "$(head -c 4 "$f" | tail -c 3)" = "ELF" ] || continue
+        ldd "$f" 2>/dev/null | awk '/=> \//{print $3}'
+    done | sort -u | while read -r lib; do
+        real="$(realpath "$lib")"
+        dpkg -S "$real" 2>/dev/null || dpkg -S "/usr${real}" 2>/dev/null || dpkg -S "${real#/usr}" 2>/dev/null || true
+    done | cut -d: -f1 | sort -u > "${BUILD_ROOT}/guacd.runtime"
+
+# ------------------------------------------------------------------------------
+# netdiag
+# ------------------------------------------------------------------------------
+cd "${BUILD_ROOT}"
+echo "deb-src http://deb.debian.org/debian unstable main" > "${SID_SRC_LIST}"
+apt-get update
+apt-get source netdiag
+netdiag_dir="$(find . -maxdepth 1 -type d -name 'netdiag-*' | head -n 1)"
+[ -n "${netdiag_dir}" ] || { echo "ERROR: netdiag source did not unpack" >&2; exit 1; }
+apt-get build-dep -y "${netdiag_dir}"
+(cd "${netdiag_dir}" && dpkg-buildpackage -b -uc -us)
+apt-get install -y ./netdiag_*_amd64.deb
+
+rm -f "${SID_SRC_LIST}"
+apt-get update
+
+# ------------------------------------------------------------------------------
+# Drop build dependencies, keep runtime libraries
+# ------------------------------------------------------------------------------
+dpkg-query -W -f='${Package}\n' | sort > "${BUILD_ROOT}/pkgs.after"
+comm -13 "${BUILD_ROOT}/pkgs.before" "${BUILD_ROOT}/pkgs.after" \
+    | grep -vx netdiag | xargs -r apt-mark auto >/dev/null
+xargs -r apt-mark manual < "${BUILD_ROOT}/guacd.runtime" >/dev/null
+apt-mark manual netdiag >/dev/null
+apt-get autoremove --purge -y
+apt-get clean
+
+for bin in /usr/sbin/guacd /usr/lib/libguac-client-*.so; do
+    if ldd "${bin}" | grep -q 'not found'; then
+        echo "ERROR: ${bin} lost a runtime library during cleanup" >&2
+        exit 1
+    fi
+done
+
+rm -rf "${BUILD_ROOT}"
+echo "===> [MicronOS Hook] guacd $(guacd -v 2>&1 | head -n 1) and netdiag installed."

@@ -172,6 +172,15 @@ final class DashboardModernizationTest extends BaseTestCase
 
     public function testDashboardTelemetryEndpointReturnsMetrics(): void
     {
+        Services::injectMock('ipc', new FakeIpcClient([
+            'system.health' => ['result' => ['success' => true, 'uptime_sec' => 3600, 'load_avg' => [0.5, 0.4, 0.3],
+                'cpu_count' => 4, 'mem_total_mb' => 4000, 'mem_used_mb' => 1000,
+                'disks' => [['mount' => '/', 'total_gb' => 10.0, 'used_gb' => 2.0, 'free_gb' => 8.0, 'used_pct' => 20.0]],
+                'conntrack_count' => 12, 'conntrack_max' => 65536, 'temperature_c' => null,
+                'interfaces' => [['name' => 'eth0', 'operstate' => 'up', 'carrier' => true, 'mac' => '02:00:00:00:00:01',
+                    'mtu' => 1500, 'speed_mbps' => 1000, 'rx_bytes' => 1000, 'tx_bytes' => 500, 'rx_packets' => 10,
+                    'tx_packets' => 5, 'rx_errors' => 0, 'tx_errors' => 0, 'virtual' => false]]], 'error' => null],
+        ]));
         $result = $this->withSession($this->session())->get('dashboard/telemetry');
         $result->assertStatus(200);
 
@@ -181,6 +190,11 @@ final class DashboardModernizationTest extends BaseTestCase
         $this->assertArrayHasKey('traffic', $json);
         $this->assertIsArray($json['ports']);
         $this->assertNotEmpty($json['ports']);
+
+        $this->assertSame('live', $json['mode']);
+        $this->assertSame(13, $json['gauges']['cpu_pct'], 'load 0.5 on 4 cores, from the daemon — not a random number');
+        $this->assertSame(12, $json['gauges']['states']);
+        $this->assertNull($json['gauges']['temperature'], 'no sensor → null, not an invented 37.5 °C');
 
         $firstPort = $json['ports'][0];
         $this->assertArrayHasKey('device', $firstPort);
@@ -193,7 +207,11 @@ final class DashboardModernizationTest extends BaseTestCase
     {
         $csrfName = csrf_token();
 
-        // 1. Toggle action
+        // 1. Toggle action on a configured interface (only the stored state changes)
+        if ($this->db->table('interfaces')->where('physical_device', 'eth0')->countAllResults() === 0) {
+            $this->db->table('interfaces')->insert(['id' => 'wan', 'name' => 'WAN', 'physical_device' => 'eth0', 'enabled' => 1,
+                'ip_assignment_type' => 'dhcp']);
+        }
         $toggleResult = $this->withSession($this->session())->post('dashboard/port-action', [
             $csrfName => $this->csrfToken(),
             'device'  => 'eth0',
@@ -203,7 +221,17 @@ final class DashboardModernizationTest extends BaseTestCase
         $toggleJson = json_decode($toggleResult->getJSON(), true);
         $this->assertTrue($toggleJson['success']);
 
-        // 2. PCAP sniffer probe action
+        $this->assertTrue($toggleJson['pending_apply'], 'the toggle must say it still needs an interface apply');
+
+        // 2. On a live appliance the quick capture points at the real capture tool.
+        $live = $this->withSession($this->session())->post('dashboard/port-action', [
+            $csrfName => $this->csrfToken(), 'device' => 'eth0', 'action' => 'pcap',
+        ]);
+        $live->assertStatus(400);
+        $this->assertStringContainsString('diag', json_decode($live->getJSON(), true)['redirect']);
+
+        // 3. Sample packets exist only for the development client, and are labelled.
+        Services::injectMock('ipc', (new FakeIpcClient())->asDevelopmentMock());
         $pcapResult = $this->withSession($this->session())->post('dashboard/port-action', [
             $csrfName => $this->csrfToken(),
             'device'  => 'eth0',
@@ -214,5 +242,27 @@ final class DashboardModernizationTest extends BaseTestCase
         $this->assertTrue($pcapJson['success']);
         $this->assertArrayHasKey('packets', $pcapJson);
         $this->assertNotEmpty($pcapJson['packets']);
+        $this->assertStringContainsString('SIMULATED', $pcapJson['packets'][0]);
+    }
+
+    public function testAddOnWidgetCardsRenderAndAreInTheCatalogue(): void
+    {
+        $body = $this->withSession($this->session())->get('dashboard')->getBody();
+
+        foreach (['ports', 'storage', 'dhcp', 'conntrack', 'plugins', 'actions'] as $w) {
+            $this->assertStringContainsString('id="card_widget_' . $w . '"', $body, "widget {$w} must be rendered");
+            $this->assertStringContainsString("{ id: 'card_widget_{$w}'", $body, "widget {$w} must be offered in Add Widget");
+        }
+        // The VPN card states come from systemd, not fixed "ONLINE"/"RUNNING" labels.
+        $this->assertStringNotContainsString('2FA TOTP Active', $body);
+    }
+
+    public function testDefaultLayoutIncludesTheNewCards(): void
+    {
+        $layout = (new \App\Models\DashboardLayoutModel())->getDefaultLayout();
+        foreach (['card_widget_ports', 'card_widget_storage', 'card_widget_dhcp', 'card_widget_plugins', 'card_widget_actions'] as $id) {
+            $this->assertContains($id, $layout['active_widgets']);
+            $this->assertTrue($layout['widget_configs'][$id]['visible']);
+        }
     }
 }

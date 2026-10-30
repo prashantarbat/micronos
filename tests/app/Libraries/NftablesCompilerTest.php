@@ -21,6 +21,9 @@ final class NftablesCompilerTest extends CIUnitTestCase
 
     protected $namespace = 'App';
 
+    protected $migrate     = true;
+    protected $migrateOnce = true;
+
     // The in-memory test database is shared for the whole run; a full
     // regression would exercise down() methods that do not need to be part of
     // this suite. Migrate once (latest) and clear the tables we touch.
@@ -29,6 +32,28 @@ final class NftablesCompilerTest extends CIUnitTestCase
     protected function setUp(): void
     {
         parent::setUp();
+
+        $interfacesTable = $this->db->getPrefix() . 'interfaces';
+        $interfaceColumns = $this->db->query("PRAGMA table_info('{$interfacesTable}')")->getResultArray();
+        if ($interfaceColumns === []) {
+            $this->db->query("CREATE TABLE {$interfacesTable} (
+                id VARCHAR(32) PRIMARY KEY,
+                name VARCHAR(64) NOT NULL,
+                physical_device VARCHAR(32) NOT NULL DEFAULT '',
+                enabled INTEGER NOT NULL DEFAULT 1,
+                interface_type VARCHAR(16) NOT NULL DEFAULT 'physical',
+                ip_assignment_type VARCHAR(16) NOT NULL DEFAULT 'none',
+                ipv4_address VARCHAR(45),
+                ipv4_netmask INTEGER,
+                ipv4_gateway VARCHAR(45),
+                ipv6_assignment_type VARCHAR(16) DEFAULT 'disabled',
+                ipv6_address VARCHAR(45),
+                ipv6_prefix INTEGER,
+                admin_access TEXT
+            )");
+        } elseif (! in_array('admin_access', array_column($interfaceColumns, 'name'), true)) {
+            $this->db->query("ALTER TABLE {$interfacesTable} ADD COLUMN admin_access TEXT NULL");
+        }
 
         $this->db->table('nat_dnat')->emptyTable();
         $this->db->table('nat_snat_pools')->emptyTable();
@@ -382,6 +407,98 @@ final class NftablesCompilerTest extends CIUnitTestCase
         $this->assertStringContainsString('counter drop comment "Default Deny All / Cleanup Rule"', $ruleset);
     }
 
+    public function testAllowsWebGuiOnEnabledOptionalInterfacesWithoutOpeningSsh(): void
+    {
+        $this->db->table('interfaces')->insertBatch([
+            ['id' => 'opt1', 'name' => 'OPT1', 'physical_device' => 'eth2', 'admin_access' => '["http","https","ping"]', 'enabled' => 1, 'ip_assignment_type' => 'static'],
+            ['id' => 'opt2', 'name' => 'OPT2', 'physical_device' => 'eth3', 'admin_access' => '[]', 'enabled' => 0, 'ip_assignment_type' => 'static'],
+            ['id' => 'opt3', 'name' => 'OPT3', 'physical_device' => 'eth0', 'admin_access' => '[]', 'enabled' => 1, 'ip_assignment_type' => 'static'],
+        ]);
+
+        $ruleset = (new NftablesCompiler($this->db))->compile();
+
+        $this->assertStringContainsString('iifname "eth2" tcp dport { 80, 443, 8443 } accept comment "Administrative access: http,https,ping"', $ruleset);
+        $this->assertStringNotContainsString('iifname "eth2" tcp dport { 80, 443, 8443, 22 } accept', $ruleset);
+        $this->assertStringNotContainsString('iifname "eth3" tcp dport', $ruleset);
+        $this->assertStringNotContainsString('iifname "eth0" tcp dport { 80, 443, 8443 } accept', $ruleset);
+        $this->assertStringContainsString('iifname "eth2" ip protocol icmp icmp type echo-request limit rate 50/second accept', $ruleset);
+    }
+
+    public function testAdministrativeAccessOnlyOpensSelectedServicesPerInterface(): void
+    {
+        $this->db->table('interfaces')->insert([
+            'id' => 'opt_access_test', 'name' => 'OPT Access Test', 'physical_device' => 'eth7',
+            'admin_access' => '["https","snmp"]', 'enabled' => 1, 'ip_assignment_type' => 'static',
+        ]);
+
+        $ruleset = (new NftablesCompiler($this->db))->compile();
+
+        $this->assertStringContainsString('iifname "eth7" tcp dport { 443, 8443 } accept comment "Administrative access: https,snmp"', $ruleset);
+        $this->assertStringContainsString('iifname "eth7" udp dport 161 accept comment "Administrative access: SNMP"', $ruleset);
+        $this->assertStringNotContainsString('iifname "eth7" ip protocol icmp icmp type echo-request', $ruleset);
+        $this->assertStringNotContainsString('iifname "eth7" tcp dport { 80, 443, 8443, 22 } accept', $ruleset);
+    }
+
+    public function testVpnTunnelPoliciesAndRoutingProtocols(): void
+    {
+        if ($this->db->tableExists('wireguard_tunnels')) {
+            $this->db->table('wireguard_tunnels')->emptyTable();
+            $this->db->table('wireguard_tunnels')->insert([
+                'id'             => 1,
+                'name'           => 'WG538',
+                'interface_name' => 'wg538',
+                'private_key'    => 'aPrivateKey==',
+                'public_key'     => 'aPublicKey==',
+                'listen_port'    => 51820,
+                'enabled'        => 1,
+                'ipv4_address'   => '10.168.38.1',
+                'created_at'     => date('Y-m-d H:i:s'),
+                'updated_at'     => date('Y-m-d H:i:s'),
+            ]);
+        }
+
+        $this->insertPolicy([
+            'id'            => 'pol_wg_any',
+            'name'          => 'Wiregaurd -> ANY',
+            'src_interface' => 'wg538',
+            'dst_interface' => 'any',
+            'sources'       => json_encode(['all']),
+            'destinations'  => json_encode(['all']),
+            'services'      => json_encode(['ALL']),
+            'action'        => 'accept',
+            'nat_enabled'   => 1,
+            'enabled'       => 1,
+        ]);
+
+        $this->insertPolicy([
+            'id'            => 'pol_any_wg',
+            'name'          => 'ANY -> Wiregaurd',
+            'src_interface' => 'any',
+            'dst_interface' => 'wg538',
+            'sources'       => json_encode(['all']),
+            'destinations'  => json_encode(['all']),
+            'services'      => json_encode(['ALL']),
+            'action'        => 'accept',
+            'nat_enabled'   => 0,
+            'enabled'       => 1,
+        ]);
+
+        $ruleset = (new NftablesCompiler($this->db))->compile();
+
+        // 1. Dynamic Routing Protocols accepted in input chain
+        $this->assertStringContainsString('ip protocol ospf accept comment "Routing: OSPFv2 (Protocol 89)"', $ruleset);
+        $this->assertStringContainsString('tcp dport 179 accept comment "Routing: BGP (TCP 179)"', $ruleset);
+
+        // 2. Wireguard policies in forward chain
+        $this->assertStringContainsString('iifname "wg538"', $ruleset);
+        $this->assertStringContainsString('oifname "wg538"', $ruleset);
+        $this->assertStringContainsString('comment "Wiregaurd -> ANY"', $ruleset);
+        $this->assertStringContainsString('comment "ANY -> Wiregaurd"', $ruleset);
+
+        // 3. Policy NAT in postrouting chain for WG538 -> ANY
+        $this->assertStringContainsString('iifname "wg538" masquerade comment "Policy NAT: Wiregaurd -> ANY"', $ruleset);
+    }
+
     // ------------------------------------------------------------------
     // Helpers
     // ------------------------------------------------------------------
@@ -453,6 +570,7 @@ final class NftablesCompilerTest extends CIUnitTestCase
         $sequence++;
 
         $this->db->table('firewall_rules')->insert(array_merge([
+            'id'             => 'pol_' . bin2hex(random_bytes(4)),
             'sequence'       => $sequence,
             'interface_id'   => 'lan',
             'action'         => 'accept',
@@ -476,5 +594,27 @@ final class NftablesCompilerTest extends CIUnitTestCase
             'created_at'     => date('Y-m-d H:i:s'),
             'updated_at'     => date('Y-m-d H:i:s'),
         ], $overrides));
+    }
+
+    public function testCompilesCustomSshAndWebguiPorts(): void
+    {
+        if ($this->db->tableExists('system_settings')) {
+            $this->db->table('system_settings')->where('id', 1)->delete();
+            $this->db->table('system_settings')->insert([
+                'id'              => 1,
+                'hostname'        => 'custom-fw',
+                'domain'          => 'test.local',
+                'ssh_port'        => 2222,
+                'webgui_port'     => 8443,
+                'webgui_protocol' => 'https',
+                'ipv6_enabled'    => 0,
+            ]);
+        }
+
+        $compiler = new NftablesCompiler();
+        $ruleset  = $compiler->compile();
+
+        $this->assertStringContainsString('iifname "eth1" tcp dport { 80, 443, 2222, 8443 } accept', $ruleset);
+        $this->assertStringContainsString('iifname "eth0" tcp dport { 80, 443, 8443, 22, 23, 2222 } counter drop', $ruleset);
     }
 }

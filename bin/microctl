@@ -191,6 +191,172 @@ function micron_firewall_enable(string $root): int
     return 0;
 }
 
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Daemon-backed commands (health, services, logs, vpn, plugins, rpc, doctor).
+//
+// These speak to micrond directly over its UNIX socket with the same framing
+// the Web UI uses (4-byte big-endian length + JSON-RPC 2.0), so the console
+// and the Web UI are two views of one implementation. Unlike the web client
+// there is no simulation fallback: if the daemon does not answer, the command
+// says so and exits 2.
+//
+// Exit status: 0 success · 1 usage error · 2 daemon unreachable ·
+//              3 the daemon reported a failure / the appliance is unhealthy
+// ─────────────────────────────────────────────────────────────────────────────
+const MICRON_EXIT_USAGE = 1;
+const MICRON_EXIT_UNREACHABLE = 2;
+const MICRON_EXIT_FAILED = 3;
+
+function micron_socket_path(): string
+{
+    $override = getenv('MICRON_SOCKET');
+
+    return is_string($override) && $override !== '' ? $override : '/run/micron/micrond.sock';
+}
+
+/**
+ * One JSON-RPC call. Returns ['ok' => bool, 'result' => mixed, 'error' => ?string, 'unreachable' => bool].
+ */
+function micron_rpc(string $method, array $params = [], int $timeout = 30): array
+{
+    $path = micron_socket_path();
+    $errno = 0;
+    $errstr = '';
+    $sock = @stream_socket_client('unix://' . $path, $errno, $errstr, 5);
+    if ($sock === false) {
+        return ['ok' => false, 'result' => null, 'unreachable' => true,
+            'error' => "cannot reach micrond at {$path}: " . ($errstr ?: 'connection failed')];
+    }
+    stream_set_timeout($sock, $timeout);
+    $payload = json_encode(['jsonrpc' => '2.0', 'id' => 1, 'method' => $method,
+        'params' => $params === [] ? new stdClass() : $params], JSON_THROW_ON_ERROR);
+    fwrite($sock, pack('N', strlen($payload)) . $payload);
+
+    $read = static function ($sock, int $n): ?string {
+        $buf = '';
+        while (strlen($buf) < $n) {
+            $chunk = fread($sock, $n - strlen($buf));
+            if ($chunk === false || $chunk === '') {
+                return null;
+            }
+            $buf .= $chunk;
+        }
+
+        return $buf;
+    };
+    $header = $read($sock, 4);
+    if ($header === null) {
+        fclose($sock);
+
+        return ['ok' => false, 'result' => null, 'unreachable' => true, 'error' => 'micrond closed the connection without answering'];
+    }
+    $len  = unpack('N', $header)[1];
+    $body = $len > 16 * 1024 * 1024 ? null : $read($sock, $len);
+    fclose($sock);
+    $resp = $body === null ? null : json_decode($body, true);
+    if (! is_array($resp)) {
+        return ['ok' => false, 'result' => null, 'unreachable' => false, 'error' => 'micrond returned an unreadable response'];
+    }
+    if (! empty($resp['error'])) {
+        return ['ok' => false, 'result' => null, 'unreachable' => false,
+            'error' => (string) ($resp['error']['message'] ?? 'daemon error')];
+    }
+    $result = $resp['result'] ?? null;
+    $failed = is_array($result) && (($result['success'] ?? true) === false
+        || in_array(strtolower((string) ($result['status'] ?? '')), ['error', 'failed'], true));
+
+    return ['ok' => ! $failed, 'result' => $result, 'unreachable' => false,
+        'error' => $failed ? (string) ($result['message'] ?? 'the daemon reported a failure') : null];
+}
+
+/** Parse `--flag`, `--key value` and `--key=value` out of an argument list. */
+function micron_opts(array $args): array
+{
+    $opts = ['_' => []];
+    for ($i = 0, $n = count($args); $i < $n; $i++) {
+        $a = (string) $args[$i];
+        if (str_starts_with($a, '--')) {
+            $kv = substr($a, 2);
+            if (str_contains($kv, '=')) {
+                [$k, $v] = explode('=', $kv, 2);
+                $opts[$k] = $v;
+            } elseif (in_array($kv, ['lines', 'interface'], true) && isset($args[$i + 1])) {
+                $opts[$kv] = (string) $args[++$i];
+            } else {
+                $opts[$kv] = true;
+            }
+        } else {
+            $opts['_'][] = $a;
+        }
+    }
+
+    return $opts;
+}
+
+/** Print a result: JSON with --json, otherwise the given human renderer. Returns the exit status. */
+function micron_emit(array $call, array $opts, callable $human): int
+{
+    if (! empty($opts['json'])) {
+        echo json_encode([
+            'success' => $call['ok'],
+            'result'  => $call['result'],
+            'error'   => $call['error'],
+        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n";
+    } elseif ($call['ok']) {
+        $human($call['result']);
+    } else {
+        fwrite(STDERR, '[ERROR] ' . $call['error'] . "\n");
+    }
+    if ($call['unreachable']) {
+        return MICRON_EXIT_UNREACHABLE;
+    }
+
+    return $call['ok'] ? 0 : MICRON_EXIT_FAILED;
+}
+
+function micron_bytes(?int $n): string
+{
+    if ($n === null) {
+        return '—';
+    }
+    foreach (['B', 'KiB', 'MiB', 'GiB', 'TiB'] as $u) {
+        if ($n < 1024) {
+            return round($n, 1) . ' ' . $u;
+        }
+        $n /= 1024;
+    }
+
+    return round($n, 1) . ' PiB';
+}
+
+function micron_print_health(array $h): void
+{
+    $up = (int) ($h['uptime_sec'] ?? 0);
+    printf("Uptime        : %dd %dh %dm\n", intdiv($up, 86400), intdiv($up % 86400, 3600), intdiv($up % 3600, 60));
+    printf("Load average  : %s  (%d CPU%s)\n", implode(' ', array_map(fn ($v) => sprintf('%.2f', $v), (array) ($h['load_avg'] ?? []))),
+        (int) ($h['cpu_count'] ?? 0), ($h['cpu_count'] ?? 0) == 1 ? '' : 's');
+    if (isset($h['mem_total_mb'])) {
+        printf("Memory        : %d / %d MiB used\n", $h['mem_used_mb'], $h['mem_total_mb']);
+    }
+    foreach ((array) ($h['disks'] ?? []) as $d) {
+        printf("Disk %-9s: %.1f / %.1f GiB (%.0f%%)\n", $d['mount'], $d['used_gb'], $d['total_gb'], $d['used_pct']);
+    }
+    if (isset($h['conntrack_count'])) {
+        printf("Conntrack     : %d / %d\n", $h['conntrack_count'], $h['conntrack_max'] ?? 0);
+    }
+    if (isset($h['temperature_c'])) {
+        printf("Temperature   : %.1f °C\n", $h['temperature_c']);
+    }
+    echo "Interfaces:\n";
+    foreach ((array) ($h['interfaces'] ?? []) as $i) {
+        printf("  %-12s %-8s %-17s rx %-10s tx %s\n", $i['name'], $i['operstate'], $i['mac'] ?: '-',
+            micron_bytes($i['rx_bytes'] ?? null), micron_bytes($i['tx_bytes'] ?? null));
+    }
+}
+
+const MICRON_SERVICE_ACTIONS = ['start', 'stop', 'restart'];
+
 switch ($cmd) {
     case 'status':
         echo "=== MicronOS Appliance Status ===\n";
@@ -219,52 +385,86 @@ switch ($cmd) {
     case 'interface':
         $sub = $args[1] ?? '';
         if ($sub === 'set-lan') {
-            $cidr = $args[2] ?? '10.10.10.10/24';
-            [$ip, $mask] = explode('/', $cidr . '/24');
-            $mask = (int) $mask;
-            $dbPath = $root . '/writable/micron_config.db';
-            if (file_exists($dbPath)) {
-                $db = new \SQLite3($dbPath);
-                $stmt = $db->prepare("UPDATE interfaces SET ipv4_address = :ip, ipv4_netmask = :mask WHERE id = 'lan'");
-                $stmt->bindValue(':ip', $ip, SQLITE3_TEXT);
-                $stmt->bindValue(':mask', $mask, SQLITE3_INTEGER);
-                $stmt->execute();
-
-                // Compute DHCP range for new subnet while preserving DHCP enabled state
-                $ipLong = ip2long($ip);
-                if ($ipLong !== false && $mask > 0 && $mask < 31) {
-                    $maskLong = ~((1 << (32 - $mask)) - 1);
-                    $baseLong = $ipLong & $maskLong;
-                    $poolStart = long2ip($baseLong + 100);
-                    $poolEnd = long2ip($baseLong + 200);
-
-                    $chk = $db->querySingle("SELECT enabled FROM dhcp_server_settings WHERE interface_id='lan'");
-                    $dhcpEnabled = ($chk !== null) ? (int) $chk : 0;
-                    $count = $db->querySingle("SELECT COUNT(*) FROM dhcp_server_settings WHERE interface_id='lan'");
-                    if ($count > 0) {
-                        $sDhcp = $db->prepare("UPDATE dhcp_server_settings SET range_from = :from, range_to = :to, gateway = :gw, dns_1 = :dns, enabled = :en WHERE interface_id = 'lan'");
-                    } else {
-                        $sDhcp = $db->prepare("INSERT INTO dhcp_server_settings (interface_id, enabled, range_from, range_to, gateway, dns_1) VALUES ('lan', :en, :from, :to, :gw, :dns)");
-                    }
-                    $sDhcp->bindValue(':en', $dhcpEnabled, SQLITE3_INTEGER);
-                    $sDhcp->bindValue(':from', $poolStart, SQLITE3_TEXT);
-                    $sDhcp->bindValue(':to', $poolEnd, SQLITE3_TEXT);
-                    $sDhcp->bindValue(':gw', $ip, SQLITE3_TEXT);
-                    $sDhcp->bindValue(':dns', $ip, SQLITE3_TEXT);
-                    $sDhcp->execute();
-                }
+            // Validated before anything is written: a typo here takes the
+            // management interface away from the operator.
+            $cidr = (string) ($args[2] ?? '');
+            if (! preg_match('#^(\d{1,3}(?:\.\d{1,3}){3})/(\d{1,2})$#', $cidr, $m)
+                || filter_var($m[1], FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) === false
+                || (int) $m[2] < 8 || (int) $m[2] > 30) {
+                micron_fail_usage('microctl interface set-lan <ipv4/prefix>   (prefix 8-30, e.g. 192.168.1.1/24)');
             }
-
-            echo "[OK] LAN IP reconfigured to {$ip}/{$mask}\n";
-
-            // Trigger system re-application if running on appliance
-            if (PHP_OS_FAMILY === 'Linux' && file_exists('/usr/local/bin/micron-network')) {
-                @exec('/usr/local/bin/micron-network >/dev/null 2>&1');
+            [$ip, $mask] = [$m[1], (int) $m[2]];
+            $hostBits  = 32 - $mask;
+            $netLong   = ip2long($ip) & (~((1 << $hostBits) - 1) & 0xFFFFFFFF);
+            $bcastLong = $netLong | ((1 << $hostBits) - 1);
+            if (ip2long($ip) === $netLong || ip2long($ip) === $bcastLong) {
+                fwrite(STDERR, "{$ip} is the network or broadcast address of /{$mask}; choose a host address.\n");
+                exit(MICRON_EXIT_USAGE);
             }
-        } else {
-            micron_fail_usage('microctl interface set-lan <ip/cidr>');
+            // One implementation for Web UI, CLI and boot: the network
+            // transaction validates, updates every dependent setting (DHCP,
+            // firewall/NAT references, DNS records), applies, verifies and
+            // rolls back on failure.
+            exit(micron_spark($root, ['network', 'set-address', 'lan', "{$ip}/{$mask}"]) === 0 ? 0 : MICRON_EXIT_FAILED);
         }
-        break;
+        if ($sub === 'assign') {
+            $wanDev = (string) ($args[2] ?? '');
+            $lanDev = (string) ($args[3] ?? '');
+            if ($wanDev === '' || $lanDev === '') {
+                micron_fail_usage('microctl interface assign <wan-device> <lan-device|none> [optN=device ...] [--factory-reset]');
+            }
+            $sparkArgs = array_merge(['network', 'assign', $wanDev, $lanDev], array_slice($args, 4));
+            exit(micron_spark($root, $sparkArgs) === 0 ? 0 : MICRON_EXIT_FAILED);
+        }
+        if ($sub === 'set-device') {
+            $id = (string) ($args[2] ?? '');
+            $dev = (string) ($args[3] ?? '');
+            if ($id === '' || $dev === '') {
+                micron_fail_usage('microctl interface set-device <interface-id> <device|none> [--swap]');
+            }
+            $sparkArgs = array_merge(['network', 'set-device', $id, $dev], array_slice($args, 4));
+            exit(micron_spark($root, $sparkArgs) === 0 ? 0 : MICRON_EXIT_FAILED);
+        }
+        if ($sub === 'swap' || $sub === 'interchange') {
+            $id1 = (string) ($args[2] ?? '');
+            $id2 = (string) ($args[3] ?? '');
+            if ($id1 === '' || $id2 === '') {
+                micron_fail_usage('microctl interface swap <interface-id-1> <interface-id-2>   (e.g. microctl interface swap wan lan)');
+            }
+            exit(micron_spark($root, ['network', 'swap', $id1, $id2]) === 0 ? 0 : MICRON_EXIT_FAILED);
+        }
+        if ($sub === 'set-wan') {
+            $dev = (string) ($args[2] ?? '');
+            $mode = (string) ($args[3] ?? 'dhcp');
+            if ($dev === '' || ! preg_match('/^[A-Za-z0-9][A-Za-z0-9_.:@-]{0,14}$/', $dev)) {
+                micron_fail_usage('microctl interface set-wan <device> [dhcp|none|keep]');
+            }
+            exit(micron_spark($root, ['network', 'set-wan', $dev, $mode]) === 0 ? 0 : MICRON_EXIT_FAILED);
+        }
+        micron_fail_usage('microctl interface <assign <wan> <lan> [optN=dev]|set-device <id> <dev> [--swap]|swap <id1> <id2>|set-wan <dev>|set-lan <ip/cidr>>');
+
+    case 'ipv6':
+        // IPv6 master switch — the same transaction as System > Networking.
+        $want = $args[1] ?? 'status';
+        if (! in_array($want, ['on', 'off', 'status'], true)) {
+            micron_fail_usage('microctl ipv6 <on|off|status>');
+        }
+        exit(micron_spark($root, ['network', 'ipv6', $want]) === 0 ? 0 : MICRON_EXIT_FAILED);
+
+    case 'terminal':
+        // Browser terminal service — same control socket as the Web UI.
+        $sub = $args[1] ?? 'status';
+        if (! in_array($sub, ['status', 'sessions', 'kill', 'revoke'], true)) {
+            micron_fail_usage('microctl terminal <status|sessions|kill <id>|revoke <user-id>>');
+        }
+        exit(micron_spark($root, array_merge(['terminal', $sub], array_slice($args, 2))));
+
+    case 'network':
+        $sub = $args[1] ?? 'status';
+        if (! in_array($sub, ['status', 'plan', 'apply', 'rollback', 'reconcile', 'confirm', 'assign', 'set-device', 'swap', 'set-wan', 'set-lan'], true)) {
+            micron_fail_usage('microctl network <status|plan|apply|assign|set-device|swap|set-wan|set-lan|confirm <tx>|rollback|reconcile>');
+        }
+        exit(micron_spark($root, array_merge(['network', $sub], array_slice($args, 2))) === 0 ? 0 : MICRON_EXIT_FAILED);
 
     case 'firewall':
         $sub = $args[1] ?? '';
@@ -309,13 +509,180 @@ switch ($cmd) {
     case 'admin':
         $sub = $args[1] ?? '';
         if ($sub === 'reset-password') {
-            $newPw = $args[2] ?? 'M1Cr0N';
-            exit(micron_spark($root, ['user:reset-admin', $newPw]));
+            // No default password. --stdin reads it from the console menu
+            // (kept out of argv); no argument generates a random one.
+            $given = $args[2] ?? null;
+            if ($given === '--stdin') {
+                $given = rtrim((string) fgets(STDIN), "\r\n");
+            }
+            if ($given === null || $given === '') {
+                exit(micron_spark($root, ['user:reset-admin', '--generate']));
+            }
+            putenv('MICRON_ADMIN_PW=' . $given);
+            $rc = micron_spark($root, ['user:reset-admin', '--from-env']);
+            putenv('MICRON_ADMIN_PW');
+            exit($rc);
         }
-        micron_fail_usage('microctl admin reset-password [new_password]');
+        micron_fail_usage('microctl admin reset-password [new_password|--stdin]');
+
+    case 'version':
+        $opts = micron_opts(array_slice($args, 1));
+        $version = trim((string) @file_get_contents($root . '/VERSION')) ?: 'unknown';
+        echo ! empty($opts['json']) ? json_encode(['version' => $version]) . "\n" : "Micron OS {$version}\n";
+        exit(0);
+
+    case 'health':
+        $opts = micron_opts(array_slice($args, 1));
+        exit(micron_emit(micron_rpc('system.health'), $opts, 'micron_print_health'));
+
+    case 'services':
+        $opts = micron_opts(array_slice($args, 1));
+        exit(micron_emit(micron_rpc('system.services_status'), $opts, static function (array $r): void {
+            printf("%-18s %-22s %-10s %s\n", 'SERVICE', 'UNIT', 'STATE', 'SINCE');
+            foreach ((array) ($r['services'] ?? []) as $id => $s) {
+                printf("%-18s %-22s %-10s %s\n", $id, $s['unit'], $s['installed'] ? $s['state'] : 'absent', $s['since'] ?: '-');
+            }
+        }));
+
+    case 'wireguard-service':
+        $opts = micron_opts(array_slice($args, 1));
+        $action = $opts['_'][0] ?? '';
+        if (!in_array($action, MICRON_SERVICE_ACTIONS, true)) {
+            micron_fail_usage('microctl wireguard-service <start|stop|restart>');
+        }
+        exit(micron_spark($root, ['wireguard:service', $action]) === 0 ? 0 : MICRON_EXIT_FAILED);
+
+    case 'service':
+        $opts = micron_opts(array_slice($args, 1));
+        [$id, $action] = array_pad($opts['_'], 2, '');
+        if ($id === '' || ! in_array($action, MICRON_SERVICE_ACTIONS, true)) {
+            micron_fail_usage('microctl service <id> <start|stop|restart> [--yes] [--json]');
+        }
+        if ($action === 'stop' && empty($opts['yes'])) {
+            if (! stream_isatty(STDIN)) {
+                fwrite(STDERR, "Refusing to stop '{$id}' non-interactively without --yes.\n");
+                exit(MICRON_EXIT_USAGE);
+            }
+            echo "Stop service '{$id}'? Traffic that depends on it will be affected. Type 'yes' to continue: ";
+            if (trim((string) fgets(STDIN)) !== 'yes') {
+                echo "Aborted.\n";
+                exit(MICRON_EXIT_USAGE);
+            }
+        }
+        exit(micron_emit(micron_rpc('system.service', ['service' => $id, 'action' => $action]), $opts,
+            static function (array $r): void {
+                printf("%s %s: %s (now %s)\n", $r['action'], $r['service'], $r['status'], $r['state'] ?? '?');
+                foreach ((array) ($r['warnings'] ?? []) as $w) {
+                    echo "  warning: {$w}\n";
+                }
+            }));
+
+    case 'logs':
+        $opts = micron_opts(array_slice($args, 1));
+        $id = $opts['_'][0] ?? '';
+        if ($id === '') {
+            micron_fail_usage('microctl logs <service> [--lines N] [--json]');
+        }
+        $lines = (int) ($opts['lines'] ?? 50);
+        if ($lines < 1 || $lines > 500) {
+            micron_fail_usage('microctl logs <service> [--lines 1-500] [--json]');
+        }
+        exit(micron_emit(micron_rpc('system.service_logs', ['service' => $id, 'lines' => $lines]), $opts,
+            static fn (array $r) => print(($r['logs'] ?: '(no journal entries)') . "\n")));
+
+    case 'vpn':
+        $opts = micron_opts(array_slice($args, 1));
+        [$kind, $sub] = array_pad($opts['_'], 2, '');
+        $method = ['wireguard' => 'vpn.wireguard.status', 'openvpn' => 'vpn.openvpn.status', 'ipsec' => 'vpn.ipsec.status'][$kind] ?? null;
+        if ($method === null || $sub !== 'status') {
+            micron_fail_usage('microctl vpn <wireguard|openvpn|ipsec> status [--interface wg0] [--json]');
+        }
+        $params = $kind === 'wireguard' ? ['interface' => (string) ($opts['interface'] ?? 'wg0')] : [];
+        if ($kind === 'wireguard' && ! preg_match('/^[A-Za-z0-9][A-Za-z0-9_=+.-]{0,14}$/', $params['interface'])) {
+            micron_fail_usage('microctl vpn wireguard status --interface <name>');
+        }
+        exit(micron_emit(micron_rpc($method, $params), $opts, static function ($r): void {
+            echo is_array($r) ? json_encode($r, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n" : "{$r}\n";
+        }));
+
+    case 'plugins':
+        $opts = micron_opts(array_slice($args, 1));
+        exit(micron_emit(micron_rpc('plugin.catalog'), $opts, static function (array $r): void {
+            printf("%-14s %-34s %s\n", 'ID', 'NAME', 'PACKAGES');
+            foreach ((array) ($r['plugins'] ?? []) as $p) {
+                printf("%-14s %-34s %s\n", $p['id'] ?? '?', $p['name'] ?? '', implode(',', (array) ($p['packages'] ?? [])));
+            }
+        }));
+
+    case 'rpc':
+        $opts = micron_opts(array_slice($args, 1));
+        if (($opts['_'][0] ?? '') !== 'methods') {
+            micron_fail_usage('microctl rpc methods [--json]');
+        }
+        exit(micron_emit(micron_rpc('system.rpc_methods'), $opts, static function (array $r): void {
+            foreach ((array) ($r['methods'] ?? []) as $m) {
+                printf("%-12s %s\n", $m['class'], $m['handler']);
+            }
+            echo ($r['count'] ?? 0) . " handlers\n";
+        }));
+
+    case 'doctor':
+        $opts   = micron_opts(array_slice($args, 1));
+        $checks = [];
+        $add    = static function (string $name, string $level, string $detail) use (&$checks): void {
+            $checks[] = ['check' => $name, 'level' => $level, 'detail' => $detail];
+        };
+        $sock = micron_socket_path();
+        $add('daemon socket', file_exists($sock) ? 'ok' : 'fail', $sock);
+        $ping = micron_rpc('system.ping', [], 5);
+        $add('daemon responds', $ping['ok'] ? 'ok' : 'fail', $ping['ok'] ? 'system.ping answered' : (string) $ping['error']);
+        $db = $root . '/writable/micron_config.db';
+        if (is_file($db)) {
+            try {
+                $h  = new \SQLite3($db, SQLITE3_OPEN_READONLY);
+                $qc = (string) $h->querySingle('PRAGMA quick_check');
+                $add('configuration database', $qc === 'ok' ? 'ok' : 'fail', $qc === 'ok' ? $db : "quick_check: {$qc}");
+            } catch (\Throwable $e) {
+                $add('configuration database', 'fail', $e->getMessage());
+            }
+        } else {
+            $add('configuration database', 'fail', "{$db} is missing");
+        }
+        if ($ping['ok']) {
+            $health = micron_rpc('system.health');
+            foreach ((array) ($health['result']['disks'] ?? []) as $d) {
+                $lvl = $d['used_pct'] >= 95 ? 'fail' : ($d['used_pct'] >= 85 ? 'warn' : 'ok');
+                $add("disk {$d['mount']}", $lvl, sprintf('%.0f%% used', $d['used_pct']));
+            }
+            $svc = micron_rpc('system.services_status');
+            $failed = [];
+            foreach ((array) ($svc['result']['services'] ?? []) as $id => $s) {
+                if (($s['active_state'] ?? '') === 'failed') {
+                    $failed[] = $id;
+                }
+            }
+            $add('managed services', $failed === [] ? 'ok' : 'warn', $failed === [] ? 'no unit in failed state' : 'failed: ' . implode(', ', $failed));
+        }
+        $worst = in_array('fail', array_column($checks, 'level'), true) ? 'fail'
+            : (in_array('warn', array_column($checks, 'level'), true) ? 'warn' : 'ok');
+        if (! empty($opts['json'])) {
+            echo json_encode(['status' => $worst, 'checks' => $checks], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n";
+        } else {
+            foreach ($checks as $c) {
+                printf("[%-4s] %-24s %s\n", strtoupper($c['level']), $c['check'], $c['detail']);
+            }
+            echo "Overall: " . strtoupper($worst) . "\n";
+        }
+        exit($worst === 'fail' ? MICRON_EXIT_FAILED : 0);
 
     case 'help':
     default:
+        if ($cmd !== 'help') {
+            // An unknown command is a usage error, not a request for help: a
+            // script that misspells a command must not see success.
+            fwrite(STDERR, "Unknown command: {$cmd}\n\n");
+            ob_start();
+        }
         echo <<<HELP
 MicronOS Console Management Utility (microctl)
 Usage: microctl <command> [arguments]
@@ -324,7 +691,20 @@ Commands:
   status                     Display interfaces, system load, firewall, and kernel state
   enable                     Re-enable firewall packet filtering (troubleshooting equivalent)
   disable                    Temporarily disable firewall packet filtering 
-  interface set-lan <cidr>   Reconfigure management LAN IP (e.g. 192.168.1.1/24)
+  interface assign <wan> <lan> [optN=dev ...]
+                             Assign physical NICs to WAN, LAN and optional roles
+  interface swap <id1> <id2> Cleanly interchange physical devices between two interfaces (e.g. wan lan)
+  interface set-device <id> <dev> [--swap]
+                             Bind physical device to interface (with --swap to interchange if taken)
+  interface set-wan <dev> [dhcp|none]
+                             Bind physical device to WAN interface
+  interface set-lan <cidr>   Change the LAN address (e.g. 192.168.1.1/24); DHCP, firewall,
+                               NAT and DNS references follow it (same transaction as the Web UI)
+  ipv6 <on|off|status>       IPv6 master switch (off by default), applied to kernel, services, firewall
+  network <status|plan|apply|assign|set-device|swap|confirm <tx>|rollback|reconcile>
+                             Inspect or re-apply the committed network configuration
+  terminal <status|sessions|kill <id>|revoke <user-id>>
+                             Browser terminal service state and live sessions (root only)
   firewall reset             Restore default permissive management firewall rules
   backup create [--encrypt]  Snapshot the configuration (with --passphrase it is
     --passphrase <pw>          encrypted; --out <path> writes it elsewhere)
@@ -333,8 +713,27 @@ Commands:
   backup verify              Check every registered archive against its recorded
     [--passphrase <pw>]        SHA-256; --strict also fails on unverified ones
   config rollback            Reload the last verified configuration snapshot
-  admin reset-password [pw]  Reset break-glass admin password and clear 2FA
+  admin reset-password [pw|--stdin]  Reset admin password and clear 2FA (none given: random)
+
+Daemon commands (talk to micrond directly; add --json for machine output):
+  version                    Print the Micron OS version
+  health                     CPU, memory, disk, conntrack and link counters
+  services                   Live systemd state of every managed service
+  service <id> <action>      start | stop | restart a managed service
+    [--yes]                    (stop asks for confirmation unless --yes)
+  logs <service> [--lines N] Recent journal lines for a managed service
+  vpn <wireguard|openvpn|ipsec> status [--interface wg0]
+  plugins                    Plugin catalogue as the daemon resolves it
+  rpc methods                Every daemon method with its capability class
+  doctor                     Socket, daemon, database, disk and service checks
+
+Exit status: 0 ok · 1 usage error · 2 daemon unreachable · 3 failure/unhealthy
   help                       Show this help message
+
 HELP;
+        if ($cmd !== 'help') {
+            fwrite(STDERR, (string) ob_get_clean());
+            exit(MICRON_EXIT_USAGE);
+        }
         break;
 }

@@ -73,6 +73,17 @@ final class PppoeLiveFeaturesTest extends BaseTestCase
         return $params + ['csrf_test_name' => service('security')->getHash()];
     }
 
+    public function testPppoeDialogsUseTheScrollableRouteModalLayout(): void
+    {
+        $body = $this->withSession($this->session())->get('pppoe')->getBody();
+
+        $this->assertSame(3, substr_count($body, 'class="rt-modal-backdrop"'));
+        $this->assertSame(3, substr_count($body, 'class="rt-modal-dialog"'));
+        $this->assertSame(3, substr_count($body, 'class="rt-modal-body"'));
+        $this->assertSame(3, substr_count($body, 'class="rt-modal-footer"'));
+        $this->assertStringNotContainsString('class="modal-dialog"', $body);
+    }
+
     public function testRedialEndpointDispatchesIpcAndResetsBackoff(): void
     {
         // 1. Put eth0 into backoff

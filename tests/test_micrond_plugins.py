@@ -60,6 +60,8 @@ def fake_run(argv):
 
 
 handler._run = fake_run
+handler._which = staticmethod(lambda b: "/usr/bin/" + b)
+micrond.OpsMixin._which = staticmethod(lambda b: "/usr/bin/" + b)
 
 
 def dispatch(method, params):
@@ -315,8 +317,10 @@ KEY_DATES = {
 }
 
 
-#: The dates the daemon must derive from the listing above.
-PUB_CREATED_ISO = "2021-09-26"
+#: The dates the daemon must derive from the listing above — in UTC, so the
+#: result does not depend on the time zone the suite runs in
+#: (1632595729 is 2021-09-25T18:48:49Z).
+PUB_CREATED_ISO = "2021-09-25"
 SUBKEY_EXPIRES_ISO = "2035-01-17"
 
 
@@ -1406,6 +1410,15 @@ check("the hosts caps are rendered",
       "--hosts-max 2000 --hosts-keep 20" in ds_text, ds_text)
 check("systemd runs it in the foreground and logs to the journal",
       "--syslog --no-daemon" in ds_text, ds_text)
+check("the drop-in replaces Debian's SysV forking wrapper (Type=simple, no RemainAfterExit)",
+      "Type=simple" in ds_text and "RemainAfterExit=no" in ds_text
+      and "\nExecStop=\n" in ds_text and "Restart=on-failure" in ds_text, ds_text)
+check("darkstat drops to an account that owns the chroot",
+      "--user nobody" in ds_text
+      and "ExecStartPre=/usr/bin/install -d -m 0750 -o nobody -g nogroup /var/lib/darkstat" in ds_text, ds_text)
+check("a capture interface that does not exist is reported, not hidden",
+      any("not present" in w for w in res.get("warnings", [])) or os.path.exists("/sys/class/net/eth1"),
+      str(res.get("warnings")))
 check("the package's own unit is reloaded, enabled and restarted",
       ["systemctl", "daemon-reload"] in calls
       and ["systemctl", "enable", "darkstat"] in calls
@@ -1431,6 +1444,8 @@ check("darkstat status succeeds and reports the service state",
 check("status reports the applied port and that the drop-in is present",
       res["data"].get("port") == 8080 and res["data"].get("dropin_present") is True, str(res["data"]))
 check("status is read-only", [c for c in calls if c[:2] == ["systemctl", "restart"]] == [], str(calls))
+check("status probes whether the web UI port actually answers",
+      "listening" in res["data"] and isinstance(res["data"]["listening"], bool), str(res["data"]))
 
 # 57. Disabling removes the drop-in and stops the unit.
 reset()

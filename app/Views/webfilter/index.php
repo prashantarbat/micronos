@@ -1294,7 +1294,7 @@
         <!-- Do Not Cache destinations -->
         <div style="margin-bottom:20px; padding-top:18px; border-top:1px dashed var(--border-subtle);">
           <label class="form-label" style="font-size:0.8rem; font-weight:600;">Do Not Cache</label>
-          <textarea name="cache_do_not_cache" class="form-control" rows="5" spellcheck="false" style="font-family:var(--font-mono); font-size:0.75rem;" placeholder="ads.example.com&#10;10.11.83.66"><?= esc($settings['cache_do_not_cache'] ?? '') ?></textarea>
+          <textarea name="cache_do_not_cache" class="form-control" rows="5" spellcheck="false" style="font-family:var(--font-mono); font-size:0.75rem;" placeholder="ads.example.com&#10;192.168.1.50"><?= esc($settings['cache_do_not_cache'] ?? '') ?></textarea>
           <small style="font-size:0.7rem; color:var(--text-muted);">Enter domain(s) and/or IP address(es) that should never be cached &mdash; one entry per line. Domains also cover their subdomains; IPv4, IPv6 and CIDR blocks are accepted.</small>
         </div>
 

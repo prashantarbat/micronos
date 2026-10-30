@@ -2,6 +2,7 @@
 
 namespace App\Controllers;
 
+use App\Libraries\DefaultCredentials;
 use App\Models\UserModel;
 use App\Models\RoleModel;
 
@@ -75,8 +76,12 @@ class Profile extends BaseController
             return redirect()->back()->with('error', 'Current password is incorrect.');
         }
 
-        if (strlen($newPass) < 6) {
-            return redirect()->back()->with('error', 'New password must be at least 6 characters.');
+        if (strlen((string) $newPass) < DefaultCredentials::MIN_LENGTH) {
+            return redirect()->back()->with('error', 'New password must be at least ' . DefaultCredentials::MIN_LENGTH . ' characters.');
+        }
+
+        if (DefaultCredentials::isFactoryPassword((string) $newPass) || hash_equals((string) $current, (string) $newPass)) {
+            return redirect()->back()->with('error', 'Choose a password different from the current and factory default passwords.');
         }
 
         if ($newPass !== $confirm) {
@@ -88,7 +93,10 @@ class Profile extends BaseController
             'updated_at'    => date('Y-m-d H:i:s'),
         ]);
 
-        return redirect()->to(base_url('profile'))
+        $wasForced = (bool) session()->get(DefaultCredentials::SESSION_FLAG);
+        session()->remove(DefaultCredentials::SESSION_FLAG);
+
+        return redirect()->to(base_url($wasForced ? 'dashboard' : 'profile'))
             ->with('success', 'Your password has been changed.');
     }
 

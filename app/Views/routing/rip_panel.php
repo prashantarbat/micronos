@@ -327,7 +327,13 @@ $ripRmSelect = function (string $field) use ($rs, $routeMaps): string {
       <thead><tr><th>Network</th><th>Description</th><th>Status</th><th style="text-align:right;">Actions</th></tr></thead>
       <tbody>
         <?php if (empty($ripNetworks)): ?>
-          <tr><td colspan="4" style="text-align:center; padding:32px; color:var(--text-muted);">No RIP networks configured.</td></tr>
+          <tr><td colspan="4" style="text-align:center; padding:28px; color:var(--text-muted);">
+              <div style="display:flex; flex-direction:column; align-items:center; gap:6px;">
+                <svg width="28" height="28" fill="none" viewBox="0 0 24 24" stroke="var(--color-emerald)" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h7"/></svg>
+                <p style="font-size:0.88rem; color:var(--text-secondary); margin:0;">No RIP network statements configured.</p>
+                <p style="font-size:0.8rem; color:var(--text-muted); margin:0; max-width:400px;">RIP only advertises interfaces that fall inside a network statement — add each subnet you want ripd to send and receive updates on. Without one, the daemon runs but exchanges no routes.</p>
+              </div>
+            </td></tr>
         <?php else: ?>
           <?php foreach ($ripNetworks as $n): ?>
             <tr>
@@ -372,7 +378,13 @@ $ripRmSelect = function (string $field) use ($rs, $routeMaps): string {
       <thead><tr><th>Neighbor IP</th><th>Description</th><th>Status</th><th style="text-align:right;">Actions</th></tr></thead>
       <tbody>
         <?php if (empty($ripNeighbors)): ?>
-          <tr><td colspan="4" style="text-align:center; padding:32px; color:var(--text-muted);">No RIP neighbors configured. RIP uses multicast 224.0.0.9 by default.</td></tr>
+          <tr><td colspan="4" style="text-align:center; padding:28px; color:var(--text-muted);">
+              <div style="display:flex; flex-direction:column; align-items:center; gap:6px;">
+                <svg width="28" height="28" fill="none" viewBox="0 0 24 24" stroke="var(--color-cyan)" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.86 9.86 0 01-4-.82L3 21l1.82-3.98A7.6 7.6 0 013 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
+                <p style="font-size:0.88rem; color:var(--text-secondary); margin:0;">No RIP unicast neighbors configured.</p>
+                <p style="font-size:0.8rem; color:var(--text-muted); margin:0; max-width:400px;">On broadcast segments RIP discovers peers itself through the 224.0.0.9 multicast address. Add a unicast neighbor only when that multicast cannot reach the other router — NBMA links, tunnels, or point-to-point WANs.</p>
+              </div>
+            </td></tr>
         <?php else: ?>
           <?php foreach ($ripNeighbors as $n): ?>
             <tr>
@@ -417,7 +429,13 @@ $ripRmSelect = function (string $field) use ($rs, $routeMaps): string {
       <thead><tr><th>Interface</th><th>Description</th><th>Status</th><th style="text-align:right;">Actions</th></tr></thead>
       <tbody>
         <?php if (empty($ripPassiveIfaces)): ?>
-          <tr><td colspan="4" style="text-align:center; padding:32px; color:var(--text-muted);">No passive interfaces. RIP will advertise and receive on all enabled interfaces.</td></tr>
+          <tr><td colspan="4" style="text-align:center; padding:28px; color:var(--text-muted);">
+              <div style="display:flex; flex-direction:column; align-items:center; gap:6px;">
+                <svg width="28" height="28" fill="none" viewBox="0 0 24 24" stroke="var(--color-amber)" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M18.364 5.636a9 9 0 010 12.728M5.636 18.364a9 9 0 010-12.728M15.536 8.464a5 5 0 010 7.072M8.464 15.536a5 5 0 010-7.072"/></svg>
+                <p style="font-size:0.88rem; color:var(--text-secondary); margin:0;">No passive interfaces.</p>
+                <p style="font-size:0.8rem; color:var(--text-muted); margin:0; max-width:400px;">By default RIP will advertise and receive on every enabled interface. Mark an interface passive to silence updates on a segment where no RIP peer exists — typically the WAN edge or a LAN with only client devices.</p>
+              </div>
+            </td></tr>
         <?php else: ?>
           <?php foreach ($ripPassiveIfaces as $p): ?>
             <tr>

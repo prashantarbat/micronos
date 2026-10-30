@@ -17,6 +17,7 @@ class InterfaceModel extends Model
         'name',
         'physical_device',
         'enabled',
+        'admin_access',
         'interface_type',
         'vlan_parent',
         'vlan_tag',

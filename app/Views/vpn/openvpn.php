@@ -789,9 +789,7 @@ document.getElementById('ovTunnelSubnet').addEventListener('input', updateServer
 function closeOvModal() {
   document.getElementById('ovModal').classList.remove('active');
 }
-document.getElementById('ovModal').addEventListener('click', function (e) {
-  if (e.target === this) closeOvModal();
-});
+
 document.addEventListener('keydown', function (e) {
   if (e.key === 'Escape') closeOvModal();
 });

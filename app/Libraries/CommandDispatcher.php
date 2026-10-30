@@ -3,209 +3,173 @@
 namespace App\Libraries;
 
 /**
- * CommandDispatcher — High-level facade over IpcClient.
+ * CommandDispatcher — high-level facade over IpcClient.
  *
- * Each public method corresponds to a domain action that the web UI needs.
- * Controllers call this class rather than IpcClient directly, so the RPC
- * method naming convention is isolated in one place.
+ * Every method here maps to an RPC the daemon actually implements
+ * (`system/micrond/micrond.py`). The previous facade also offered
+ * `firewall.flush`, `nat.list`, `route.table`, `dhcp.leases`, `interface.set`,
+ * `backup.create` … — none of which existed in the daemon, so on an appliance
+ * they could only ever fail. They were removed rather than faked; the
+ * contract test (`tests/test_micrond_ops.py`) now fails the build when a
+ * method string in `app/` has no daemon handler.
+ *
+ * The client is resolved through `Services::ipc()` so tests can inject a fake.
  */
 class CommandDispatcher
 {
     private IpcClient $ipc;
 
-    public function __construct()
+    public function __construct(?IpcClient $ipc = null)
     {
-        $this->ipc = new IpcClient();
+        $this->ipc = $ipc ?? \Config\Services::ipc();
     }
 
-    // =========================================================================
-    // System
-    // =========================================================================
+    public function isMock(): bool
+    {
+        return $this->ipc->isMock();
+    }
+
+    // ── System ──────────────────────────────────────────────────────────
 
     public function systemInfo(): array
     {
-        return $this->ipc->callOrFail('system.info');
+        return (array) $this->ipc->callOrFail('system.info');
     }
 
-    public function systemReboot(int $delaySec = 3): array
+    /** Real /proc and /sys telemetry (uptime, CPU, memory, disks, links, conntrack). */
+    public function systemHealth(): array
     {
-        return $this->ipc->callOrFail('system.reboot', ['delay_sec' => $delaySec]);
+        return (array) $this->ipc->callOrFail('system.health');
     }
 
-    public function systemHalt(int $delaySec = 3): array
+    /** SQLite database integrity, WAL size, and snapshot telemetry. */
+    public function databaseHealth(): array
     {
-        return $this->ipc->callOrFail('system.halt', ['delay_sec' => $delaySec]);
+        return (array) $this->ipc->callOrFail('database.health');
     }
 
-    /**
-     * Enable or fully disable the IPv6 stack appliance-wide.
-     * Disabling sets net.ipv6.conf.{all,default}.disable_ipv6=1, removes IPv6
-     * addresses/routes, stops services listening on :: and drops IPv6 traffic.
-     */
+    /** On-demand WAL checkpointing (PASSIVE, FULL, RESTART, TRUNCATE). */
+    public function databaseCheckpoint(string $mode = 'TRUNCATE'): array
+    {
+        return (array) $this->ipc->callOrFail('database.checkpoint', ['mode' => $mode]);
+    }
+
+    /** Block device hardware and S.M.A.R.T. health telemetry. */
+    public function storageHealth(): array
+    {
+        return (array) $this->ipc->callOrFail('storage.health');
+    }
+
+    /** Live systemd state of every managed unit, keyed by service id. */
+    public function servicesStatus(): array
+    {
+        $res = (array) $this->ipc->callOrFail('system.services_status');
+
+        return (array) ($res['services'] ?? []);
+    }
+
+    public function systemReboot(): array
+    {
+        return (array) $this->ipc->callOrFail('system.reboot');
+    }
+
+    public function systemHalt(): array
+    {
+        return (array) $this->ipc->callOrFail('system.halt');
+    }
+
     public function systemIpv6Set(bool $enabled): array
     {
-        return $this->ipc->callOrFail('system.ipv6.set', ['enabled' => $enabled]);
+        return (array) $this->ipc->callOrFail('system.ipv6.set', ['enabled' => $enabled]);
     }
 
-    // =========================================================================
-    // Interfaces
-    // =========================================================================
+    // ── Interfaces & routing ────────────────────────────────────────────
 
     public function interfaceList(): array
     {
-        $res = $this->ipc->callOrFail('interface.list');
-        return $res['interfaces'] ?? [];
+        $res = (array) $this->ipc->callOrFail('interface.list');
+
+        return (array) ($res['interfaces'] ?? $res);
     }
 
-    public function interfaceSet(array $config): array
+    public function routingTable(): array
     {
-        return $this->ipc->callOrFail('interface.set', $config);
+        $res = (array) $this->ipc->callOrFail('diag.routing_table');
+
+        return (array) ($res['routes'] ?? []);
     }
 
-    public function interfaceStatus(string $device): array
-    {
-        return $this->ipc->callOrFail('interface.status', ['device' => $device]);
-    }
+    // ── Firewall ────────────────────────────────────────────────────────
 
-    // =========================================================================
-    // Firewall
-    // =========================================================================
-
+    /** Live nftables rules with hit counters. */
     public function firewallListRules(): array
     {
-        $res = $this->ipc->callOrFail('firewall.list_rules');
-        return $res['rules'] ?? [];
+        $res = (array) $this->ipc->callOrFail('firewall.list_rules');
+
+        return (array) ($res['rules'] ?? []);
     }
 
-    public function firewallApplyRules(): array
+    public function firewallStatus(): array
     {
-        return $this->ipc->callOrFail('firewall.apply_rules');
+        return (array) $this->ipc->callOrFail('firewall.status');
     }
 
-    public function firewallFlush(): array
+    public function conntrackStates(int $limit = 50): array
     {
-        return $this->ipc->callOrFail('firewall.flush');
+        return (array) $this->ipc->callOrFail('diag.conntrack_states', ['limit' => $limit]);
     }
 
-    // =========================================================================
-    // NAT
-    // =========================================================================
-
-    public function natList(): array
+    public function firewallLogs(int $limit = 20): array
     {
-        $res = $this->ipc->callOrFail('nat.list');
-        return $res['rules'] ?? [];
+        return (array) $this->ipc->callOrFail('diag.firewall_logs', ['limit' => $limit]);
     }
 
-    public function natApply(array $rules): array
+    // ── VPN ─────────────────────────────────────────────────────────────
+
+    public function wireguardStatus(string $interface = 'wg0'): array
     {
-        return $this->ipc->callOrFail('nat.apply', ['rules' => $rules]);
+        return (array) $this->ipc->callOrFail('vpn.wireguard.status', ['interface' => $interface]);
     }
-
-    // =========================================================================
-    // Routing
-    // =========================================================================
-
-    public function routeTable(): array
-    {
-        $res = $this->ipc->callOrFail('route.table');
-        return $res['routes'] ?? [];
-    }
-
-    public function routeAdd(string $destination, string $gateway, string $iface, int $metric = 10): array
-    {
-        return $this->ipc->callOrFail('route.add', compact('destination', 'gateway', 'iface', 'metric'));
-    }
-
-    public function routeDelete(string $destination): array
-    {
-        return $this->ipc->callOrFail('route.del', ['destination' => $destination]);
-    }
-
-    // =========================================================================
-    // VPN — WireGuard
-    // =========================================================================
-
-    public function wireguardStatus(): array
-    {
-        return $this->ipc->callOrFail('vpn.wireguard.status');
-    }
-
-    public function wireguardPeers(): array
-    {
-        $res = $this->ipc->callOrFail('vpn.wireguard.peers');
-        return $res['peers'] ?? [];
-    }
-
-    // =========================================================================
-    // VPN — OpenVPN
-    // =========================================================================
 
     public function openvpnStatus(): array
     {
-        return $this->ipc->callOrFail('vpn.openvpn.status');
+        return (array) $this->ipc->callOrFail('vpn.openvpn.status');
     }
 
-    // =========================================================================
-    // DHCP
-    // =========================================================================
-
-    public function dhcpLeases(): array
+    public function ipsecStatus(): array
     {
-        $res = $this->ipc->callOrFail('dhcp.leases');
-        return $res['leases'] ?? [];
+        return (array) $this->ipc->callOrFail('vpn.ipsec.status');
     }
 
-    public function dhcpRestart(): array
+    // ── Services ────────────────────────────────────────────────────────
+
+    public function dhcpStatus(): array
     {
-        return $this->ipc->callOrFail('dhcp.restart');
+        return (array) $this->ipc->callOrFail('dhcp.status');
     }
-
-    // =========================================================================
-    // DNS
-    // =========================================================================
 
     public function dnsStatus(): array
     {
-        return $this->ipc->callOrFail('dns.status');
+        return (array) $this->ipc->callOrFail('dns.status');
     }
 
     public function dnsFlushCache(): array
     {
-        return $this->ipc->callOrFail('dns.flush');
+        return (array) $this->ipc->callOrFail('dns.cache.flush');
     }
-
-    // =========================================================================
-    // Squid / Web Filter
-    // =========================================================================
 
     public function squidStatus(): array
     {
-        return $this->ipc->callOrFail('squid.status');
+        return (array) $this->ipc->callOrFail('squid.status');
     }
 
     public function squidReload(): array
     {
-        return $this->ipc->callOrFail('squid.reload');
+        return (array) $this->ipc->callOrFail('squid.reload');
     }
 
-    // =========================================================================
-    // Backup
-    // =========================================================================
-
-    public function backupCreate(bool $encrypt = true, ?string $passphrase = null): array
+    public function sdwanProbeStatus(): array
     {
-        return $this->ipc->callOrFail('backup.create', [
-            'encrypt'    => $encrypt,
-            'passphrase' => $passphrase,
-        ]);
-    }
-
-    public function backupRestore(string $filename, ?string $passphrase = null): array
-    {
-        return $this->ipc->callOrFail('backup.restore', [
-            'filename'   => $filename,
-            'passphrase' => $passphrase,
-        ]);
+        return (array) $this->ipc->callOrFail('sdwan.probe_status');
     }
 }

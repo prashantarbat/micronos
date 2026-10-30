@@ -20,8 +20,10 @@ import logging
 import os
 import re
 import shutil
+import secrets
 import signal
 import socket
+import sqlite3
 import struct
 import subprocess
 import sys
@@ -29,7 +31,7 @@ import tempfile
 import time
 import urllib.parse
 import urllib.request
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 # Configure Logging
 LOG_FORMAT = "[%(asctime)s] [%(levelname)s] [micrond] %(message)s"
@@ -55,6 +57,10 @@ def strict_json_loads(text: str):
     tool output — so a non-standard constant can never enter.
     """
     return json.loads(text, parse_constant=_reject_nonstandard_json_constant)
+
+
+# Tunnel tokens revoked by ztna.session_kill; read by micron-guacd-bridge.
+ZTNA_REVOKED_PATH = "/run/micron/ztna-revoked.json"
 
 
 def safe_atomic_write(filepath: str, content: str, mode: int = 0o644) -> None:
@@ -176,12 +182,15 @@ SERVICE_UNITS = {
     "chrony": "chrony",
     "clamav": "clamav-daemon",
     "conntrackd": "conntrackd",
+    "darkstat": "darkstat",
     "frr": "frr",
     "gateway-monitor": "gateway-monitor",
     "igmpproxy": "igmpproxy",
     "kea-dhcp4": "kea-dhcp4-server",
     "keepalived": "keepalived",
+    "lldpd": "lldpd",
     "mdns-repeater": "mdns-repeater",
+    "netbird": "netbird",
     "nftables": "nftables",
     "openvpn": "openvpn@server",
     "rsyslog": "rsyslog",
@@ -189,10 +198,12 @@ SERVICE_UNITS = {
     "squid": "squid",
     "strongswan": "strongswan",
     "suricata": "suricata",
+    "tayga": "tayga",
     "unbound": "unbound",
     "wireguard": "wireguard",
+    "zerotier-one": "zerotier-one",
 }
-SERVICE_ACTIONS = {"start", "stop", "restart"}
+SERVICE_ACTIONS = {"start", "stop", "restart", "enable", "disable"}
 UNIT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9@._-]{0,63}$")
 
 # Daemons a *connector* (manifest-driven, i.e. driven by untrusted data) may
@@ -351,7 +362,11 @@ ZEROTIER_STATUS_CODE_RE = re.compile(r"^\s*(\d{3})\b")
 # Units a plugin may NEVER control, whatever it is granted. This is the set of
 # core services already managed by the admin plane — the units an authenticated
 # operator must keep reachable and an extension must not (Plugin Spec §7).
-PROTECTED_UNITS = set(SERVICE_UNITS.values()) | {"kea-ctrl-agent"}
+PLUGIN_UNITS = {
+    unit for p in PLUGIN_CATALOG.values() for unit in p.get("units", {}).values()
+}
+PROTECTED_UNITS = (set(SERVICE_UNITS.values()) | {"kea-ctrl-agent", "systemd-networkd", "systemd-resolved"}) - PLUGIN_UNITS
+
 
 # Packages shipped in the appliance image. A plugin that requires one is
 # refused outright: an extension must never remove or replace a core dependency.
@@ -436,6 +451,9 @@ DARKSTAT_DROPIN_DIR = "/etc/systemd/system/darkstat.service.d"
 DARKSTAT_DROPIN = "/etc/systemd/system/darkstat.service.d/micron.conf"
 DARKSTAT_STATE_DIR = "/var/lib/micron/plugins/darkstat"
 DARKSTAT_CHROOT_DEFAULT = "/var/lib/darkstat"
+# The unprivileged account darkstat switches to (its own default is `nobody`).
+DARKSTAT_USER = "nobody"
+DARKSTAT_GROUP = "nogroup"
 # A capture interface is `ip link`'s name: IFNAMSIZ is 16, so fifteen characters.
 DARKSTAT_IFACE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:@-]{0,14}$")
 # The database and daylog names are relative to the chroot directory, so they are
@@ -545,6 +563,9 @@ DHCP_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,28}$")
 # atomically and only then restarts kea-dhcp4-server. A rejected config leaves
 # the previous file untouched.
 KEA_DHCP4_CONF = "/etc/kea/kea-dhcp4.conf"
+# Kea's memfile lease database: an append-only CSV, newest record per address wins.
+KEA_LEASES4_CSV = "/var/lib/kea/kea-leases4.csv"
+DHCP_LEASES_MAX = 2000
 KEA_DHCP4_BIN = "kea-dhcp4"
 KEA_DHCP4_UNIT = "kea-dhcp4-server"
 KEA_CONFIG_MAX_BYTES = 2 * 1024 * 1024
@@ -635,6 +656,11 @@ DIAG_BENCHMARK_RESOLVERS = (
     ("Appliance Unbound", "127.0.0.1", "Local DNS Cache"),
 )
 
+# WireGuard: interface names as the kernel accepts them; configs live in the
+# wg-quick directory so `wg-quick up <iface>` finds them.
+WG_CONF_DIR = "/etc/wireguard"
+WG_IFACE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_=+.-]{0,14}$")
+
 # ------------------------------------------------------------- User Management (OS IAM)
 PROTECTED_SYSTEM_USERS = frozenset({"root", "ministrator"})
 OS_USER_RE = re.compile(r"^[a-zA-Z0-9_.][a-zA-Z0-9_.-]{0,31}$")
@@ -661,24 +687,31 @@ ZTNA_CERT_PATH = "/etc/micron/pki/ztna.crt"
 ZTNA_KEY_PATH = "/etc/micron/pki/ztna.key"
 
 
-def _ensure_ztna_certificate() -> str:
+ZTNA_DOMAIN_RE = re.compile(r"^(?=.{1,253}$)[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$")
+
+
+def _ensure_ztna_certificate(domain: str = "", force: bool = False) -> str:
     """Provision the TLS pair the ZTNA gateway listener references.
 
     The compiled nginx server block declares `listen 443 ssl` plus
     `ssl_certificate`/`ssl_certificate_key`. Without a certificate present,
     `nginx -t` fails and the gateway can never be applied, so generate a
-    self-signed pair on first use. Returns an error string, or "" on success.
+    self-signed pair on first use (or when `force` asks for a fresh one, e.g.
+    after the operator removes an uploaded certificate). Returns an error
+    string, or "" on success.
     """
     try:
-        if os.path.exists(ZTNA_CERT_PATH) and os.path.exists(ZTNA_KEY_PATH):
+        if not force and os.path.exists(ZTNA_CERT_PATH) and os.path.exists(ZTNA_KEY_PATH):
             return ""
+        if not domain or not ZTNA_DOMAIN_RE.match(domain):
+            domain = "gateway.micronos.local"
         os.makedirs(os.path.dirname(ZTNA_CERT_PATH), mode=0o700, exist_ok=True)
         result = subprocess.run(
             [
                 "openssl", "req", "-x509", "-nodes", "-newkey", "rsa:2048",
                 "-days", "825", "-keyout", ZTNA_KEY_PATH, "-out", ZTNA_CERT_PATH,
-                "-subj", "/CN=micronos-ztna",
-                "-addext", "subjectAltName=DNS:gateway.micronos.local",
+                "-subj", "/CN=" + domain[:64],
+                "-addext", "subjectAltName=DNS:" + domain,
             ],
             check=False,
             stdout=subprocess.DEVNULL,
@@ -752,7 +785,2687 @@ class SafeTransactionManager:
             logger.error(f"Failed to execute auto-rollback: {e}")
 
 
-class RpcHandler:
+# =============================================================================
+# RPC capability classes and caller authorization (Contract §7, Programme G6)
+# =============================================================================
+# Every handler is classified. The class bounds who may invoke it:
+#
+#   read         — observes state, changes nothing
+#   configure    — changes configuration or runs a bounded, non-destructive probe
+#   destructive  — can drop traffic, remove data, reboot, or run intrusive scans
+#
+# The UNIX socket is 0660 group www-data, so membership of that group is the
+# outer boundary. Inside it, the caller's kernel-attested identity (SO_PEERCRED)
+# decides the highest class it may use: root (console CLIs run through sudo)
+# and the web plane's own uid get every class; any other process that happens
+# to share the socket group is read-only unless /etc/micron/rpc-peers.json
+# grants it more. An in-process call (the tests, the daemon itself) carries no
+# peer and is not restricted.
+RPC_CLASS_READ = "read"
+RPC_CLASS_CONFIGURE = "configure"
+RPC_CLASS_DESTRUCTIVE = "destructive"
+RPC_CLASS_RANK = {RPC_CLASS_READ: 0, RPC_CLASS_CONFIGURE: 1, RPC_CLASS_DESTRUCTIVE: 2}
+RPC_PEER_POLICY_FILE = "/etc/micron/rpc-peers.json"
+RPC_TRUSTED_USERS = ("root", "www-data")
+
+# Methods that only observe. Anything not listed here or in RPC_DESTRUCTIVE is
+# `configure`. tests/test_micrond_rpc_contract.py fails when a handler that
+# sounds read-only or destructive is left to the default.
+RPC_READ_METHODS = frozenset({
+    "system.ping", "system.info", "system.health", "system.updates_check", "hardware.nics", "network.status",
+    "ospf.status",
+    "system.service_logs", "system.services_status", "system.cron_logs",
+    "system.rpc_methods", "system.package_list",
+    "database.health", "storage.health",
+    "interface.list", "interface.dynamic_dns", "interface.status",
+    "firewall.status", "firewall.list_rules", "nat.list", "route.table",
+    "vpn.wireguard.status", "vpn.wireguard.pubkey", "vpn.ipsec.status",
+    "vpn.openvpn.status",
+    "webfilter.status", "webfilter.access_log", "webfilter.av.status",
+    "squid.status", "squid.access_log",
+    "dhcp.status", "dhcp.leases", "dhcp.relay_status", "dhcp.relay_logs",
+    "dns.status", "multicast.status", "wireless.status", "bond.status",
+    "bridge.status", "pppoe.status", "pppoe.radius.status", "pppoe.server_status",
+    "ha.status", "ids.status", "qos.status", "dpi.status", "dpi.stats",
+    "dpi.live_flows", "siem.get_logs", "snmp.get_logs", "snmp.test_query",
+    "ssl.ca_status", "ssl.sessions_active", "sdwan.probe_status",
+    "sdwan.sla_report", "ztna.status", "ztna.test_guacd", "captive.status",
+    "plugin.catalog", "plugin.status", "plugin.daemons_status",
+    "plugin.daemon_logs", "plugin.repo_list", "plugin.repo_status",
+    "plugin.updates", "plugin.lldpd.status", "plugin.lldpd.neighbours",
+    "plugin.darkstat.status", "plugin.lightsquid.status",
+    "plugin.lightsquid.report", "plugin.nat64.status", "plugin.netbird.status",
+    "plugin.zerotier.status", "plugin.tunnel.status", "plugin.iperf3.status",
+    "diag.ping", "diag.traceroute", "diag.dns_lookup", "diag.dns_query",
+    "diag.route_lookup", "diag.routing_table", "diag.ndp_table",
+    "diag.conntrack_states", "diag.firewall_logs", "diag.stream_poll",
+    "diag.capture_poll", "diag.whois", "diag.sockets", "diag.tools",
+    "diag.dns_benchmark", "diag.port_probe", "diag.arp_table",
+    "user.list_os", "connector.status",
+})
+
+RPC_DESTRUCTIVE_METHODS = frozenset({
+    "system.reboot", "system.halt", "system.rollback", "system.upgrade",
+    "firewall.flush", "firewall.apply", "firewall.apply_rules",
+    "diag.conntrack_kill", "diag.conntrack_kill_host", "diag.nmap",
+    "diag.nmap_start", "diag.tcpdump", "diag.capture_start",
+    "ha.failover", "user.delete", "plugin.remove", "plugin.repo_remove", "vpn.wireguard.remove",
+    "plugin.upgrade", "ztna.session_kill",
+    "backup.restore", "nat.apply", "routing.apply", "network.apply",
+    "interface.apply", "bridge.delete", "bond.delete",
+    "network.rollback", "system.ipv6.set",
+})
+
+
+# Dispatch resolves `a.b.c` to `rpc_a_b_c`, so classification is keyed on the
+# handler name: `vpn.wireguard.sync` and `vpn.wireguard_sync` are one handler
+# and must never be classified differently.
+RPC_READ_HANDLERS = frozenset(m.replace(".", "_") for m in RPC_READ_METHODS)
+RPC_DESTRUCTIVE_HANDLERS = frozenset(m.replace(".", "_") for m in RPC_DESTRUCTIVE_METHODS)
+
+
+def rpc_method_class(method: str) -> str:
+    key = method.replace(".", "_")
+    if key in RPC_DESTRUCTIVE_HANDLERS:
+        return RPC_CLASS_DESTRUCTIVE
+    if key in RPC_READ_HANDLERS:
+        return RPC_CLASS_READ
+    return RPC_CLASS_CONFIGURE
+
+
+def _uid_name(uid: int) -> str:
+    try:
+        import pwd
+        return pwd.getpwuid(uid).pw_name
+    except Exception:
+        return str(uid)
+
+
+def _load_peer_policy() -> Dict[str, str]:
+    """`{"<user>": "<class>"}` grants from RPC_PEER_POLICY_FILE (optional)."""
+    try:
+        with open(RPC_PEER_POLICY_FILE, "r", encoding="utf-8") as fh:
+            data = strict_json_loads(fh.read())
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {str(k): str(v) for k, v in data.items() if str(v) in RPC_CLASS_RANK}
+
+
+def rpc_peer_max_class(peer: Optional[Dict[str, Any]]) -> str:
+    """Highest class the connected peer may invoke."""
+    if peer is None:
+        return RPC_CLASS_DESTRUCTIVE           # in-process call
+    uid = peer.get("uid")
+    if uid is None:
+        return RPC_CLASS_READ                  # identity unknown: fail closed
+    name = _uid_name(int(uid))
+    if int(uid) == 0 or name in RPC_TRUSTED_USERS:
+        return RPC_CLASS_DESTRUCTIVE
+    return _load_peer_policy().get(name, RPC_CLASS_READ)
+
+
+def rpc_peer_credentials(writer) -> Optional[Dict[str, Any]]:
+    """Kernel-attested (pid, uid, gid) of a UNIX-socket peer.
+
+    Returns None for an in-process transport (no socket at all — test doubles),
+    and {} when there is a socket but its credentials cannot be read, which
+    `rpc_peer_max_class` treats as read-only.
+    """
+    if not hasattr(writer, "get_extra_info"):
+        return None
+    try:
+        sock = writer.get_extra_info("socket")
+        if sock is None or not hasattr(socket, "SO_PEERCRED"):
+            return {}
+        raw = sock.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize("3i"))
+        pid, uid, gid = struct.unpack("3i", raw)
+        return {"pid": pid, "uid": uid, "gid": gid}
+    except Exception:
+        return {}
+
+
+# =============================================================================
+# Managed configuration files (validate → write → check → reload → restore)
+# =============================================================================
+# The management plane compiles a subsystem's configuration from its database
+# and hands the text over; the daemon owns *where* it goes, *how* it is checked
+# and *which* unit is reloaded. Nothing the caller sends can choose a path, a
+# checker or a unit. If the syntax check or the reload fails the previous file
+# is put back (and reloaded), so a bad apply never leaves a service broken.
+MANAGED_CONFIG_MAX_BYTES = 1024 * 1024
+MANAGED_CONFIGS: Dict[str, Dict[str, Any]] = {
+    "unbound": {
+        "path": "/etc/unbound/unbound.conf.d/micron.conf",
+        "mode": 0o644,
+        "check": ["unbound-checkconf"],
+        "reload": ["systemctl", "reload-or-restart", "unbound"],
+        "unit": "unbound",
+    },
+    "frr": {
+        "path": "/etc/frr/frr.conf",
+        "mode": 0o640,
+        "check": ["vtysh", "--dryrun", "--inputfile", "{path}"],
+        "reload": ["systemctl", "reload-or-restart", "frr"],
+        "unit": "frr",
+    },
+    "keepalived": {
+        "path": "/etc/keepalived/keepalived.conf",
+        "mode": 0o600,
+        "check": ["keepalived", "--config-test", "--use-file", "{path}"],
+        "reload": ["systemctl", "reload-or-restart", "keepalived"],
+        "unit": "keepalived",
+    },
+    "snmpd": {
+        "path": "/etc/snmp/snmpd.conf",
+        "mode": 0o600,
+        "check": None,
+        "reload": ["systemctl", "restart", "snmpd"],
+        "unit": "snmpd",
+    },
+    "rsyslog-siem": {
+        "path": "/etc/rsyslog.d/60-micron-siem.conf",
+        "mode": 0o644,
+        "check": ["rsyslogd", "-N1"],
+        "reload": ["systemctl", "restart", "rsyslog"],
+        "unit": "rsyslog",
+    },
+    "openvpn": {
+        "path": "/etc/openvpn/server.conf",
+        "mode": 0o600,
+        "check": None,
+        "reload": ["systemctl", "restart", "openvpn@server"],
+        "unit": "openvpn@server",
+    },
+    "suricata": {
+        "path": "/etc/suricata/micron.yaml",
+        "mode": 0o644,
+        "check": ["suricata", "-T", "-c", "/etc/suricata/suricata.yaml"],
+        "reload": ["systemctl", "reload-or-restart", "suricata"],
+        "unit": "suricata",
+    },
+    "suricata-rules": {
+        "path": "/etc/suricata/rules/micron.rules",
+        "mode": 0o644,
+        "check": None,
+        "reload": None,
+        "unit": "suricata",
+    },
+    "qos": {
+        "path": "/etc/micron/qos.tc",
+        "mode": 0o644,
+        "check": None,
+        "reload": ["tc", "-force", "-batch", "{path}"],
+        "unit": None,
+    },
+    "cron": {
+        "path": "/etc/cron.d/micron",
+        "mode": 0o644,
+        "check": None,
+        "reload": None,
+        "unit": "cron",
+    },
+    "ndpi": {
+        "path": "/etc/ndpi/micron-protos.txt",
+        "mode": 0o644,
+        "check": None,
+        "reload": None,
+        "unit": None,
+    },
+}
+
+# Units whose journal an operator may read through `system.service_logs`, in
+# addition to SERVICE_UNITS. Keyed by the id the Services page sends.
+LOG_UNITS_EXTRA = {
+    "micrond": "micrond", "apache2": "apache2", "nginx": "nginx", "cron": "cron",
+    "ssh": "ssh", "php-fpm": "php8.4-fpm", "lldpd": "lldpd", "darkstat": "darkstat",
+    "zerotier": "zerotier-one", "netbird": "netbird", "guacd": "guacd",
+}
+
+# Cron: only these executables may be scheduled from the Web UI, and only for
+# these users. A free-text command field must never become a root shell.
+CRON_USERS = ("root", "www-data")
+CRON_ALLOWED_PREFIXES = (
+    "php spark ", "/usr/bin/php /usr/local/micron/spark ",
+    "/usr/local/bin/", "/usr/local/sbin/", "/usr/sbin/logrotate ",
+    "/usr/bin/freshclam", "/usr/sbin/ntpdate ",
+)
+CRON_FIELD_RE = re.compile(r"^[0-9*/,\-A-Za-z]{1,32}$")
+CRON_COMMAND_RE = re.compile(r"^[A-Za-z0-9 _./:=,@%+-]{1,512}$")
+CRON_APP_ROOT = "/usr/local/micron"
+
+CONNTRACK_PROTOS = ("tcp", "udp", "icmp", "icmpv6", "sctp")
+SNMP_COMMUNITY_RE = re.compile(r"^[A-Za-z0-9_.@#%+=-]{1,64}$")
+SNMP_OID_RE = re.compile(r"^\.?[0-9]+(\.[0-9]+){1,63}$")
+SIEM_PROTOS = ("udp", "tcp")
+OPENVPN_STATUS_FILES = ("/run/openvpn/server.status", "/var/log/openvpn/status.log",
+                        "/etc/openvpn/openvpn-status.log")
+WEBGUI_CERT_DIR = "/etc/micron/ssl"
+CERT_RELOAD_UNITS = ("apache2", "nginx", "squid", "openvpn@server")
+VRF_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,14}$")
+
+
+class OpsMixin:
+    """Subsystem apply/status/log handlers the management plane already calls.
+
+    Before this block every one of these method names was dispatched to
+    "Method not found" on a real appliance while the Windows mock answered
+    success — see docs/MICRONOS_IPC_RPC_CLI_CONTRACT.md §4.
+    """
+
+    # ---------------------------------------------------------------- helpers
+    @staticmethod
+    def _run_bounded(argv: list, timeout: float = 20.0, input_text: Optional[str] = None,
+                     cap: int = 65536) -> Dict[str, Any]:
+        """argv (never a shell) with a hard timeout and an output cap."""
+        try:
+            res = subprocess.run(argv, capture_output=True, text=True, timeout=timeout,
+                                 input=input_text)
+            out = (res.stdout or "") + (res.stderr or "")
+            rc = res.returncode
+            timed_out = False
+        except subprocess.TimeoutExpired as exc:
+            out = ((exc.stdout or b"").decode("utf-8", "replace") if isinstance(exc.stdout, bytes)
+                   else (exc.stdout or ""))
+            rc, timed_out = 124, True
+        except OSError as exc:
+            return {"rc": 127, "output": str(exc), "timed_out": False, "truncated": False,
+                    "missing": True}
+        truncated = len(out) > cap
+        if truncated:
+            out = out[:cap] + f"\n… output truncated at {cap // 1024} KiB\n"
+        return {"rc": rc, "output": out, "timed_out": timed_out, "truncated": truncated,
+                "missing": False}
+
+    @staticmethod
+    def _which(binary: str) -> Optional[str]:
+        return shutil.which(binary) or next(
+            (p for p in (f"/usr/sbin/{binary}", f"/sbin/{binary}", f"/usr/bin/{binary}")
+             if os.path.exists(p)), None)
+
+    @staticmethod
+    def _lines_param(params: Dict[str, Any], default: int = 30, cap: int = 500) -> int:
+        try:
+            return max(1, min(int(params.get("lines") or default), cap))
+        except (TypeError, ValueError):
+            return default
+
+    def _journal(self, unit: str, lines: int) -> str:
+        res = self._run_bounded(["journalctl", "-u", unit, "-n", str(lines),
+                                 "--no-pager", "-o", "short-iso"], timeout=10)
+        return res["output"].strip()
+
+    def _apply_managed_config(self, kind: str, content: Any, reload: bool = True) -> Dict[str, Any]:
+        spec = MANAGED_CONFIGS.get(kind)
+        steps: list = []
+        warnings: list = []
+        if spec is None:
+            return {"success": False, "status": "error", "message": f"unknown configuration: {kind}"}
+        if not isinstance(content, str) or not content.strip():
+            return {"success": False, "status": "error", "steps": steps, "warnings": warnings,
+                    "message": f"no {kind} configuration was supplied — nothing was changed"}
+        if len(content.encode("utf-8")) > MANAGED_CONFIG_MAX_BYTES:
+            return {"success": False, "status": "error", "steps": steps, "warnings": warnings,
+                    "message": f"{kind} configuration exceeds {MANAGED_CONFIG_MAX_BYTES} bytes"}
+        if "\x00" in content:
+            return {"success": False, "status": "error", "steps": steps, "warnings": warnings,
+                    "message": f"{kind} configuration contains a NUL byte"}
+
+        path = spec["path"]
+        previous: Optional[str] = None
+        if os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8", errors="replace") as fh:
+                    previous = fh.read()
+            except OSError:
+                previous = None
+        if previous == content:
+            steps.append(f"{path} unchanged")
+        try:
+            safe_atomic_write(path, content if content.endswith("\n") else content + "\n",
+                              mode=spec["mode"])
+            steps.append(f"wrote {path}")
+        except OSError as exc:
+            return {"success": False, "status": "error", "steps": steps, "warnings": warnings,
+                    "message": f"could not write {path}: {exc}"}
+
+        def restore(reason: str, reload_previous: bool = False) -> Dict[str, Any]:
+            # A config rejected by its syntax check was never loaded, so the
+            # running service is untouched and only the file goes back. After a
+            # failed reload the service may be half-applied, so the previous
+            # file is reloaded as well.
+            if previous is not None:
+                try:
+                    safe_atomic_write(path, previous, mode=spec["mode"])
+                    steps.append(f"restored previous {path}")
+                    if reload_previous and spec.get("reload") and reload:
+                        argv = [a.replace("{path}", path) for a in spec["reload"]]
+                        self._run_bounded(argv, timeout=60)
+                except OSError as exc:
+                    warnings.append(f"could not restore {path}: {exc}")
+            else:
+                try:
+                    os.remove(path)
+                    steps.append(f"removed rejected {path}")
+                except OSError:
+                    pass
+            return {"success": False, "status": "error", "steps": steps,
+                    "warnings": warnings, "message": reason}
+
+        check = spec.get("check")
+        if check:
+            argv = [a.replace("{path}", path) for a in check]
+            if self._which(argv[0]) is None:
+                warnings.append(f"{argv[0]} is not installed; the syntax check was skipped")
+            else:
+                res = self._run_bounded(argv, timeout=60)
+                steps.append(f"{' '.join(argv)} rc={res['rc']}")
+                if res["rc"] != 0:
+                    detail = res["output"].strip().splitlines()
+                    return restore(f"{kind} configuration was rejected by {argv[0]}: "
+                                   + (" | ".join(detail[-3:]) if detail else "no detail"))
+
+        reload_argv = spec.get("reload")
+        if reload and reload_argv:
+            argv = [a.replace("{path}", path) for a in reload_argv]
+            if self._which(argv[0]) is None:
+                warnings.append(f"{argv[0]} is not installed; the configuration was written but not loaded")
+            else:
+                res = self._run_bounded(argv, timeout=90)
+                steps.append(f"{' '.join(argv)} rc={res['rc']}")
+                if res["rc"] != 0:
+                    detail = res["output"].strip().splitlines()
+                    return restore(f"{kind} reload failed: " + (" | ".join(detail[-3:]) if detail else
+                                                               f"exit {res['rc']}"), reload_previous=True)
+
+        unit = spec.get("unit")
+        return {
+            "success": True,
+            "status": "applied",
+            "path": path,
+            "unit": unit,
+            "state": self._service_state(unit) if unit and "{" not in unit else None,
+            "steps": steps,
+            "warnings": warnings,
+        }
+
+    def _unit_snapshot(self, unit: str) -> Dict[str, Any]:
+        res = self._run_bounded(["systemctl", "show", unit, "--no-pager",
+                                 "--property=ActiveState,SubState,ActiveEnterTimestamp,MainPID,LoadState,UnitFileState"],
+                                timeout=5)
+        props: Dict[str, str] = {}
+        for line in res["output"].splitlines():
+            if "=" in line:
+                k, v = line.split("=", 1)
+                props[k.strip()] = v.strip()
+        active = props.get("ActiveState", "unknown")
+        if unit == "gateway-monitor" and props.get("LoadState", "not-found") in ("not-found", ""):
+            probe_snap = self._unit_snapshot("micron-sdwan-probe")
+            if probe_snap.get("installed"):
+                probe_snap["unit"] = "gateway-monitor"
+                return probe_snap
+        unit_file = props.get("UnitFileState", "unknown")
+        return {
+            "unit": unit,
+            "running": active == "active",
+            "state": "running" if active == "active" else ("failed" if active == "failed" else "stopped"),
+            "active_state": active,
+            "sub_state": props.get("SubState", ""),
+            "since": props.get("ActiveEnterTimestamp", ""),
+            "pid": int(props.get("MainPID") or 0) if (props.get("MainPID") or "0").isdigit() else 0,
+            "installed": props.get("LoadState", "not-found") not in ("not-found", ""),
+            "enabled": unit_file in ("enabled", "enabled-runtime"),
+            "unit_file_state": unit_file,
+        }
+
+    # ---------------------------------------------------------- system.health
+    @staticmethod
+    def _read_first(path: str) -> Optional[str]:
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as fh:
+                return fh.read().strip()
+        except OSError:
+            return None
+
+    # Kernel ARPHRD types the dashboard distinguishes (include/uapi/linux/if_arp.h).
+    _ARPHRD_KIND = {"1": "ethernet", "772": "loopback", "65534": "tunnel", "776": "tunnel",
+                    "778": "tunnel", "823": "tunnel", "512": "ppp", "801": "wireless", "803": "wireless"}
+
+    def _nic_port_type(self, dev: str) -> str:
+        """Connector of a physical port from ethtool ('tp', 'fibre', 'da', ...).
+
+        Cached per device for the daemon's lifetime — the connector of a NIC
+        does not change while it is plugged in — so the dashboard poll costs
+        one ethtool run per port, ever. 'unknown' when ethtool is absent.
+        """
+        cache = self.__dict__.setdefault("_nic_port_cache", {})
+        if dev in cache:
+            return cache[dev]
+        kind = "unknown"
+        try:
+            res = subprocess.run(["ethtool", dev], capture_output=True, text=True, timeout=3)
+            for line in res.stdout.splitlines():
+                line = line.strip()
+                if line.startswith("Port:"):
+                    value = line.split(":", 1)[1].strip().lower()
+                    kind = {"twisted pair": "tp", "fibre": "fibre", "fiber": "fibre",
+                            "direct attach copper": "da", "other": "other", "none": "none"}.get(value, value or "unknown")
+                    break
+        except (OSError, subprocess.SubprocessError):
+            pass
+        cache[dev] = kind
+        return kind
+
+    def _nic_hardware(self, dev: str) -> Dict[str, Any]:
+        """What kind of port a network device is, read from /sys.
+
+        `kind` separates physical Ethernet and Wi-Fi ports from bridges,
+        VLANs, bonds, tunnels and other software devices, so the dashboard can
+        draw the real front panel (enp7s0, eno1, wlp2s0 ...) and the Interfaces
+        page can offer wireless settings only when a radio exists.
+        """
+        base = f"/sys/class/net/{dev}"
+        physical = os.path.exists(f"{base}/device")
+        wireless = os.path.isdir(f"{base}/wireless") or os.path.exists(f"{base}/phy80211")
+        arphrd = self._read_first(f"{base}/type") or ""
+        if dev == "lo" or arphrd == "772":
+            kind = "loopback"
+        elif wireless:
+            kind = "wireless"
+        elif os.path.isdir(f"{base}/bridge"):
+            kind = "bridge"
+        elif os.path.isdir(f"{base}/bonding"):
+            kind = "bond"
+        elif os.path.exists(f"/proc/net/vlan/{dev}"):
+            kind = "vlan"
+        elif physical:
+            kind = "ethernet" if arphrd in ("1", "") else self._ARPHRD_KIND.get(arphrd, "other")
+        else:
+            kind = self._ARPHRD_KIND.get(arphrd, "virtual")
+            if kind == "ethernet":
+                kind = "virtual"
+        driver = bus = slot = None
+        if physical:
+            try:
+                driver = os.path.basename(os.readlink(f"{base}/device/driver"))
+            except OSError:
+                driver = None
+            try:
+                bus = os.path.basename(os.readlink(f"{base}/device/subsystem"))
+            except OSError:
+                bus = None
+            try:
+                slot = os.path.basename(os.path.realpath(f"{base}/device"))
+            except OSError:
+                slot = None
+        out: Dict[str, Any] = {"kind": kind, "wireless": wireless, "driver": driver, "bus": bus, "slot": slot}
+        if kind == "ethernet":
+            out["port_type"] = self._nic_port_type(dev)
+        return out
+
+    async def rpc_hardware_nics(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Read-only: the network ports this machine actually has.
+
+        Physical Ethernet and wireless ports with their driver, bus, connector
+        and link state; software devices (bridges, VLANs, tunnels) are left
+        out. This is what the Web UI uses to decide which hardware-specific
+        options to show — e.g. Wi-Fi settings only when a radio is present.
+        """
+        nics = []
+        names = sorted(os.listdir("/sys/class/net")) if os.path.isdir("/sys/class/net") else []
+        for dev in names:
+            hw = self._nic_hardware(dev)
+            if hw["kind"] not in ("ethernet", "wireless"):
+                continue
+            base = f"/sys/class/net/{dev}"
+            speed = self._read_first(f"{base}/speed")
+            nics.append({
+                "name": dev,
+                "mac": self._read_first(f"{base}/address") or "",
+                "operstate": self._read_first(f"{base}/operstate") or "unknown",
+                "carrier": self._read_first(f"{base}/carrier") == "1",
+                "speed_mbps": int(speed) if speed and speed.lstrip("-").isdigit() and int(speed) > 0 else None,
+                **hw,
+            })
+        return {
+            "success": True, "status": "ok", "nics": nics,
+            "wireless": [n["name"] for n in nics if n["wireless"]],
+            "ethernet": [n["name"] for n in nics if n["kind"] == "ethernet"],
+        }
+
+    def _health_snapshot(self) -> Dict[str, Any]:
+        info: Dict[str, Any] = {}
+        up = self._read_first("/proc/uptime")
+        info["uptime_sec"] = int(float(up.split()[0])) if up else None
+        try:
+            info["load_avg"] = [round(x, 2) for x in os.getloadavg()] if hasattr(os, "getloadavg") else [0.0, 0.0, 0.0]
+        except (OSError, AttributeError):
+            info["load_avg"] = None
+        info["cpu_count"] = os.cpu_count()
+        model = None
+        cpuinfo = self._read_first("/proc/cpuinfo") or ""
+        for line in cpuinfo.splitlines():
+            if line.lower().startswith("model name"):
+                model = line.split(":", 1)[1].strip()
+                break
+        info["cpu_model"] = model
+        mem: Dict[str, int] = {}
+        for line in (self._read_first("/proc/meminfo") or "").splitlines():
+            parts = line.replace(":", "").split()
+            if len(parts) >= 2 and parts[1].isdigit():
+                mem[parts[0]] = int(parts[1])
+        if mem:
+            total = mem.get("MemTotal", 0) // 1024
+            avail = mem.get("MemAvailable", mem.get("MemFree", 0)) // 1024
+            info["mem_total_mb"] = total
+            info["mem_used_mb"] = max(0, total - avail)
+            info["mem_available_mb"] = avail
+            info["swap_total_mb"] = mem.get("SwapTotal", 0) // 1024
+            info["swap_used_mb"] = max(0, (mem.get("SwapTotal", 0) - mem.get("SwapFree", 0)) // 1024)
+        disks = []
+        for mount in ("/", "/var/lib/micron", "/var/log"):
+            if not os.path.isdir(mount):
+                continue
+            try:
+                du = shutil.disk_usage(mount)
+            except OSError:
+                continue
+            entry = {"mount": mount, "total_gb": round(du.total / 1073741824, 2),
+                     "used_gb": round(du.used / 1073741824, 2),
+                     "free_gb": round(du.free / 1073741824, 2),
+                     "used_pct": round(du.used / du.total * 100, 1) if du.total else 0.0}
+            if not any(d["total_gb"] == entry["total_gb"] and d["used_gb"] == entry["used_gb"] for d in disks):
+                disks.append(entry)
+        info["disks"] = disks
+        ct_count = self._read_first("/proc/sys/net/netfilter/nf_conntrack_count")
+        ct_max = self._read_first("/proc/sys/net/netfilter/nf_conntrack_max")
+        info["conntrack_count"] = int(ct_count) if ct_count and ct_count.isdigit() else None
+        info["conntrack_max"] = int(ct_max) if ct_max and ct_max.isdigit() else None
+        temps = []
+        for zone in sorted(glob.glob("/sys/class/thermal/thermal_zone*/temp")):
+            raw = self._read_first(zone)
+            if raw and raw.lstrip("-").isdigit():
+                temps.append(int(raw) / 1000.0)
+        info["temperature_c"] = round(max(temps), 1) if temps else None
+        ifaces = []
+        for dev in sorted(os.listdir("/sys/class/net")) if os.path.isdir("/sys/class/net") else []:
+            base = f"/sys/class/net/{dev}"
+            def num(name: str) -> Optional[int]:
+                v = self._read_first(f"{base}/statistics/{name}")
+                return int(v) if v and v.isdigit() else None
+            speed = self._read_first(f"{base}/speed")
+            ifaces.append({
+                "name": dev,
+                "operstate": self._read_first(f"{base}/operstate") or "unknown",
+                "carrier": self._read_first(f"{base}/carrier") == "1",
+                "mac": self._read_first(f"{base}/address") or "",
+                "mtu": int(self._read_first(f"{base}/mtu") or 0),
+                "speed_mbps": int(speed) if speed and speed.lstrip("-").isdigit() and int(speed) > 0 else None,
+                "rx_bytes": num("rx_bytes"), "tx_bytes": num("tx_bytes"),
+                "rx_packets": num("rx_packets"), "tx_packets": num("tx_packets"),
+                "rx_errors": num("rx_errors"), "tx_errors": num("tx_errors"),
+                "virtual": not os.path.exists(f"{base}/device"),
+                **self._nic_hardware(dev),
+            })
+        info["interfaces"] = ifaces
+        info["storage"] = self._storage_telemetry()
+        info["database"] = self._database_health()
+        info["timestamp"] = time.time()
+        return info
+
+    def _locate_database_path(self) -> Optional[str]:
+        candidates = [
+            "/usr/local/micron/writable/micron_config.db",
+            os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "writable", "micron_config.db"),
+            os.path.abspath("writable/micron_config.db"),
+        ]
+        for c in candidates:
+            if os.path.exists(c):
+                return c
+        return "/usr/local/micron/writable/micron_config.db"
+
+    def _database_health(self) -> Dict[str, Any]:
+        db_path = self._locate_database_path()
+        if not db_path or not os.path.exists(db_path):
+            return {
+                "healthy": True,
+                "status": "not_initialized",
+                "path": db_path or "",
+                "db_size_bytes": 0,
+                "wal_size_bytes": 0,
+                "shm_size_bytes": 0,
+                "snapshot_present": False,
+            }
+
+        db_size = os.path.getsize(db_path)
+        wal_path = f"{db_path}-wal"
+        shm_path = f"{db_path}-shm"
+        snap_path = f"{db_path}.snapshot"
+        wal_size = os.path.getsize(wal_path) if os.path.exists(wal_path) else 0
+        shm_size = os.path.getsize(shm_path) if os.path.exists(shm_path) else 0
+        snap_present = os.path.exists(snap_path)
+        snap_age_sec = (time.time() - os.path.getmtime(snap_path)) if snap_present else None
+
+        healthy = False
+        integrity_msg = "unknown"
+        journal_mode = "unknown"
+        synchronous = None
+        checkpoint_status = None
+
+        try:
+            con = sqlite3.connect(db_path, timeout=3.0)
+            cur = con.cursor()
+            cur.execute("PRAGMA quick_check;")
+            res = cur.fetchone()
+            if res and res[0].lower() == "ok":
+                healthy = True
+                integrity_msg = "ok"
+            else:
+                integrity_msg = res[0] if res else "failed"
+
+            cur.execute("PRAGMA journal_mode;")
+            jm = cur.fetchone()
+            if jm:
+                journal_mode = str(jm[0]).lower()
+
+            cur.execute("PRAGMA synchronous;")
+            sync_row = cur.fetchone()
+            if sync_row:
+                synchronous = sync_row[0]
+
+            # Auto-checkpoint if WAL exceeds 16MB
+            if healthy and wal_size > 16 * 1024 * 1024:
+                cur.execute("PRAGMA wal_checkpoint(PASSIVE);")
+                cp = cur.fetchone()
+                checkpoint_status = {"busy": cp[0], "log": cp[1], "checkpointed": cp[2]} if cp else "executed"
+                wal_size = os.path.getsize(wal_path) if os.path.exists(wal_path) else 0
+
+            con.close()
+        except Exception as exc:
+            integrity_msg = str(exc)
+            healthy = False
+
+        return {
+            "healthy": healthy,
+            "status": "ok" if healthy else "error",
+            "integrity": integrity_msg,
+            "path": db_path,
+            "journal_mode": journal_mode,
+            "synchronous": synchronous,
+            "db_size_bytes": db_size,
+            "wal_size_bytes": wal_size,
+            "shm_size_bytes": shm_size,
+            "snapshot_present": snap_present,
+            "snapshot_age_sec": round(snap_age_sec, 1) if snap_age_sec is not None else None,
+            "checkpoint_auto": checkpoint_status,
+        }
+
+    def maintain_database(self) -> Dict[str, Any]:
+        """
+        Periodic background maintenance called by daemon maintenance loop.
+        Verifies quick_check and checkpoints WAL if > 8MB or every run.
+        """
+        db_path = self._locate_database_path()
+        if not db_path or not os.path.exists(db_path):
+            return {"status": "skipped", "reason": "no_db"}
+
+        wal_path = f"{db_path}-wal"
+        wal_size = os.path.getsize(wal_path) if os.path.exists(wal_path) else 0
+        try:
+            con = sqlite3.connect(db_path, timeout=5.0)
+            cur = con.cursor()
+            cur.execute("PRAGMA quick_check;")
+            qc = cur.fetchone()
+            healthy = qc and qc[0].lower() == "ok"
+            cp_result = None
+            if healthy:
+                cur.execute("PRAGMA wal_checkpoint(PASSIVE);")
+                cp = cur.fetchone()
+                cp_result = {"busy": cp[0], "log": cp[1], "checkpointed": cp[2]} if cp else {}
+            con.close()
+            return {"status": "ok", "healthy": healthy, "checkpoint": cp_result}
+        except Exception as exc:
+            logger.error(f"Database maintenance exception: {exc}")
+            return {"status": "error", "message": str(exc)}
+
+    def _storage_telemetry(self) -> List[Dict[str, Any]]:
+        devices: List[Dict[str, Any]] = []
+        sys_block = "/sys/block"
+        if not os.path.isdir(sys_block):
+            return devices
+
+        smartctl_bin = self._which("smartctl")
+
+        for dev in sorted(os.listdir(sys_block)):
+            if re.match(r"^(loop|ram|zram|dm-|sr|md)\d*", dev):
+                continue
+
+            base = f"{sys_block}/{dev}"
+            dev_path = f"/dev/{dev}"
+
+            size_sectors = self._read_first(f"{base}/size")
+            size_gb = 0.0
+            if size_sectors and size_sectors.isdigit():
+                size_gb = round(int(size_sectors) * 512 / (1024 ** 3), 2)
+
+            if size_gb <= 0:
+                continue
+
+            rotational_raw = self._read_first(f"{base}/queue/rotational")
+            is_rotational = (rotational_raw == "1") if rotational_raw else None
+            is_ssd = (rotational_raw == "0") if rotational_raw else None
+
+            model = self._read_first(f"{base}/device/model")
+            vendor = self._read_first(f"{base}/device/vendor")
+            if not model:
+                model = self._read_first(f"{base}/device/device/model")
+            model_str = f"{(vendor + ' ') if vendor else ''}{model or dev}".strip()
+
+            if dev.startswith("nvme"):
+                transport = "nvme"
+            elif dev.startswith("mmcblk"):
+                transport = "emmc/sd"
+            elif dev.startswith("vd"):
+                transport = "virtio"
+            elif dev.startswith("xvd"):
+                transport = "xen"
+            else:
+                transport = "sata/scsi"
+
+            io_stat_raw = self._read_first(f"{base}/stat")
+            io_stats: Dict[str, Any] = {}
+            if io_stat_raw:
+                parts = io_stat_raw.split()
+                if len(parts) >= 11:
+                    try:
+                        io_stats = {
+                            "reads_completed": int(parts[0]),
+                            "read_bytes": int(parts[2]) * 512,
+                            "writes_completed": int(parts[4]),
+                            "write_bytes": int(parts[6]) * 512,
+                            "io_in_flight": int(parts[8]),
+                        }
+                    except (ValueError, IndexError):
+                        pass
+
+            smart_data: Dict[str, Any] = {
+                "smart_supported": False,
+                "health_status": "OK",
+                "passed": True,
+                "wear_level_pct": None,
+                "temperature_c": None,
+                "power_on_hours": None,
+                "critical_warning": None,
+            }
+
+            if smartctl_bin:
+                try:
+                    res = self._run_bounded([smartctl_bin, "-j", "-H", "-A", dev_path], timeout=3.0)
+                    out = res.get("output", "").strip()
+                    if out:
+                        json_start = out.find("{")
+                        json_end = out.rfind("}")
+                        if json_start != -1 and json_end != -1:
+                            out = out[json_start:json_end+1]
+                        parsed = strict_json_loads(out)
+                        smart_status = parsed.get("smart_status", {})
+                        passed = smart_status.get("passed")
+                        if passed is not None:
+                            smart_data["smart_supported"] = True
+                            smart_data["passed"] = bool(passed)
+                            smart_data["health_status"] = "PASSED" if passed else "FAILED"
+
+                        temp_data = parsed.get("temperature", {})
+                        if "current" in temp_data:
+                            smart_data["temperature_c"] = temp_data["current"]
+                        elif "nvme_smart_health_information_log" in parsed:
+                            nvme_log = parsed["nvme_smart_health_information_log"]
+                            if "temperature" in nvme_log:
+                                smart_data["temperature_c"] = nvme_log["temperature"]
+                            if "percentage_used" in nvme_log:
+                                smart_data["wear_level_pct"] = nvme_log["percentage_used"]
+                            if "critical_warning" in nvme_log:
+                                smart_data["critical_warning"] = nvme_log["critical_warning"]
+                            if "power_on_hours" in nvme_log:
+                                smart_data["power_on_hours"] = nvme_log["power_on_hours"]
+
+                        if "power_on_time" in parsed and "hours" in parsed["power_on_time"]:
+                            smart_data["power_on_hours"] = parsed["power_on_time"]["hours"]
+
+                        ata_table = parsed.get("ata_smart_attributes", {}).get("table", [])
+                        for attr in ata_table:
+                            attr_id = attr.get("id")
+                            if attr_id in (231, 233, 177, 169) and smart_data["wear_level_pct"] is None:
+                                val = attr.get("value")
+                                if isinstance(val, (int, float)):
+                                    smart_data["wear_level_pct"] = max(0, 100 - int(val))
+                except Exception as exc:
+                    logger.debug(f"smartctl probe on {dev_path} failed: {exc}")
+
+            dev_info = {
+                "device": dev,
+                "path": dev_path,
+                "model": model_str,
+                "size_gb": size_gb,
+                "transport": transport,
+                "is_ssd": is_ssd,
+                "is_rotational": is_rotational,
+                "io_stats": io_stats,
+                **smart_data
+            }
+            devices.append(dev_info)
+
+        return devices
+
+    async def rpc_database_health(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Inspects SQLite database integrity, WAL size, and snapshot freshness."""
+        health = self._database_health()
+        return {"success": health.get("healthy", False), "status": health.get("status", "ok"), "database": health}
+
+    async def rpc_database_checkpoint(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Executes an on-demand SQLite WAL checkpoint (PASSIVE, FULL, RESTART, TRUNCATE)."""
+        mode = str(params.get("mode", "TRUNCATE")).upper()
+        if mode not in ("PASSIVE", "FULL", "RESTART", "TRUNCATE"):
+            mode = "TRUNCATE"
+        db_path = self._locate_database_path()
+        if not db_path or not os.path.exists(db_path):
+            return {"success": False, "status": "error", "message": "Database file not found"}
+
+        try:
+            con = sqlite3.connect(db_path, timeout=5.0)
+            cur = con.cursor()
+            cur.execute(f"PRAGMA wal_checkpoint({mode});")
+            res = cur.fetchone()
+            cur.execute("PRAGMA quick_check;")
+            qc = cur.fetchone()
+            con.close()
+
+            wal_path = f"{db_path}-wal"
+            wal_size = os.path.getsize(wal_path) if os.path.exists(wal_path) else 0
+
+            return {
+                "success": True,
+                "status": "ok",
+                "mode": mode,
+                "checkpoint": {"busy": res[0], "log": res[1], "checkpointed": res[2]} if res else {},
+                "integrity": qc[0] if qc else "unknown",
+                "wal_size_bytes": wal_size,
+            }
+        except Exception as exc:
+            return {"success": False, "status": "error", "message": str(exc)}
+
+    async def rpc_storage_health(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Telemetry and SMART health status for all system storage devices."""
+        devices = self._storage_telemetry()
+        return {"success": True, "status": "ok", "count": len(devices), "devices": devices}
+
+    async def rpc_system_package_list(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Lists installed Debian packages on the host appliance."""
+        packages = []
+        dpkg_query = self._which("dpkg-query")
+        if dpkg_query:
+            res = self._run_bounded([dpkg_query, "-W", "-f=${Package}\t${Version}\t${Architecture}\n"], timeout=10.0)
+            if res["rc"] == 0 and res["output"]:
+                for line in res["output"].splitlines():
+                    parts = line.strip().split("\t")
+                    if len(parts) >= 2:
+                        packages.append({
+                            "name": parts[0],
+                            "version": parts[1],
+                            "arch": parts[2] if len(parts) > 2 else "amd64",
+                        })
+        return {"success": True, "status": "ok", "count": len(packages), "packages": packages}
+
+    async def rpc_system_health(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Real resource and link telemetry for the dashboard (read-only).
+
+        Every value is read from /proc and /sys at call time. A value the kernel
+        does not expose is returned as null — the UI shows "—", never a
+        made-up number.
+        """
+        snap = self._health_snapshot()
+        snap.update({"success": True, "status": "ok"})
+        return snap
+
+    async def rpc_system_services_status(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Live systemd state for every unit the management plane manages."""
+        services = {sid: self._unit_snapshot(unit) for sid, unit in SERVICE_UNITS.items()}
+        return {"success": True, "status": "ok", "services": services}
+
+    async def rpc_system_service_logs(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        sid = str(params.get("service") or "")
+        unit = SERVICE_UNITS.get(sid) or LOG_UNITS_EXTRA.get(sid)
+        if unit is None:
+            return {"success": False, "status": "error", "message": f"refusing unknown service: {sid}"}
+        return {"success": True, "status": "ok", "unit": unit,
+                "logs": self._journal(unit, self._lines_param(params))}
+
+    async def rpc_system_rpc_methods(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """The daemon's own method catalogue with each method's class."""
+        methods = []
+        for attr in sorted(n for n in dir(self) if n.startswith("rpc_")):
+            methods.append({"handler": attr[4:], "class": rpc_method_class(attr[4:])})
+        return {"success": True, "status": "ok", "count": len(methods), "methods": methods}
+
+    async def rpc_system_commit_watchdog(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Arm the auto-rollback watchdog for a staged transaction."""
+        try:
+            seconds = int(params.get("watchdog_sec") or ROLLBACK_TIMEOUT)
+        except (TypeError, ValueError):
+            seconds = ROLLBACK_TIMEOUT
+        seconds = max(15, min(seconds, 600))
+        self.tx_mgr.start_rollback_timer(self.loop, seconds)
+        return {"success": True, "status": "pending_confirm", "watchdog_sec": seconds,
+                "transaction_id": str(params.get("transaction_id") or "")[:64]}
+
+    async def rpc_system_confirm(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        return await self.rpc_system_commit(params)
+
+    # ---------------------------------------------------------- cron
+    def _cron_line_refusal(self, line: str) -> Optional[str]:
+        stripped = line.strip()
+        if stripped == "" or stripped.startswith("#"):
+            return None
+        if re.match(r"^[A-Z_]+=", stripped):
+            return None if re.match(r"^(SHELL|PATH|MAILTO)=[A-Za-z0-9/:._-]*$", stripped) else \
+                "only SHELL, PATH and MAILTO may be set"
+        parts = stripped.split(None, 6)
+        if len(parts) < 7:
+            return "a job needs five schedule fields, a user and a command"
+        for field in parts[:5]:
+            if not CRON_FIELD_RE.match(field):
+                return f"invalid schedule field: {field}"
+        if parts[5] not in CRON_USERS:
+            return f"jobs may only run as {', '.join(CRON_USERS)}"
+        return self._cron_command_refusal(parts[6])
+
+    @staticmethod
+    def _cron_command_refusal(command: str) -> Optional[str]:
+        command = command.strip()
+        if not CRON_COMMAND_RE.match(command):
+            return "the command contains characters that are not allowed (no shell syntax)"
+        if command.startswith("cd ") or ".." in command:
+            return "the command may not change directory or use relative parent paths"
+        if not any(command.startswith(p) or command == p.strip() for p in CRON_ALLOWED_PREFIXES):
+            return ("the command must be a `php spark` task or an executable under "
+                    "/usr/local/bin, /usr/local/sbin or a whitelisted system tool")
+        return None
+
+    async def rpc_system_crontab_sync(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        crontab = params.get("crontab")
+        if not isinstance(crontab, str):
+            return {"success": False, "status": "error", "message": "crontab must be a string"}
+        out_lines = ["# Managed by Micron OS — edits are overwritten on the next sync",
+                     "SHELL=/bin/sh", "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"]
+        refused = []
+        for raw in crontab.splitlines():
+            reason = self._cron_line_refusal(raw)
+            if reason:
+                refused.append({"line": raw[:200], "reason": reason})
+                continue
+            stripped = raw.strip()
+            parts = stripped.split(None, 6)
+            if len(parts) == 7 and parts[6].startswith("php spark "):
+                parts[6] = f"cd {CRON_APP_ROOT} && /usr/bin/php spark " + parts[6][len("php spark "):]
+                stripped = " ".join(parts)
+            out_lines.append(stripped)
+        if refused:
+            return {"success": False, "status": "error", "refused": refused,
+                    "message": f"{len(refused)} cron line(s) were refused; nothing was changed"}
+        result = self._apply_managed_config("cron", "\n".join(out_lines) + "\n")
+        result["jobs"] = sum(1 for l in out_lines if l and not l.startswith("#") and "=" not in l.split()[0])
+        return result
+
+    async def rpc_system_cron_run(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        command = str(params.get("command") or "").strip()
+        reason = self._cron_command_refusal(command)
+        if reason:
+            return {"success": False, "status": "error", "message": reason}
+        argv = command.split()
+        cwd = None
+        if argv[:2] == ["php", "spark"]:
+            argv = ["/usr/bin/php", os.path.join(CRON_APP_ROOT, "spark")] + argv[2:]
+            cwd = CRON_APP_ROOT
+        if self._which(argv[0]) is None and not os.path.exists(argv[0]):
+            return {"success": False, "status": "error", "returncode": 127,
+                    "message": f"{argv[0]} is not installed on this appliance"}
+        started = time.time()
+        try:
+            res = subprocess.run(argv, capture_output=True, text=True, timeout=300, cwd=cwd)
+            rc, output = res.returncode, (res.stdout or "") + (res.stderr or "")
+        except subprocess.TimeoutExpired:
+            rc, output = 124, "the task did not finish within 300 s and was stopped"
+        except OSError as exc:
+            rc, output = 127, str(exc)
+        return {"success": rc == 0, "status": "ok" if rc == 0 else "error", "returncode": rc,
+                "output": output[-16384:], "duration_ms": int((time.time() - started) * 1000)}
+
+    async def rpc_system_cron_logs(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        text = self._journal("cron", self._lines_param(params))
+        logs = [l for l in text.splitlines() if l.strip() and not l.startswith("-- ")]
+        return {"success": True, "status": "ok", "logs": logs}
+
+    # ---------------------------------------------------------- DNS
+    async def rpc_dns_config_reload(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Apply the compiled Unbound include and reload Unbound."""
+        if params.get("config") is None:
+            res = self._run_bounded(["systemctl", "reload-or-restart", "unbound"], timeout=60)
+            return {"success": res["rc"] == 0, "status": "applied" if res["rc"] == 0 else "error",
+                    "message": "" if res["rc"] == 0 else res["output"].strip()[:300],
+                    "warnings": ["no configuration supplied; Unbound was reloaded as-is"]}
+        return self._apply_managed_config("unbound", params.get("config"))
+
+    async def rpc_dns_hosts_reload(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        return await self.rpc_dns_config_reload(params)
+
+    async def rpc_dns_status(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        snap = self._unit_snapshot("unbound")
+        snap.update({"success": True, "status": "ok"})
+        return snap
+
+    # ---------------------------------------------------------- FRR
+    async def _frr_apply(self, params: Dict[str, Any], protocol: str) -> Dict[str, Any]:
+        result = self._apply_managed_config("frr", params.get("config"))
+        result["protocol"] = protocol
+        return result
+
+    async def rpc_frr_bgp_reload(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        return await self._frr_apply(params, "bgp")
+
+    async def rpc_frr_ospf_reload(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        return await self._frr_apply(params, "ospf")
+
+    async def rpc_frr_rip_reload(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        return await self._frr_apply(params, "rip")
+
+    async def rpc_frr_isis_reload(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        return await self._frr_apply(params, "isis")
+
+    async def rpc_frr_bfd_reload(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        return await self._frr_apply(params, "bfd")
+
+    async def rpc_frr_status(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Read live FRR daemon state and vtysh summary."""
+        snap = self._unit_snapshot("frr")
+        running = snap.get("running", False)
+        version = ""
+        uptime = snap.get("since", "")
+        router_id = ""
+        bgp_as = ""
+
+        if running:
+            res = self._run_bounded(["vtysh", "-c", "show version"], timeout=3)
+            if res["rc"] == 0 and res["output"]:
+                first_line = res["output"].splitlines()[0]
+                version = first_line.strip()
+            res_bgp = self._run_bounded(["vtysh", "-c", "show ip bgp summary json"], timeout=3)
+            if res_bgp["rc"] == 0 and res_bgp["output"]:
+                try:
+                    data = strict_json_loads(res_bgp["output"])
+                    router_id = str(data.get("routerId") or "")
+                    bgp_as = str(data.get("as") or "")
+                except Exception:
+                    pass
+
+        return {
+            "success": True,
+            "status": "ok",
+            "running": running,
+            "enabled": snap.get("enabled", False),
+            "version": version,
+            "uptime": uptime,
+            "bgp_as": bgp_as,
+            "router_id": router_id,
+            "unit": snap,
+        }
+
+    async def rpc_ospf_status(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Read live OSPF state through fixed, read-only vtysh commands."""
+        commands = {
+            "general": "show ip ospf",
+            "neighbors": "show ip ospf neighbor detail",
+            "routes": "show ip ospf route",
+            "database": "show ip ospf database",
+            "router_database": "show ip ospf database router",
+            "interfaces": "show ip ospf interface",
+        }
+        sections = {}
+        for key, command in commands.items():
+            # 4 s each keeps the six queries inside the web UI's 30 s IPC timeout.
+            result = self._run_bounded(["vtysh", "-c", command], timeout=4, cap=131072)
+            output = str(result.get("output") or "").strip()
+            if not output:
+                if result.get("missing"):
+                    output = "vtysh is unavailable on this system."
+                elif result.get("timed_out"):
+                    output = "Command timed out while reading OSPF state."
+                elif result.get("rc", 1) != 0:
+                    output = "No OSPF data is available; FRR may be stopped or OSPF may not be configured."
+                else:
+                    output = "No OSPF data returned."
+            sections[key] = {
+                "command": command,
+                "available": result.get("rc", 1) == 0,
+                "output": output,
+            }
+
+        process = self._run_bounded(
+            ["ps", "-C", "ospfd", "-o", "%cpu=,%mem=,rss=,pid="], timeout=5, cap=4096
+        )
+        cpu_total = 0.0
+        mem_total = 0.0
+        rss_total = 0
+        pids = []
+        if process.get("rc") == 0:
+            for line in str(process.get("output") or "").splitlines():
+                fields = line.split()
+                if len(fields) < 4:
+                    continue
+                try:
+                    cpu_total += float(fields[0])
+                    mem_total += float(fields[1])
+                    rss_total += int(fields[2])
+                    pids.append(int(fields[3]))
+                except ValueError:
+                    continue
+
+        if pids:
+            cpu_output = f"ospfd CPU average: {cpu_total:.1f}%\nProcesses: {len(pids)}"
+            memory_output = f"Resident memory: {rss_total / 1024:.1f} MiB\nProcess memory: {mem_total:.1f}%"
+            process_available = True
+        else:
+            cpu_output = "ospfd is not running; CPU usage is unavailable."
+            memory_output = "ospfd is not running; memory usage is unavailable."
+            process_available = False
+
+        return {
+            "success": True,
+            "status": "ok",
+            "sections": sections,
+            "resources": {
+                "available": process_available,
+                "cpu_percent": round(cpu_total, 1) if process_available else None,
+                "memory_percent": round(mem_total, 1) if process_available else None,
+                "memory_bytes": rss_total * 1024 if process_available else None,
+                "pids": pids,
+                "cpu_output": cpu_output,
+                "memory_output": memory_output,
+            },
+        }
+
+    async def rpc_network_vrf_sync(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Reconcile Linux VRF devices with the configured list."""
+        vrfs = params.get("vrfs")
+        if not isinstance(vrfs, list):
+            return {"success": False, "status": "error", "message": "vrfs must be a list"}
+        steps, warnings, wanted = [], [], {}
+        for v in vrfs[:64]:
+            if not isinstance(v, dict):
+                continue
+            name = str(v.get("name") or "")
+            try:
+                table = int(v.get("table_id") or 0)
+            except (TypeError, ValueError):
+                table = 0
+            if not VRF_NAME_RE.match(name) or not 1 <= table <= 4294967294 or table in (253, 254, 255):
+                warnings.append(f"skipped invalid VRF {name!r} (table {table})")
+                continue
+            members = [m for m in (v.get("interfaces") or []) if isinstance(m, str) and IF_NAME_RE.match(m)]
+            wanted[name] = (table, members)
+        existing = set()
+        res = self._run_bounded([IP_BIN, "-j", "link", "show", "type", "vrf"], timeout=5)
+        try:
+            for link in strict_json_loads(res["output"] or "[]"):
+                existing.add(link.get("ifname"))
+        except ValueError:
+            pass
+        for name in sorted(existing - set(wanted)):
+            if name:
+                r = self._run_bounded([IP_BIN, "link", "del", name], timeout=5)
+                steps.append(f"ip link del {name} rc={r['rc']}")
+        for name, (table, members) in wanted.items():
+            if name not in existing:
+                r = self._run_bounded([IP_BIN, "link", "add", name, "type", "vrf", "table", str(table)], timeout=5)
+                steps.append(f"ip link add {name} type vrf table {table} rc={r['rc']}")
+                if r["rc"] != 0:
+                    warnings.append(r["output"].strip()[:200])
+                    continue
+            self._run_bounded([IP_BIN, "link", "set", name, "up"], timeout=5)
+            for m in members:
+                r = self._run_bounded([IP_BIN, "link", "set", m, "master", name], timeout=5)
+                steps.append(f"ip link set {m} master {name} rc={r['rc']}")
+        return {"success": not any("rc=" in s and not s.endswith("rc=0") for s in steps),
+                "status": "applied", "vrfs": len(wanted), "steps": steps, "warnings": warnings}
+
+    async def rpc_network_multiwan_sync(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Gateway changes take effect through the policy-routing apply."""
+        if params.get("rules") is None and params.get("routes") is None and not params.get("ruleset"):
+            return {"success": False, "status": "error",
+                    "message": "no gateway policy was supplied — nothing was changed"}
+        return await self.rpc_routing_apply(params)
+
+    # ---------------------------------------------------------- HA
+    async def rpc_ha_sync(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        return self._apply_managed_config("keepalived", params.get("config"))
+
+    async def rpc_ha_failover(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        target = str(params.get("target") or "").lower()
+        if target not in ("master", "backup"):
+            return {"success": False, "status": "error", "message": "target must be master or backup"}
+        result = self._apply_managed_config("keepalived", params.get("config"))
+        result["target"] = target
+        return result
+
+    async def rpc_ha_status(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        keep = self._unit_snapshot("keepalived")
+        ctd = self._unit_snapshot("conntrackd")
+        state = "UNKNOWN"
+        for path in ("/run/keepalived/state", "/var/run/keepalived.state", "/tmp/keepalived.state"):
+            raw = self._read_first(path)
+            if raw:
+                state = raw.split()[0].upper()
+                break
+        if not keep["running"]:
+            state = "STOPPED"
+        return {"success": True, "status": "ok", "state": state, "keepalived": keep,
+                "conntrackd": ctd, "vrrp_instances": [],
+                "config_present": os.path.exists(MANAGED_CONFIGS["keepalived"]["path"])}
+
+    # ---------------------------------------------------------- IDS
+    async def rpc_ids_apply(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        files = params.get("files")
+        if not isinstance(files, dict) or not files:
+            return {"success": False, "status": "error",
+                    "message": "no Suricata configuration was supplied — nothing was changed"}
+        steps, warnings = [], []
+        rules = files.get("rules")
+        if isinstance(rules, str):
+            r = self._apply_managed_config("suricata-rules", rules, reload=False)
+            if not r["success"]:
+                return r
+            steps += r["steps"]
+        result = self._apply_managed_config("suricata", files.get("yaml"))
+        result["steps"] = steps + result.get("steps", [])
+        result["warnings"] = warnings + result.get("warnings", [])
+        return result
+
+    async def rpc_ids_status(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        snap = self._unit_snapshot("suricata")
+        stats = {}
+        eve = "/var/log/suricata/stats.log"
+        if os.path.exists(eve):
+            stats["stats_log"] = eve
+        snap.update({"success": True, "status": "ok", "engine": "Suricata",
+                     "installed": snap["installed"] or self._which("suricata") is not None, **stats})
+        return snap
+
+    # ---------------------------------------------------------- QoS
+    async def rpc_qos_apply(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        script = params.get("script")
+        if isinstance(script, str):
+            for line in script.splitlines():
+                s = line.strip()
+                if not s or s.startswith("#"):
+                    continue
+                if not re.match(r"^(qdisc|class|filter) (add|del|replace|change) dev [A-Za-z0-9._-]{1,15}( [A-Za-z0-9:./_-]+)*$", s):
+                    return {"success": False, "status": "error",
+                            "message": f"refusing tc batch line: {s[:120]}"}
+        return self._apply_managed_config("qos", script)
+
+    async def rpc_qos_status(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        res = self._run_bounded(["tc", "-s", "-j", "qdisc", "show"], timeout=5)
+        qdiscs = []
+        try:
+            qdiscs = strict_json_loads(res["output"]) if res["rc"] == 0 else []
+        except ValueError:
+            qdiscs = []
+        shaped = [q for q in qdiscs if isinstance(q, dict) and q.get("kind") in ("cake", "fq_codel", "htb", "hfsc")
+                  and q.get("root")]
+        return {"success": True, "status": "ok", "available": res["rc"] == 0,
+                "qdiscs": qdiscs[:64], "shaped_interfaces": sorted({q.get("dev") for q in shaped if q.get("dev")})}
+
+    # ---------------------------------------------------------- DPI
+    async def rpc_dpi_apply(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        steps, warnings = [], []
+        snippet = params.get("nftables_snippet")
+        if isinstance(snippet, str) and snippet.strip():
+            with tempfile.NamedTemporaryFile("w", suffix=".nft", delete=False) as tmp:
+                tmp.write(snippet)
+                tmp_path = tmp.name
+            try:
+                chk = self._run_bounded(["nft", "-c", "-f", tmp_path], timeout=20)
+                steps.append(f"nft -c rc={chk['rc']}")
+                if chk["rc"] != 0:
+                    return {"success": False, "status": "error", "steps": steps,
+                            "message": "the DPI nftables snippet was rejected: " + chk["output"].strip()[:300]}
+                load = self._run_bounded(["nft", "-f", tmp_path], timeout=20)
+                steps.append(f"nft -f rc={load['rc']}")
+                if load["rc"] != 0:
+                    return {"success": False, "status": "error", "steps": steps,
+                            "message": "the DPI nftables snippet failed to load: " + load["output"].strip()[:300]}
+            finally:
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
+        conf = params.get("ndpi_config")
+        if isinstance(conf, str) and conf.strip():
+            r = self._apply_managed_config("ndpi", conf, reload=False)
+            steps += r.get("steps", [])
+            warnings += r.get("warnings", [])
+            if not r["success"]:
+                return r
+        if not steps:
+            return {"success": False, "status": "error", "message": "no DPI configuration was supplied"}
+        if not self._dpi_engine_present():
+            warnings.append("no nDPI engine (xt_ndpi kernel module or ndpid) is installed; "
+                            "application signatures are stored but only port/host rules enforce")
+        return {"success": True, "status": "applied", "steps": steps, "warnings": warnings}
+
+    @staticmethod
+    def _dpi_engine_present() -> bool:
+        return os.path.exists("/proc/net/xt_ndpi") or shutil.which("ndpid") is not None
+
+    async def rpc_dpi_status(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        present = self._dpi_engine_present()
+        return {"success": True, "status": "ok", "running": present, "installed": present,
+                "engine": "nDPI" if present else "not installed", "mode": "inline_block",
+                "active_flows": None, "total_analyzed": None,
+                "message": "" if present else "No nDPI engine is installed on this appliance."}
+
+    async def rpc_dpi_stats(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        return {"success": True, "status": "ok", "stats": [], "available": self._dpi_engine_present()}
+
+    async def rpc_dpi_live_flows(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        return {"success": True, "status": "ok", "flows": [], "available": self._dpi_engine_present()}
+
+    # ---------------------------------------------------------- SNMP
+    async def rpc_snmp_reconfigure(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        return self._apply_managed_config("snmpd", params.get("config"))
+
+    async def rpc_snmp_sync_traps(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        return self._apply_managed_config("snmpd", params.get("config"))
+
+    async def rpc_snmp_sync_users(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        return self._apply_managed_config("snmpd", params.get("config"))
+
+    async def rpc_snmp_get_logs(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        text = self._journal("snmpd", self._lines_param(params, 40))
+        return {"success": True, "status": "ok",
+                "logs": [l for l in text.splitlines() if l.strip() and not l.startswith("-- ")]}
+
+    async def rpc_snmp_test_query(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        oid = str(params.get("oid") or "1.3.6.1.2.1.1").strip()
+        community = str(params.get("community") or "").strip()
+        version = str(params.get("version") or "2c").strip().lower().lstrip("v")
+        if not SNMP_OID_RE.match(oid):
+            return {"success": False, "status": "error", "message": "OID must be numeric, e.g. 1.3.6.1.2.1.1"}
+        if version not in ("1", "2c"):
+            return {"success": False, "status": "error", "message": "only SNMP v1/v2c can be queried here"}
+        if not SNMP_COMMUNITY_RE.match(community):
+            return {"success": False, "status": "error", "message": "community string is not valid"}
+        if self._which("snmpwalk") is None:
+            return {"success": False, "status": "error", "message": "snmpwalk (snmp package) is not installed"}
+        res = self._run_bounded(["snmpwalk", "-v", version, "-c", community, "-t", "2", "-r", "1",
+                                 "127.0.0.1", oid], timeout=15, cap=32768)
+        return {"success": res["rc"] == 0, "status": "ok" if res["rc"] == 0 else "error",
+                "output": res["output"], "returncode": res["rc"]}
+
+    async def rpc_snmp_send_test_trap(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        receiver = str(params.get("receiver") or "").strip()
+        community = str(params.get("community") or "public").strip()
+        oid = str(params.get("oid") or "1.3.6.1.4.1.59999.0.1").strip()
+        try:
+            port = int(params.get("port") or 162)
+        except (TypeError, ValueError):
+            port = 0
+        if self._diag_ip_literal(receiver) is None:
+            return {"success": False, "status": "error", "message": "trap receiver must be an IP address"}
+        if not 1 <= port <= 65535 or not SNMP_OID_RE.match(oid) or not SNMP_COMMUNITY_RE.match(community):
+            return {"success": False, "status": "error", "message": "port, OID or community is not valid"}
+        if self._which("snmptrap") is None:
+            return {"success": False, "status": "error", "message": "snmptrap (snmp package) is not installed"}
+        msg = re.sub(r"[^A-Za-z0-9 .,:_-]", "", str(params.get("msg") or "Micron OS test trap"))[:120]
+        target = f"[{receiver}]:{port}" if ":" in receiver else f"{receiver}:{port}"
+        res = self._run_bounded(["snmptrap", "-v", "2c", "-c", community, target, "", oid,
+                                 "1.3.6.1.2.1.1.1.0", "s", msg], timeout=10)
+        return {"success": res["rc"] == 0, "status": "ok" if res["rc"] == 0 else "error",
+                "message": "trap sent" if res["rc"] == 0 else res["output"].strip()[:300]}
+
+    # ---------------------------------------------------------- SIEM
+    async def rpc_siem_reconfigure(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        return self._apply_managed_config("rsyslog-siem", params.get("config"))
+
+    async def rpc_siem_get_logs(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        lines = self._lines_param(params, 30, 200)
+        res = self._run_bounded(["journalctl", "-n", str(lines), "--no-pager", "-o", "json"], timeout=10,
+                                cap=262144)
+        events = []
+        for raw in res["output"].splitlines():
+            try:
+                rec = strict_json_loads(raw)
+            except ValueError:
+                continue
+            if not isinstance(rec, dict):
+                continue
+            try:
+                ts = datetime.datetime.fromtimestamp(int(rec.get("__REALTIME_TIMESTAMP", "0")) / 1e6)
+                stamp = ts.strftime("%Y-%m-%d %H:%M:%S")
+            except (ValueError, OSError):
+                stamp = ""
+            msg = rec.get("MESSAGE")
+            events.append({"time": stamp, "host": rec.get("_HOSTNAME", ""),
+                           "source": rec.get("SYSLOG_IDENTIFIER") or rec.get("_COMM") or "",
+                           "priority": rec.get("PRIORITY", ""),
+                           "message": msg if isinstance(msg, str) else ""})
+        return {"success": True, "status": "ok", "events": events}
+
+    async def rpc_siem_send_test(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        host = str(params.get("host") or "").strip()
+        proto = str(params.get("proto") or "udp").strip().lower()
+        try:
+            port = int(params.get("port") or 514)
+        except (TypeError, ValueError):
+            port = 0
+        if not self._diag_target_ok(host) or host.startswith("-"):
+            return {"success": False, "status": "error", "message": "collector host is not valid"}
+        if proto not in SIEM_PROTOS or not 1 <= port <= 65535:
+            return {"success": False, "status": "error", "message": "protocol or port is not valid"}
+        payload = str(params.get("payload") or "<14>micron-os: SIEM connectivity test")[:2048]
+        try:
+            if proto == "udp":
+                info = socket.getaddrinfo(host, port, type=socket.SOCK_DGRAM)[0]
+                with socket.socket(info[0], socket.SOCK_DGRAM) as s:
+                    s.settimeout(3)
+                    s.sendto(payload.encode("utf-8"), info[4])
+            else:
+                with socket.create_connection((host, port), timeout=3) as s:
+                    s.sendall(payload.encode("utf-8") + b"\n")
+        except OSError as exc:
+            return {"success": False, "status": "error", "message": f"could not reach {host}:{port}/{proto}: {exc}"}
+        return {"success": True, "status": "ok",
+                "message": f"test event sent to {host}:{port}/{proto}" + (" (UDP has no delivery receipt)" if proto == "udp" else "")}
+
+    # ---------------------------------------------------------- OpenVPN
+    async def rpc_vpn_openvpn_sync(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        return self._apply_managed_config("openvpn", params.get("config"))
+
+    async def rpc_vpn_openvpn_status(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        snap = self._unit_snapshot("openvpn@server")
+        clients = []
+        for path in OPENVPN_STATUS_FILES:
+            raw = self._read_first(path)
+            if not raw:
+                continue
+            for line in raw.splitlines():
+                cols = line.split(",")
+                if cols[0] == "CLIENT_LIST" and len(cols) >= 8:
+                    clients.append({"common_name": cols[1], "real_address": cols[2],
+                                    "virtual_address": cols[3], "bytes_received": cols[5],
+                                    "bytes_sent": cols[6], "connected_since": cols[7]})
+            break
+        snap.update({"success": True, "status": "ok", "clients": clients, "client_count": len(clients)})
+        return snap
+
+    # ---------------------------------------------------------- Web filter AV
+    async def rpc_webfilter_av_status(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        clam = self._unit_snapshot("clamav-daemon")
+        icap = self._unit_snapshot("c-icap")
+        version = None
+        if self._which("clamdscan"):
+            v = self._run_bounded(["clamdscan", "--version"], timeout=10)
+            version = v["output"].strip() if v["rc"] == 0 else None
+        return {"success": True, "status": "ok", "running": clam["running"], "engine": "ClamAV",
+                "icap_running": icap["running"], "definitions": version,
+                "installed": clam["installed"]}
+
+    async def rpc_webfilter_clamav_update(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        if self._which("freshclam") is None:
+            return {"success": False, "status": "error", "message": "freshclam is not installed"}
+        res = self._run_bounded(["freshclam", "--stdout", "--no-warnings"], timeout=240)
+        ok = res["rc"] in (0, 1)
+        tail = res["output"].strip().splitlines()
+        return {"success": ok, "status": "ok" if ok else "error",
+                "output": res["output"][-8192:], "returncode": res["rc"],
+                "message": "signature databases are current" if ok
+                else "freshclam failed: " + (tail[-1] if tail else f"exit {res['rc']}")}
+
+    # ---------------------------------------------------------- Certificates
+    async def rpc_cert_install(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Install a certificate (PEM) for a service and reload what serves it.
+
+        service "webgui" (default) writes /etc/micron/ssl/webgui.{crt,key};
+        service "ztna" writes the Clientless Gateway pair nginx reads, and with
+        self_signed=true replaces it with a fresh self-signed one for `domain`.
+        """
+        service = str(params.get("service") or "webgui")
+        if service not in ("webgui", "ztna"):
+            return {"success": False, "status": "error", "message": "unknown certificate service"}
+        if service == "ztna" and params.get("self_signed") is True:
+            domain = str(params.get("domain") or "")
+            err = _ensure_ztna_certificate(domain, force=True)
+            if err:
+                return {"success": False, "status": "error", "message": err}
+            return {"success": True, "status": "applied",
+                    "steps": [f"generated a self-signed certificate in {ZTNA_CERT_PATH}"],
+                    "services_reloaded": self._ztna_nginx_reload()}
+        cert = params.get("cert_pem")
+        key = params.get("key_pem")
+        if not isinstance(cert, str) or "BEGIN CERTIFICATE" not in cert:
+            return {"success": False, "status": "error", "message": "a PEM certificate is required"}
+        if not isinstance(key, str) or "PRIVATE KEY" not in key:
+            return {"success": False, "status": "error", "message": "the matching PEM private key is required"}
+        if len(cert) > 65536 or len(key) > 65536:
+            return {"success": False, "status": "error", "message": "certificate or key is too large"}
+        steps = []
+        if service == "ztna":
+            crt_path, key_path = ZTNA_CERT_PATH, ZTNA_KEY_PATH
+        else:
+            crt_path = os.path.join(WEBGUI_CERT_DIR, "webgui.crt")
+            key_path = os.path.join(WEBGUI_CERT_DIR, "webgui.key")
+        if self._which("openssl"):
+            with tempfile.TemporaryDirectory() as td:
+                c, k = os.path.join(td, "c.pem"), os.path.join(td, "k.pem")
+                with open(c, "w") as fh:
+                    fh.write(cert)
+                with open(k, "w") as fh:
+                    fh.write(key)
+                os.chmod(k, 0o600)
+                pc = self._run_bounded(["openssl", "x509", "-noout", "-pubkey", "-in", c], timeout=10)
+                pk = self._run_bounded(["openssl", "pkey", "-pubout", "-in", k], timeout=10)
+                if pc["rc"] != 0 or pk["rc"] != 0 or pc["output"].strip() != pk["output"].strip():
+                    return {"success": False, "status": "error",
+                            "message": "the private key does not match the certificate"}
+                steps.append("certificate and key match")
+        try:
+            os.makedirs(os.path.dirname(crt_path), mode=0o700, exist_ok=True)
+            safe_atomic_write(crt_path, cert, mode=0o644)
+            safe_atomic_write(key_path, key, mode=0o600)
+            steps.append(f"wrote {crt_path} and {key_path}")
+        except OSError as exc:
+            return {"success": False, "status": "error", "message": f"could not write certificate: {exc}"}
+        reloaded = self._ztna_nginx_reload() if service == "ztna" else self._cert_reload_units()
+        return {"success": True, "status": "applied", "steps": steps, "services_reloaded": reloaded}
+
+    def _ztna_nginx_reload(self) -> list:
+        """Reload nginx (the gateway) only if it is running and its config is valid."""
+        if not self._unit_snapshot("nginx")["running"]:
+            return []
+        if self._run_bounded(["nginx", "-t"], timeout=10)["rc"] != 0:
+            return []
+        r = self._run_bounded(["systemctl", "reload", "nginx"], timeout=30)
+        return ["nginx"] if r["rc"] == 0 else []
+
+    def _cert_reload_units(self) -> list:
+        reloaded = []
+        for unit in CERT_RELOAD_UNITS:
+            if self._unit_snapshot(unit)["running"]:
+                r = self._run_bounded(["systemctl", "reload-or-restart", unit], timeout=60)
+                if r["rc"] == 0:
+                    reloaded.append(unit)
+        return reloaded
+
+    async def rpc_cert_reload(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        return {"success": True, "status": "applied", "services_reloaded": self._cert_reload_units()}
+
+    # ---------------------------------------------------------- Firewall counters
+    async def rpc_firewall_list_rules(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Live nftables rules with their hit counters (`nft -j list ruleset`)."""
+        res = self._run_bounded(["nft", "-j", "list", "ruleset"], timeout=10, cap=4 * 1024 * 1024)
+        if res["rc"] != 0:
+            return {"success": False, "status": "error", "rules": [],
+                    "message": res["output"].strip()[:300] or "nft is not available"}
+        try:
+            doc = strict_json_loads(res["output"])
+        except ValueError:
+            return {"success": False, "status": "error", "rules": [], "message": "nft returned invalid JSON"}
+        rules = []
+        for item in (doc.get("nftables", []) if isinstance(doc, dict) else []):
+            rule = item.get("rule") if isinstance(item, dict) else None
+            if not isinstance(rule, dict):
+                continue
+            packets = bytes_ = None
+            verdict = None
+            for expr in rule.get("expr", []) or []:
+                if isinstance(expr, dict) and "counter" in expr and isinstance(expr["counter"], dict):
+                    packets = expr["counter"].get("packets")
+                    bytes_ = expr["counter"].get("bytes")
+                for v in ("accept", "drop", "reject", "jump", "goto", "return"):
+                    if isinstance(expr, dict) and v in expr:
+                        verdict = v
+            rules.append({"family": rule.get("family"), "table": rule.get("table"),
+                          "chain": rule.get("chain"), "handle": rule.get("handle"),
+                          "comment": rule.get("comment", ""), "packets": packets, "bytes": bytes_,
+                          "verdict": verdict})
+            if len(rules) >= 5000:
+                break
+        return {"success": True, "status": "ok", "rules": rules, "count": len(rules)}
+
+    # ---------------------------------------------------------- Conntrack
+    def _conntrack_refusal(self, value: str, what: str) -> Optional[str]:
+        if self._diag_ip_literal(value) is None:
+            return f"{what} must be an IP address"
+        return None
+
+    async def rpc_diag_conntrack_kill(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        src = str(params.get("src") or "").strip()
+        dst = str(params.get("dst") or "").strip()
+        proto = str(params.get("proto") or "tcp").strip().lower()
+        for value, what in ((src, "source"), (dst, "destination")):
+            refusal = self._conntrack_refusal(value, what)
+            if refusal:
+                return {"success": False, "status": "error", "message": refusal}
+        if proto not in CONNTRACK_PROTOS:
+            return {"success": False, "status": "error", "message": "protocol is not valid"}
+        argv = [CONNTRACK_BIN, "-D", "-p", proto, "-s", src, "-d", dst]
+        for key, flag in (("sport", "--sport"), ("dport", "--dport")):
+            raw = params.get(key)
+            if raw in (None, "", 0, "0") or proto not in ("tcp", "udp", "sctp"):
+                continue
+            try:
+                port = int(raw)
+            except (TypeError, ValueError):
+                return {"success": False, "status": "error", "message": f"{key} must be a port number"}
+            if not 1 <= port <= 65535:
+                return {"success": False, "status": "error", "message": f"{key} must be 1-65535"}
+            argv += [flag, str(port)]
+        res = self._run_bounded(argv, timeout=10)
+        killed = self._conntrack_deleted(res["output"])
+        ok = res["rc"] == 0 or killed > 0
+        return {"success": ok, "status": "applied" if ok else "error", "killed_count": killed,
+                "message": f"{killed} state(s) removed" if ok else
+                ("no matching state" if "0 flow entries" in res["output"] else res["output"].strip()[:200])}
+
+    @staticmethod
+    def _conntrack_deleted(output: str) -> int:
+        m = re.search(r"(\d+) flow entries have been deleted", output)
+        return int(m.group(1)) if m else 0
+
+    async def rpc_diag_conntrack_kill_host(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        host = str(params.get("host") or "").strip()
+        refusal = self._conntrack_refusal(host, "host")
+        if refusal:
+            return {"success": False, "status": "error", "message": refusal}
+        total = 0
+        for flag in ("-s", "-d"):
+            res = self._run_bounded([CONNTRACK_BIN, "-D", flag, host], timeout=15)
+            total += self._conntrack_deleted(res["output"])
+        return {"success": True, "status": "applied", "killed_count": total,
+                "message": f"{total} state(s) for {host} removed"}
+
+
+# =============================================================================
+# Network & security utility toolkit (docs/MICRONOS_DIAGNOSTIC_TOOLKIT_SPECIFICATION.md)
+# =============================================================================
+# Safety model, enforced here (the daemon), not only in the UI:
+#   * argv lists only, flags are server-side constants chosen by an enum;
+#   * no target may start with "-" or contain whitespace/shell metacharacters;
+#   * every invocation has a hard timeout and a 64 KiB output cap;
+#   * intrusive scans need an explicit acknowledgement, are limited in size,
+#     refuse public address space unless the caller passes `allow_public`
+#     (granted by a dedicated permission in the Web UI), and are audit-logged.
+TOOLKIT_OUTPUT_CAP = 64 * 1024
+TOOLKIT_BINARIES = {
+    "ping": ("ping", "iputils-ping"), "traceroute": ("traceroute", "traceroute"),
+    "mtr": ("mtr", "mtr-tiny"), "nmap": ("nmap", "nmap"), "nc": ("nc", "netcat-openbsd"),
+    "telnet": ("telnet", "telnet"), "dig": ("dig", "bind9-dnsutils"),
+    "whois": ("whois", "whois"), "arping": ("arping", "iputils-arping"),
+    "ss": ("ss", "iproute2"), "openssl": ("openssl", "openssl"), "curl": ("curl", "curl"),
+    "iperf3": ("iperf3", "iperf3"), "tcpdump": ("tcpdump", "tcpdump"),
+    "ethtool": ("ethtool", "ethtool"), "ip": ("ip", "iproute2"), "conntrack": ("conntrack", "conntrack"),
+    "nslookup": ("nslookup", "bind9-dnsutils"), "tracepath": ("tracepath", "iputils-tracepath"),
+}
+NMAP_PROFILES = {
+    # name: (flags, description)
+    "ping-sweep": (["-sn"], "Host discovery only (no port scan)"),
+    "quick": (["-T4", "-F"], "Top 100 TCP ports"),
+    "top1000": (["-T4"], "Top 1000 TCP ports"),
+    "service": (["-T4", "-sV", "--version-light"], "Top 1000 TCP ports with service/version detection"),
+    "udp-top": (["-T4", "-sU", "--top-ports", "50"], "Top 50 UDP ports (slow)"),
+    "ports": (["-T4"], "An explicit port list"),
+}
+NMAP_MAX_HOSTS = 256      # one /24
+NMAP_MAX_LIST = 32
+NMAP_MAX_PORTS = 128
+NMAP_SECONDS = 300
+MTR_MAX_CYCLES = 20
+IPERF_MAX_SECONDS = 30
+HTTP_METHODS = ("GET", "HEAD")
+HTTP_MAX_REDIRECTS = 5
+TLS_VERSIONS = ("auto", "tls1_2", "tls1_3")
+WHOIS_OBJECT_RE = re.compile(r"^(?:AS\d{1,10}|[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?|[0-9a-fA-F:.]{2,45}(?:/\d{1,3})?)$")
+PORT_LIST_RE = re.compile(r"^\d{1,5}(?:-\d{1,5})?(?:,\d{1,5}(?:-\d{1,5})?)*$")
+TOOLKIT_METACHARS = set(";|&`$<>\\\"'(){}[]*?!~\n\r\t \x00")
+METADATA_HOSTS = ("metadata.google.internal", "metadata", "169.254.169.254", "fd00:ec2::254")
+
+
+class ToolkitMixin:
+    """diag.* toolkit handlers. Reuses the existing target validation
+    (`_diag_target_ok`), the streamed-session machinery (`_stream_open`) and
+    the bounded runner."""
+
+    def _tk_host_refusal(self, host: str) -> Optional[str]:
+        if not host:
+            return "a target host is required"
+        if host.startswith("-"):
+            return "the target may not start with '-'"
+        if any(ch in TOOLKIT_METACHARS for ch in host):
+            return "the target contains characters that are not allowed"
+        if not self._diag_target_ok(host):
+            return "the target must be a valid hostname or IP address"
+        return None
+
+    @staticmethod
+    def _tk_missing(tool: str) -> Optional[Dict[str, Any]]:
+        binary, package = TOOLKIT_BINARIES[tool]
+        if OpsMixin._which(binary) is None:
+            return {"success": False, "status": "degraded", "missing": binary, "package": package,
+                    "message": f"`{binary}` is not installed on this appliance (package: {package}). "
+                               f"Install it from System → Packages or add it to the image."}
+        return None
+
+    @staticmethod
+    def _tk_int(params: Dict[str, Any], key: str, default: int, lo: int, hi: int, label: str) -> tuple:
+        raw = params.get(key)
+        if raw is None or (isinstance(raw, str) and raw.strip() == ""):
+            return default, None
+        try:
+            val = int(raw)
+        except (TypeError, ValueError):
+            return None, f"{label} must be a whole number"
+        if not lo <= val <= hi:
+            return None, f"{label} must be between {lo} and {hi}"
+        return val, None
+
+    @staticmethod
+    def _tk_audit(tool: str, target: str, outcome: str, params: Dict[str, Any]) -> None:
+        logger.info("AUDIT diag tool=%s target=%s actor=%s source=%s outcome=%s",
+                    tool, target[:255], str(params.get("_actor") or "-")[:64],
+                    str(params.get("_source") or "-")[:16], outcome)
+
+    def _tk_result(self, tool: str, argv: list, res: Dict[str, Any], parsed: Optional[dict] = None,
+                   warnings: Optional[list] = None) -> Dict[str, Any]:
+        status = "ok" if res["rc"] == 0 else ("timeout" if res["timed_out"] else "error")
+        out = {"success": res["rc"] == 0, "status": status, "tool": tool, "output": res["output"],
+               "returncode": res["rc"], "truncated": res["truncated"], "cmd": " ".join(argv),
+               "parsed": parsed or {}, "warnings": warnings or []}
+        if res["timed_out"]:
+            out["warnings"].append("the command reached its time limit; output may be partial")
+        return out
+
+    async def rpc_diag_tools(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Which toolkit binaries exist on this appliance."""
+        tools = {}
+        for tool, (binary, package) in TOOLKIT_BINARIES.items():
+            path = OpsMixin._which(binary)
+            tools[tool] = {"binary": binary, "package": package, "installed": path is not None,
+                           "path": path}
+        return {"success": True, "status": "ok", "tools": tools,
+                "nmap_profiles": {k: v[1] for k, v in NMAP_PROFILES.items()}}
+
+    # --------------------------------------------------- TCP service probe
+    async def rpc_diag_telnet(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Connect to host:port, report whether it accepted and what it said.
+
+        Implemented with a socket (no `telnet`/`nc` child at all), so there is no
+        flag to inject and nothing to leave running. Optionally sends one line
+        (e.g. `HEAD / HTTP/1.0`) so text protocols reveal a banner.
+        """
+        host = str(params.get("host") or "").strip()
+        refusal = self._tk_host_refusal(host)
+        if refusal:
+            return {"success": False, "status": "error", "message": refusal}
+        port, err = self._tk_int(params, "port", 23, 1, 65535, "Port")
+        if err:
+            return {"success": False, "status": "error", "message": err}
+        timeout, err = self._tk_int(params, "timeout", 5, 1, 30, "Timeout")
+        if err:
+            return {"success": False, "status": "error", "message": err}
+        send = str(params.get("send") or "")
+        if len(send) > 256 or any(c in send for c in "\x00\r\n"):
+            return {"success": False, "status": "error", "message": "the line to send must be one line of at most 256 characters"}
+        started = time.time()
+        banner = b""
+        try:
+            with socket.create_connection((host, port), timeout=timeout) as sock:
+                connect_ms = round((time.time() - started) * 1000, 1)
+                peer = sock.getpeername()
+                sock.settimeout(min(3, timeout))
+                if send:
+                    sock.sendall(send.encode("utf-8", "replace") + b"\r\n\r\n")
+                try:
+                    while len(banner) < 4096:
+                        chunk = sock.recv(1024)
+                        if not chunk:
+                            break
+                        banner += chunk
+                except socket.timeout:
+                    pass
+        except socket.timeout:
+            self._tk_audit("telnet", f"{host}:{port}", "filtered", params)
+            return {"success": False, "status": "filtered", "tool": "telnet",
+                    "parsed": {"open": False, "state": "filtered"},
+                    "output": f"Trying {host} port {port}/tcp …\nNo answer within {timeout}s — the port is filtered or the host is down.\n",
+                    "message": f"{host}:{port} did not answer within {timeout}s"}
+        except OSError as exc:
+            self._tk_audit("telnet", f"{host}:{port}", "closed", params)
+            return {"success": False, "status": "closed", "tool": "telnet",
+                    "parsed": {"open": False, "state": "closed", "error": str(exc)},
+                    "output": f"Trying {host} port {port}/tcp …\nConnection failed: {exc}\n",
+                    "message": f"{host}:{port} refused or is unreachable: {exc}"}
+        text = banner.decode("utf-8", "replace").replace("\r\n", "\n").replace("\r", "\n")
+        printable = "".join(ch if ch.isprintable() or ch in "\n\t" else "·" for ch in text)
+        self._tk_audit("telnet", f"{host}:{port}", "open", params)
+        out = f"Trying {host} port {port}/tcp …\nConnected to {peer[0]} in {connect_ms} ms.\n"
+        out += ("--- banner ---\n" + printable.rstrip() + "\n") if printable.strip() else "(the service sent no banner)\n"
+        return {"success": True, "status": "ok", "tool": "telnet", "output": out,
+                "parsed": {"open": True, "state": "open", "connect_ms": connect_ms,
+                           "banner": printable.strip()[:1024], "peer": peer[0]},
+                "warnings": ["Telnet is unencrypted — use it only to test reachability; administer with SSH."]}
+
+    # --------------------------------------------------- nmap
+    def _nmap_targets(self, raw: str, allow_public: bool) -> tuple:
+        raw = raw.strip()
+        if not raw:
+            return None, "a scan target is required"
+        items = [t.strip() for t in raw.split(",") if t.strip()]
+        if len(items) > NMAP_MAX_LIST:
+            return None, f"at most {NMAP_MAX_LIST} targets may be listed"
+        hosts = 0
+        targets = []
+        for item in items:
+            if item.startswith("-") or any(ch in TOOLKIT_METACHARS for ch in item):
+                return None, f"target {item!r} contains characters that are not allowed"
+            if "/" in item:
+                try:
+                    net = ipaddress.ip_network(item, strict=False)
+                except ValueError:
+                    return None, f"{item!r} is not a valid network"
+                size = net.num_addresses
+                if (net.version == 4 and net.prefixlen < 24) or (net.version == 6 and net.prefixlen < 120):
+                    return None, "networks larger than a /24 (IPv4) or /120 (IPv6) cannot be scanned"
+                addrs = [net.network_address]
+            else:
+                literal = self._diag_ip_literal(item)
+                if literal is None:
+                    if not self._diag_target_ok(item):
+                        return None, f"{item!r} is not a valid host"
+                    try:
+                        resolved = {ipaddress.ip_address(ai[4][0].split("%")[0])
+                                    for ai in socket.getaddrinfo(item, None)}
+                    except OSError:
+                        return None, f"{item} does not resolve"
+                    addrs = list(resolved)
+                else:
+                    addrs = [literal]
+                size = 1
+            hosts += size
+            for addr in addrs:
+                if addr.is_loopback or addr.is_link_local or addr.is_multicast or addr.is_unspecified:
+                    return None, f"{item} is a loopback, link-local, multicast or unspecified address"
+                if not allow_public and addr.is_global:
+                    return None, (f"{item} is public address space; scanning it needs the "
+                                  "'Scan public addresses' permission and explicit selection")
+            targets.append(item)
+        if hosts > NMAP_MAX_HOSTS:
+            return None, f"the scan would cover {hosts} addresses (limit {NMAP_MAX_HOSTS})"
+        return targets, None
+
+    def _nmap_argv(self, params: Dict[str, Any]) -> tuple:
+        if not self._diag_checkbox(params.get("authorized")):
+            return None, None, "confirm that you are authorised to scan this target before running a scan"
+        profile = str(params.get("profile") or "quick")
+        if profile not in NMAP_PROFILES:
+            return None, None, "unknown scan profile"
+        targets, err = self._nmap_targets(str(params.get("target") or ""),
+                                          self._diag_checkbox(params.get("allow_public")))
+        if err:
+            return None, None, err
+        argv = ["nmap", "-Pn" if profile != "ping-sweep" else "-n", "--reason", "--max-retries", "2",
+                "--host-timeout", "120s"] + NMAP_PROFILES[profile][0]
+        if profile == "ports":
+            ports = str(params.get("ports") or "").replace(" ", "")
+            if not PORT_LIST_RE.match(ports):
+                return None, None, "ports must be a list such as 22,80,443 or 8000-8010"
+            count = 0
+            for part in ports.split(","):
+                lo, _, hi = part.partition("-")
+                lo_i, hi_i = int(lo), int(hi or lo)
+                if not (1 <= lo_i <= hi_i <= 65535):
+                    return None, None, f"invalid port range {part}"
+                count += hi_i - lo_i + 1
+            if count > NMAP_MAX_PORTS:
+                return None, None, f"at most {NMAP_MAX_PORTS} ports may be listed"
+            argv += ["-p", ports]
+        if self._diag_ip_literal(targets[0]) is not None and self._diag_ip_literal(targets[0]).version == 6:
+            argv.append("-6")
+        return argv + targets, targets, None
+
+    async def rpc_diag_nmap(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Run a bounded scan to completion (CLI path)."""
+        missing = self._tk_missing("nmap")
+        if missing:
+            return missing
+        argv, targets, err = self._nmap_argv(params)
+        if err:
+            return {"success": False, "status": "blocked" if "authoris" in err or "public" in err else "error",
+                    "message": err}
+        res = self._run_bounded(argv, timeout=NMAP_SECONDS, cap=TOOLKIT_OUTPUT_CAP)
+        self._tk_audit("nmap", ",".join(targets), f"rc={res['rc']}", params)
+        open_ports = re.findall(r"^(\d+)/(tcp|udp)\s+open\s+(\S+)", res["output"], re.M)
+        return self._tk_result("nmap", argv, res, {"open_ports": [
+            {"port": int(p), "proto": pr, "service": s} for p, pr, s in open_ports]})
+
+    async def rpc_diag_nmap_start(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Start a scan as a streamed session (Web UI path); poll with diag.stream_poll."""
+        missing = self._tk_missing("nmap")
+        if missing:
+            return missing
+        argv, targets, err = self._nmap_argv(params)
+        if err:
+            return {"success": False, "status": "blocked" if "authoris" in err or "public" in err else "error",
+                    "message": err}
+        self._tk_audit("nmap", ",".join(targets), "started", params)
+        return self._stream_open(argv, "nmap", ",".join(targets))
+
+    # --------------------------------------------------- mtr
+    def _mtr_argv(self, params: Dict[str, Any]) -> tuple:
+        host = str(params.get("host") or "").strip()
+        refusal = self._tk_host_refusal(host)
+        if refusal:
+            return None, refusal
+        cycles, err = self._tk_int(params, "cycles", 10, 1, MTR_MAX_CYCLES, "Cycles")
+        if err:
+            return None, err
+        argv = ["mtr", "--report", "--report-wide", "--no-dns" if not self._diag_checkbox(params.get("resolve")) else "--show-ips",
+                "-c", str(cycles)]
+        if str(params.get("ipproto") or "").lower() == "ipv6":
+            argv.append("-6")
+        elif str(params.get("ipproto") or "").lower() == "ipv4":
+            argv.append("-4")
+        if self._diag_checkbox(params.get("tcp")):
+            argv.append("--tcp")
+        return argv + [host], None
+
+    async def rpc_diag_mtr(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        missing = self._tk_missing("mtr")
+        if missing:
+            return missing
+        argv, err = self._mtr_argv(params)
+        if err:
+            return {"success": False, "status": "error", "message": err}
+        res = self._run_bounded(argv, timeout=120)
+        hops = []
+        for line in res["output"].splitlines():
+            m = re.match(r"^\s*(\d+)\.\|--\s+(\S+)\s+([\d.]+)%\s+(\d+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)", line)
+            if m:
+                hops.append({"hop": int(m.group(1)), "host": m.group(2), "loss_pct": float(m.group(3)),
+                             "sent": int(m.group(4)), "last": float(m.group(5)), "avg": float(m.group(6)),
+                             "best": float(m.group(7)), "worst": float(m.group(8)), "stdev": float(m.group(9))})
+        self._tk_audit("mtr", argv[-1], f"rc={res['rc']}", params)
+        return self._tk_result("mtr", argv, res, {"hops": hops})
+
+    async def rpc_diag_mtr_start(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        missing = self._tk_missing("mtr")
+        if missing:
+            return missing
+        argv, err = self._mtr_argv(params)
+        if err:
+            return {"success": False, "status": "error", "message": err}
+        return self._stream_open(argv, "mtr", argv[-1])
+
+    # --------------------------------------------------- DNS / whois
+    async def rpc_diag_dns_query(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """dig with a short or full answer and optional +trace / DNSSEC."""
+        missing = self._tk_missing("dig")
+        if missing:
+            return missing
+        name = str(params.get("name") or "").strip()
+        refusal = self._tk_host_refusal(name)
+        if refusal:
+            return {"success": False, "status": "error", "message": refusal}
+        qtype = str(params.get("type") or "A").strip().upper()
+        if qtype not in DIAG_DNS_TYPES + ("SRV", "CAA", "DS", "DNSKEY", "ANY"):
+            return {"success": False, "status": "error", "message": "unsupported record type"}
+        argv = ["dig", "+time=3", "+tries=2"]
+        server = str(params.get("server") or "").strip()
+        if server:
+            if self._diag_ip_literal(server) is None:
+                return {"success": False, "status": "error", "message": "DNS server must be an IP address"}
+            argv.append(f"@{server}")
+        if self._diag_checkbox(params.get("dnssec")):
+            argv.append("+dnssec")
+        if self._diag_checkbox(params.get("trace")):
+            argv.append("+trace")
+        if self._diag_checkbox(params.get("short")):
+            argv.append("+short")
+        argv += [name, qtype]
+        res = self._run_bounded(argv, timeout=30)
+        answers = [l for l in res["output"].splitlines() if l and not l.startswith(";")]
+        status = re.search(r"status: ([A-Z]+)", res["output"])
+        return self._tk_result("dns", argv, res, {"rcode": status.group(1) if status else None,
+                                                    "answers": answers[:50]})
+
+    async def rpc_diag_whois(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        missing = self._tk_missing("whois")
+        if missing:
+            return missing
+        obj = str(params.get("object") or params.get("query") or "").strip()
+        if not obj or obj.startswith("-") or not WHOIS_OBJECT_RE.match(obj):
+            return {"success": False, "status": "error",
+                    "message": "enter a domain, IP address, prefix or AS number (e.g. AS13335)"}
+        argv = ["whois", "--", obj]
+        res = self._run_bounded(argv, timeout=20)
+        return self._tk_result("whois", argv, res)
+
+    # --------------------------------------------------- layer 2 / sockets
+    async def rpc_diag_arping(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        missing = self._tk_missing("arping")
+        if missing:
+            return missing
+        iface = str(params.get("interface") or "").strip()
+        target = str(params.get("target") or params.get("host") or "").strip()
+        if DIAG_IFACE_RE.fullmatch(iface) is None:
+            return {"success": False, "status": "error", "message": "interface name is not valid"}
+        addr = self._diag_ip_literal(target)
+        if addr is None or addr.version != 4:
+            return {"success": False, "status": "error", "message": "target must be an IPv4 address (use NDP for IPv6)"}
+        count, err = self._tk_int(params, "count", 3, 1, 10, "Count")
+        if err:
+            return {"success": False, "status": "error", "message": err}
+        argv = ["arping", "-c", str(count), "-w", str(count + 2), "-I", iface, str(addr)]
+        res = self._run_bounded(argv, timeout=count + 5)
+        macs = sorted(set(re.findall(r"\[([0-9a-fA-F:]{17})\]", res["output"])))
+        return self._tk_result("arping", argv, res, {"replies": len(re.findall(r"reply from", res["output"], re.I)),
+                                                     "macs": macs})
+
+    async def rpc_diag_arp_table(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        res = self._run_bounded([IP_BIN, "-j", "neigh", "show"], timeout=5)
+        try:
+            rows = strict_json_loads(res["output"]) if res["rc"] == 0 else []
+        except ValueError:
+            rows = []
+        entries = [{"ip": r.get("dst"), "mac": r.get("lladdr", ""), "interface": r.get("dev"),
+                    "state": ",".join(r.get("state", [])) if isinstance(r.get("state"), list) else r.get("state")}
+                   for r in rows if isinstance(r, dict)]
+        return {"success": res["rc"] == 0, "status": "ok", "entries": entries}
+
+    async def rpc_diag_sockets(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        missing = self._tk_missing("ss")
+        if missing:
+            return missing
+        flags = "-H"
+        flags += "l" if self._diag_checkbox(params.get("listen", True)) else "a"
+        want_tcp = self._diag_checkbox(params.get("tcp", True))
+        want_udp = self._diag_checkbox(params.get("udp", True))
+        if not want_tcp and not want_udp:
+            want_tcp = want_udp = True
+        flags += ("t" if want_tcp else "") + ("u" if want_udp else "") + "np"
+        argv = ["ss", flags]
+        res = self._run_bounded(argv, timeout=10)
+        sockets = []
+        for line in res["output"].splitlines():
+            cols = line.split()
+            if len(cols) < 5:
+                continue
+            proc = re.search(r'users:\(\("([^"]+)",pid=(\d+)', line)
+            sockets.append({"netid": cols[0], "state": cols[1], "local": cols[4],
+                            "peer": cols[5] if len(cols) > 5 else "",
+                            "process": proc.group(1) if proc else None,
+                            "pid": int(proc.group(2)) if proc else None})
+        return self._tk_result("sockets", argv, res, {"sockets": sockets[:500]})
+
+    # --------------------------------------------------- TLS / HTTP
+    async def rpc_diag_tls_probe(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Certificate, protocol and cipher a TLS endpoint offers."""
+        missing = self._tk_missing("openssl")
+        if missing:
+            return missing
+        host = str(params.get("host") or "").strip()
+        refusal = self._tk_host_refusal(host)
+        if refusal:
+            return {"success": False, "status": "error", "message": refusal}
+        port, err = self._tk_int(params, "port", 443, 1, 65535, "Port")
+        if err:
+            return {"success": False, "status": "error", "message": err}
+        sni = str(params.get("sni") or "").strip() or (host if self._diag_ip_literal(host) is None else "")
+        if sni and (self._tk_host_refusal(sni) or self._diag_ip_literal(sni) is not None):
+            return {"success": False, "status": "error", "message": "SNI must be a hostname"}
+        version = str(params.get("version") or "auto")
+        if version not in TLS_VERSIONS:
+            return {"success": False, "status": "error", "message": "unsupported TLS version"}
+        target = f"[{host}]:{port}" if ":" in host else f"{host}:{port}"
+        argv = ["openssl", "s_client", "-connect", target]
+        if sni:
+            argv += ["-servername", sni]
+        if version != "auto":
+            argv.append("-" + version)
+        res = self._run_bounded(argv, timeout=15, input_text="Q\n")
+        out = res["output"]
+        parsed = {
+            "protocol": (re.search(r"Protocol\s*:\s*(\S+)", out) or re.search(r"New, (TLSv[\d.]+)", out) or [None, None])[1],
+            "cipher": (re.search(r"Cipher\s*(?:is|:)\s*(\S+)", out) or [None, None])[1],
+            "subject": (re.search(r"^subject=(.*)$", out, re.M) or [None, None])[1],
+            "issuer": (re.search(r"^issuer=(.*)$", out, re.M) or [None, None])[1],
+            "verify": (re.search(r"Verify return code: (\d+ \([^)]*\))", out) or [None, None])[1],
+        }
+        cert = re.search(r"(-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----)", out, re.S)
+        if cert:
+            dates = self._run_bounded(["openssl", "x509", "-noout", "-dates", "-ext", "subjectAltName"],
+                                      timeout=5, input_text=cert.group(1))
+            nb = re.search(r"notBefore=(.*)", dates["output"])
+            na = re.search(r"notAfter=(.*)", dates["output"])
+            parsed["not_before"] = nb.group(1).strip() if nb else None
+            parsed["not_after"] = na.group(1).strip() if na else None
+            san = re.search(r"Subject Alternative Name:\s*\n\s*(.*)", dates["output"])
+            parsed["san"] = san.group(1).strip() if san else None
+            out = out.replace(cert.group(1), "[certificate PEM omitted — see the parsed summary]")
+            res["output"] = out
+        ok = bool(parsed["protocol"] or parsed["cipher"]) and "Cipher is (NONE)" not in out
+        res["rc"] = 0 if ok else (res["rc"] or 1)
+        self._tk_audit("tls", target, "ok" if ok else "fail", params)
+        return self._tk_result("tls", argv, res, parsed)
+
+    @staticmethod
+    def _http_refusal(url: str) -> Optional[str]:
+        if len(url) > 2048 or any(c in url for c in "\x00\r\n \t\\\"'`<>"):
+            return "the URL contains characters that are not allowed"
+        try:
+            parts = urllib.parse.urlsplit(url)
+        except ValueError:
+            return "the URL is not valid"
+        if parts.scheme not in ("http", "https"):
+            return "only http:// and https:// URLs may be probed"
+        host = (parts.hostname or "").lower()
+        if not host or host.startswith("-"):
+            return "the URL needs a host"
+        if host in METADATA_HOSTS:
+            return "cloud metadata endpoints may not be probed"
+        try:
+            addr = ipaddress.ip_address(host)
+            if addr.is_link_local:
+                return "link-local addresses may not be probed"
+        except ValueError:
+            pass
+        return None
+
+    async def rpc_diag_http(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Status, headers and timing of an HTTP(S) endpoint (curl, no file writes)."""
+        missing = self._tk_missing("curl")
+        if missing:
+            return missing
+        url = str(params.get("url") or "").strip()
+        refusal = self._http_refusal(url)
+        if refusal:
+            return {"success": False, "status": "error", "message": refusal}
+        method = str(params.get("method") or "GET").upper()
+        if method not in HTTP_METHODS:
+            return {"success": False, "status": "error", "message": "method must be GET or HEAD"}
+        timeout, err = self._tk_int(params, "timeout", 10, 1, 30, "Timeout")
+        if err:
+            return {"success": False, "status": "error", "message": err}
+        argv = ["curl", "--silent", "--show-error", "--proto", "=http,https", "--proto-redir", "=http,https",
+                "--max-time", str(timeout), "--max-filesize", "1048576", "--output", "/dev/null",
+                "--dump-header", "-", "--write-out",
+                "\n---\nhttp_code=%{http_code}\nremote_ip=%{remote_ip}\ntime_namelookup=%{time_namelookup}\n"
+                "time_connect=%{time_connect}\ntime_appconnect=%{time_appconnect}\n"
+                "time_starttransfer=%{time_starttransfer}\ntime_total=%{time_total}\n"
+                "num_redirects=%{num_redirects}\nurl_effective=%{url_effective}\nssl_verify_result=%{ssl_verify_result}\n"]
+        if self._diag_checkbox(params.get("follow")):
+            argv += ["--location", "--max-redirs", str(HTTP_MAX_REDIRECTS)]
+        if self._diag_checkbox(params.get("insecure")):
+            argv.append("--insecure")
+        if method == "HEAD":
+            argv.append("--head")
+        argv += ["--", url]
+        res = self._run_bounded(argv, timeout=timeout + 5)
+        meta = dict(re.findall(r"^(http_code|remote_ip|time_\w+|num_redirects|url_effective|ssl_verify_result)=(.*)$",
+                               res["output"], re.M))
+        eff = meta.get("url_effective", "")
+        if eff and self._http_refusal(eff):
+            res["output"] += "\nRedirect target refused: " + str(self._http_refusal(eff))
+            res["rc"] = 1
+        code = int(meta.get("http_code") or 0)
+        parsed = {"http_code": code, "remote_ip": meta.get("remote_ip"),
+                  "redirects": int(meta.get("num_redirects") or 0), "effective_url": eff,
+                  "timing_ms": {k[5:]: round(float(v) * 1000, 1) for k, v in meta.items()
+                                if k.startswith("time_") and re.match(r"^[\d.]+$", v or "")}}
+        if res["rc"] == 0 and code == 0:
+            res["rc"] = 1
+        self._tk_audit("http", url, f"code={code}", params)
+        return self._tk_result("http", argv, res, parsed)
+
+    # --------------------------------------------------- iperf3 client
+    async def rpc_diag_iperf3(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        missing = self._tk_missing("iperf3")
+        if missing:
+            return missing
+        host = str(params.get("host") or "").strip()
+        refusal = self._tk_host_refusal(host)
+        if refusal:
+            return {"success": False, "status": "error", "message": refusal}
+        port, err = self._tk_int(params, "port", 5201, 1, 65535, "Port")
+        if err:
+            return {"success": False, "status": "error", "message": err}
+        seconds, err = self._tk_int(params, "time", 10, 1, IPERF_MAX_SECONDS, "Duration")
+        if err:
+            return {"success": False, "status": "error", "message": err}
+        streams, err = self._tk_int(params, "parallel", 1, 1, 8, "Parallel streams")
+        if err:
+            return {"success": False, "status": "error", "message": err}
+        argv = ["iperf3", "-c", host, "-p", str(port), "-t", str(seconds), "-P", str(streams), "-J"]
+        if self._diag_checkbox(params.get("reverse")):
+            argv.append("-R")
+        if self._diag_checkbox(params.get("udp")):
+            argv += ["-u", "-b", "100M"]
+        res = self._run_bounded(argv, timeout=seconds + 15, cap=262144)
+        parsed: Dict[str, Any] = {}
+        try:
+            data = strict_json_loads(res["output"])
+            end = data.get("end", {}) if isinstance(data, dict) else {}
+            sent = end.get("sum_sent") or end.get("sum") or {}
+            recv = end.get("sum_received") or {}
+            parsed = {"sent_mbps": round(sent.get("bits_per_second", 0) / 1e6, 2),
+                      "received_mbps": round(recv.get("bits_per_second", 0) / 1e6, 2),
+                      "retransmits": sent.get("retransmits"),
+                      "error": data.get("error") if isinstance(data, dict) else None}
+            if parsed.get("error"):
+                res["rc"] = res["rc"] or 1
+            summary = (f"Sender:   {parsed['sent_mbps']} Mbit/s\nReceiver: {parsed['received_mbps']} Mbit/s\n"
+                       + (f"Retransmits: {parsed['retransmits']}\n" if parsed.get("retransmits") is not None else "")
+                       + (f"Error: {parsed['error']}\n" if parsed.get("error") else ""))
+            res["output"] = summary
+        except ValueError:
+            pass
+        self._tk_audit("iperf3", f"{host}:{port}", f"rc={res['rc']}", params)
+        return self._tk_result("iperf3", argv, res, parsed)
+
+    # --------------------------------------------------- interface details
+    async def rpc_diag_ethtool(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        missing = self._tk_missing("ethtool")
+        if missing:
+            return missing
+        iface = str(params.get("interface") or "").strip()
+        if DIAG_IFACE_RE.fullmatch(iface) is None:
+            return {"success": False, "status": "error", "message": "interface name is not valid"}
+        mode = str(params.get("mode") or "link")
+        flag = {"link": [], "driver": ["-i"], "stats": ["-S"], "ring": ["-g"], "offload": ["-k"]}.get(mode)
+        if flag is None:
+            return {"success": False, "status": "error", "message": "mode must be link, driver, stats, ring or offload"}
+        argv = ["ethtool"] + flag + [iface]
+        res = self._run_bounded(argv, timeout=10)
+        return self._tk_result("ethtool", argv, res)
+
+
+
+# =============================================================================
+# Network configuration transactions (network.apply / network.confirm /
+# network.status / system.ipv6.set)
+# =============================================================================
+# One engine (system/micron_netcfg.py) makes the kernel match the committed
+# plan; the same file runs at boot, so what is committed here is what comes
+# back after a reboot.
+NETCFG_STATE_DIR = "/var/lib/micron/network"
+NETCFG_PENDING = os.path.join(NETCFG_STATE_DIR, "pending.json")
+NETCFG_LAST = os.path.join(NETCFG_STATE_DIR, "last-result.json")
+NFTABLES_CONF = "/etc/nftables.conf"
+KEA_MANAGED_MARKER = "/var/lib/micron/managed/kea-dhcp4.applied"
+NETCFG_CONFIRM_MIN, NETCFG_CONFIRM_MAX = 30, 600
+
+
+def _load_netcfg():
+    """Import system/micron_netcfg.py from the application tree."""
+    import importlib.util
+    here = os.path.dirname(os.path.abspath(__file__))
+    for path in (os.path.join(here, "..", "micron_netcfg.py"), "/usr/local/micron/system/micron_netcfg.py"):
+        path = os.path.normpath(path)
+        if os.path.exists(path):
+            spec = importlib.util.spec_from_file_location("micron_netcfg", path)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            return mod
+    raise RuntimeError("micron_netcfg.py not found")
+
+
+netcfg = _load_netcfg()
+
+
+class NetworkMixin:
+    """Transactional network apply: validate → snapshot → apply → verify →
+    commit, or restore everything that was touched."""
+
+    _net_timer = None
+
+    def _net_run(self, argv):
+        return self._run(argv)
+
+    @staticmethod
+    def _read(path: str) -> Optional[str]:
+        return netcfg.read_text(path)
+
+    def _nft_check(self, ruleset: str) -> Optional[str]:
+        fd, tmp = tempfile.mkstemp(prefix="micron-nft-", suffix=".conf")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(ruleset)
+            res = self._run(["nft", "-c", "-f", tmp])
+            if res.returncode == 127:
+                return None
+            return None if res.returncode == 0 else (res.stderr or res.stdout or "nft -c failed").strip()[:600]
+        finally:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+
+    def _nft_load_text(self, ruleset: str) -> Optional[str]:
+        fd, tmp = tempfile.mkstemp(prefix="micron-nft-", suffix=".conf")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(ruleset)
+            res = self._run(["nft", "-f", tmp])
+            if res.returncode == 127:
+                return None
+            return None if res.returncode == 0 else (res.stderr or "nft -f failed").strip()[:600]
+        finally:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+
+    def _net_snapshot(self, plan: Dict[str, Any]) -> Dict[str, Any]:
+        devices = sorted({i["device"] for i in plan["interfaces"]})
+        prev = None
+        try:
+            prev = strict_json_loads(self._read(netcfg.PLAN_PATH) or "null")
+        except ValueError:
+            prev = None
+        if isinstance(prev, dict):
+            devices = sorted(set(devices) | {i.get("device") for i in prev.get("interfaces", []) if i.get("device")})
+        snap = netcfg.snapshot(self._net_run, devices)
+        live = self._run(["nft", "list", "ruleset"])
+        snap["nft_live"] = live.stdout if live.returncode == 0 else None
+        snap["nft_conf"] = self._read(NFTABLES_CONF)
+        snap["kea_conf"] = self._read(KEA_DHCP4_CONF)
+        snap["previous_plan"] = prev
+        return snap
+
+    def _net_restore(self, snap: Dict[str, Any], kea_touched: bool) -> List[str]:
+        steps = netcfg.restore(self._net_run, snap)
+        if snap.get("nft_live"):
+            err = self._nft_load_text(snap["nft_live"])
+            steps.append("firewall ruleset restored" if err is None else f"firewall restore failed: {err}")
+        if snap.get("nft_conf") is not None:
+            safe_atomic_write(NFTABLES_CONF, snap["nft_conf"], mode=0o644)
+        if kea_touched:
+            if snap.get("kea_conf") is not None:
+                safe_atomic_write(KEA_DHCP4_CONF, snap["kea_conf"], mode=0o600)
+            self._run(["systemctl", "restart", KEA_DHCP4_UNIT])
+            steps.append("DHCP server configuration restored")
+        return steps
+
+    def _net_kea_apply(self, config: Any, steps: list) -> Optional[str]:
+        data, errors = self._dhcp_kea_validate(config)
+        if errors:
+            return "; ".join(errors)
+        content = json.dumps(data, indent=4, ensure_ascii=False, allow_nan=False)
+        fd, tmp = tempfile.mkstemp(prefix="micron-kea-", suffix=".conf")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(content)
+            res = self._run([KEA_DHCP4_BIN, "-t", tmp])
+            if res.returncode not in (0, 127):
+                return "kea-dhcp4 rejected the configuration: " + (res.stdout + res.stderr).strip()[:400]
+        finally:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+        err = self._write_config(KEA_DHCP4_CONF, content)
+        if err:
+            return err
+        os.makedirs(os.path.dirname(KEA_MANAGED_MARKER), exist_ok=True)
+        safe_atomic_write(KEA_MANAGED_MARKER, time.strftime("%Y-%m-%d %H:%M:%S") + "\n", mode=0o644)
+        steps.append(f"wrote {KEA_DHCP4_CONF}")
+        if bool(data.get("Dhcp4", {}).get("subnet4")):
+            res = self._run(["systemctl", "restart", KEA_DHCP4_UNIT])
+            steps.append(f"systemctl restart {KEA_DHCP4_UNIT} rc={res.returncode}")
+        return None
+
+    def _net_commit_files(self, plan: Dict[str, Any], ruleset: Optional[str]) -> None:
+        os.makedirs(os.path.dirname(netcfg.PLAN_PATH), exist_ok=True)
+        safe_atomic_write(netcfg.PLAN_PATH, json.dumps(plan, indent=2, sort_keys=True) + "\n", mode=0o644)
+        if ruleset:
+            safe_atomic_write(NFTABLES_CONF, ruleset, mode=0o644)
+
+    def _net_record(self, payload: Dict[str, Any]) -> None:
+        try:
+            os.makedirs(os.path.dirname(NETCFG_LAST), exist_ok=True)
+            safe_atomic_write(NETCFG_LAST, json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n", mode=0o600)
+        except OSError:
+            pass
+
+    def _net_services_for_ipv6(self, plan: Dict[str, Any], prev: Optional[Dict[str, Any]], steps: list) -> None:
+        """Services that bind IPv6 sockets follow the switch."""
+        before = bool((prev or {}).get("ipv6_enabled", not plan["ipv6_enabled"]))
+        if before == plan["ipv6_enabled"]:
+            return
+        if not plan["ipv6_enabled"]:
+            for unit in ("kea-dhcp6-server", "radvd"):
+                self._run(["systemctl", "stop", unit])
+            steps.append("stopped DHCPv6 / router advertisements")
+        for unit in ("unbound", "ssh"):
+            res = self._run(["systemctl", "try-restart", unit])
+            steps.append(f"systemctl try-restart {unit} rc={res.returncode}")
+
+    async def rpc_network_apply(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Apply a complete network plan (+ firewall ruleset + DHCP config) as
+        one transaction. With `confirm_timeout` the change is kept only if
+        `network.confirm` arrives in time — for changes that can cut off the
+        management session; otherwise it is committed when verification passes.
+        """
+        plan, errors = netcfg.validate_plan(params.get("plan"))
+        if errors:
+            return {"success": False, "status": "invalid", "errors": errors,
+                    "message": "network plan rejected: " + "; ".join(errors)}
+        ruleset = params.get("ruleset")
+        if ruleset is not None and (not isinstance(ruleset, str) or not ruleset.strip()):
+            return {"success": False, "status": "invalid", "message": "ruleset must be non-empty text"}
+        if ruleset:
+            err = self._nft_check(ruleset)
+            if err:
+                return {"success": False, "status": "invalid", "message": "firewall ruleset rejected: " + err}
+        kea = params.get("dhcp4")
+        try:
+            confirm = int(params.get("confirm_timeout") or 0)
+        except (TypeError, ValueError):
+            confirm = 0
+        if confirm:
+            confirm = max(NETCFG_CONFIRM_MIN, min(NETCFG_CONFIRM_MAX, confirm))
+
+        if os.path.exists(NETCFG_PENDING):
+            return {"success": False, "status": "busy",
+                    "message": "another network change is waiting for confirmation; confirm or let it roll back first"}
+
+        snap = self._net_snapshot(plan)
+        prev = snap.get("previous_plan") if isinstance(snap.get("previous_plan"), dict) else None
+        steps: list = []
+        warnings: list = []
+        kea_touched = False
+
+        result = netcfg.apply_plan(self._net_run, plan, prev, persist=False)
+        steps += result["steps"]
+        warnings += result["warnings"]
+        failure = list(result["errors"])
+
+        if not failure and ruleset:
+            err = self._nft_load_text(ruleset)
+            if err:
+                failure.append("firewall ruleset failed to load: " + err)
+            else:
+                steps.append("firewall ruleset loaded")
+        if not failure and kea is not None:
+            kea_touched = True
+            err = self._net_kea_apply(kea, steps)
+            if err:
+                failure.append("DHCP: " + err)
+        if not failure:
+            failure += netcfg.verify(self._net_run, plan)
+
+        if failure:
+            restored = self._net_restore(snap, kea_touched)
+            payload = {"success": False, "status": "rolled_back", "errors": failure,
+                       "steps": steps, "restored": restored, "warnings": warnings,
+                       "message": "network change not applied — previous configuration restored: " + "; ".join(failure)}
+            self._net_record(payload)
+            return payload
+
+        self._net_services_for_ipv6(plan, prev, steps)
+
+        if confirm:
+            tx = secrets.token_hex(8)
+            pending = {"tx": tx, "deadline": time.time() + confirm, "plan": plan, "ruleset": ruleset,
+                       "snapshot": snap, "kea_touched": kea_touched}
+            os.makedirs(os.path.dirname(NETCFG_PENDING), exist_ok=True)
+            safe_atomic_write(NETCFG_PENDING, json.dumps(pending, default=str), mode=0o600)
+            self._net_arm(tx, confirm)
+            payload = {"success": True, "status": "pending_confirm", "tx": tx, "confirm_timeout": confirm,
+                       "steps": steps, "warnings": warnings,
+                       "message": f"network change applied; confirm within {confirm}s or it is rolled back"}
+            self._net_record(payload)
+            return payload
+
+        self._net_commit_files(plan, ruleset)
+        steps.append(f"committed {netcfg.PLAN_PATH}")
+        payload = {"success": True, "status": "applied", "steps": steps, "warnings": warnings,
+                   "message": "network configuration applied and verified"}
+        self._net_record(payload)
+        return payload
+
+    def _net_arm(self, tx: str, seconds: int) -> None:
+        loop = getattr(self, "loop", None)
+        if loop is None:
+            return
+        if self._net_timer is not None:
+            self._net_timer.cancel()
+        self._net_timer = loop.call_later(seconds, lambda: self._net_expire(tx))
+
+    def _net_load_pending(self) -> Optional[Dict[str, Any]]:
+        try:
+            data = strict_json_loads(self._read(NETCFG_PENDING) or "null")
+            return data if isinstance(data, dict) else None
+        except ValueError:
+            return None
+
+    def _net_expire(self, tx: str) -> None:
+        pending = self._net_load_pending()
+        if not pending or pending.get("tx") != tx:
+            return
+        logger.critical("network change %s was not confirmed in time; rolling back", tx)
+        restored = self._net_restore(pending.get("snapshot") or {}, bool(pending.get("kea_touched")))
+        try:
+            os.remove(NETCFG_PENDING)
+        except OSError:
+            pass
+        self._net_record({"success": False, "status": "rolled_back", "tx": tx, "restored": restored,
+                          "message": "network change was not confirmed in time and was rolled back"})
+
+    def net_recover_on_start(self) -> Optional[str]:
+        """Called once at daemon start: an unconfirmed change left behind by a
+        crash or reboot is rolled back, not silently kept."""
+        pending = self._net_load_pending()
+        if not pending:
+            return None
+        if time.time() < float(pending.get("deadline", 0)):
+            self._net_arm(str(pending.get("tx")), int(float(pending["deadline"]) - time.time()) + 1)
+            return "pending"
+        self._net_expire(str(pending.get("tx")))
+        return "rolled_back"
+
+    async def rpc_network_confirm(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        tx = str(params.get("tx", ""))
+        pending = self._net_load_pending()
+        if not pending:
+            last = {}
+            try:
+                last = strict_json_loads(self._read(NETCFG_LAST) or "{}")
+            except ValueError:
+                pass
+            if last.get("tx") == tx and last.get("status") == "rolled_back":
+                return {"success": False, "status": "rolled_back", "message": "too late: the change was already rolled back"}
+            return {"success": False, "status": "none", "message": "no network change is waiting for confirmation"}
+        if pending.get("tx") != tx:
+            return {"success": False, "status": "mismatch", "message": "unknown transaction id"}
+        if self._net_timer is not None:
+            self._net_timer.cancel()
+            self._net_timer = None
+        self._net_commit_files(pending["plan"], pending.get("ruleset"))
+        try:
+            os.remove(NETCFG_PENDING)
+        except OSError:
+            pass
+        payload = {"success": True, "status": "applied", "tx": tx, "message": "network change confirmed and committed"}
+        self._net_record(payload)
+        return payload
+
+    async def rpc_network_rollback(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        pending = self._net_load_pending()
+        if not pending:
+            return {"success": False, "status": "none", "message": "no network change is waiting for confirmation"}
+        self._net_expire(str(pending.get("tx")))
+        return {"success": True, "status": "rolled_back", "message": "network change rolled back"}
+
+    async def rpc_network_status(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Read-only: committed plan, pending transaction, last result and the
+        kernel's effective IPv4/IPv6 state for the planned devices."""
+        try:
+            plan = strict_json_loads(self._read(netcfg.PLAN_PATH) or "null")
+        except ValueError:
+            plan = None
+        pending = self._net_load_pending()
+        try:
+            last = strict_json_loads(self._read(NETCFG_LAST) or "null")
+        except ValueError:
+            last = None
+        effective = {}
+        for i in (plan or {}).get("interfaces", []) if isinstance(plan, dict) else []:
+            dev = i.get("device", "")
+            if netcfg.DEVICE_RE.fullmatch(str(dev)) and netcfg.device_exists(dev):
+                effective[dev] = {"ipv4": netcfg.current_ipv4_all(self._net_run, dev),
+                                  "ipv6": netcfg.current_ipv6_global(self._net_run, dev)}
+        return {
+            "success": True, "status": "ok",
+            "plan": plan,
+            "pending": ({"tx": pending.get("tx"), "seconds_left": max(0, int(float(pending.get("deadline", 0)) - time.time()))}
+                        if pending else None),
+            "last": ({k: last.get(k) for k in ("status", "message", "tx", "errors")} if isinstance(last, dict) else None),
+            "ipv6_effective": netcfg.effective_ipv6(),
+            "routes": netcfg.default_routes(self._net_run),
+            "effective": effective,
+        }
+
+    async def rpc_system_ipv6_set(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Switch IPv6 using the committed plan (kept for CLI compatibility).
+
+        The Web UI sends the whole plan through `network.apply` so the firewall
+        and the interfaces change in the same transaction; this handler flips
+        only the switch on the committed plan, persistently, with the same
+        verification and restore.
+        """
+        enabled = bool(params.get("enabled", False))
+        try:
+            plan = strict_json_loads(self._read(netcfg.PLAN_PATH) or "null")
+        except ValueError:
+            plan = None
+        if not isinstance(plan, dict):
+            return {"success": False, "status": "error",
+                    "message": "no committed network plan yet; apply the network configuration from the Web UI or `php spark network:apply` first"}
+        plan["ipv6_enabled"] = enabled
+        return await self.rpc_network_apply({"plan": plan, "ruleset": params.get("ruleset")})
+
+
+class RpcHandler(NetworkMixin, OpsMixin, ToolkitMixin):
     """Handles JSON-RPC 2.0 requests from the PHP Control Plane."""
 
     def __init__(self, tx_mgr: SafeTransactionManager, loop: asyncio.AbstractEventLoop):
@@ -766,13 +3479,25 @@ class RpcHandler:
         # their own registry and wall-clock cap.
         self._streams: Dict[str, Dict[str, Any]] = {}
 
-    async def handle_request(self, req: Dict[str, Any]) -> Dict[str, Any]:
+    async def handle_request(self, req: Dict[str, Any],
+                             peer: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        if not isinstance(req, dict):
+            return {"jsonrpc": "2.0", "id": None, "error": {"code": -32600, "message": "Invalid Request: not an object"}}
         req_id = req.get("id")
         method = req.get("method", "")
         params = req.get("params", {})
 
-        if not method:
+        if not method or not isinstance(method, str):
             return {"jsonrpc": "2.0", "id": req_id, "error": {"code": -32600, "message": "Invalid Request: method missing"}}
+        # PHP's json_encode([]) produces a list, so an empty list is the
+        # management plane's way of saying "no parameters".
+        if params is None or params == []:
+            params = {}
+        if not isinstance(params, dict):
+            return {"jsonrpc": "2.0", "id": req_id,
+                    "error": {"code": -32602, "message": "Invalid params: params must be an object"}}
+        if not re.fullmatch(r"[a-z][a-z0-9_]*(\.[a-z0-9_]+){1,4}", method):
+            return {"jsonrpc": "2.0", "id": req_id, "error": {"code": -32601, "message": f"Method not found: {method[:80]}"}}
 
         logger.info(f"Dispatching RPC method: {method}")
 
@@ -780,6 +3505,18 @@ class RpcHandler:
             handler_method = getattr(self, f"rpc_{method.replace('.', '_')}", None)
             if not handler_method:
                 return {"jsonrpc": "2.0", "id": req_id, "error": {"code": -32601, "message": f"Method not found: {method}"}}
+
+            needed = rpc_method_class(method)
+            allowed = rpc_peer_max_class(peer)
+            if RPC_CLASS_RANK[needed] > RPC_CLASS_RANK[allowed]:
+                logger.warning("AUDIT rpc refused method=%s class=%s uid=%s pid=%s",
+                               method, needed, (peer or {}).get("uid"), (peer or {}).get("pid"))
+                return {"jsonrpc": "2.0", "id": req_id, "error": {
+                    "code": -32003,
+                    "message": f"Permission denied: {method} is a {needed} method and this caller may only use {allowed} methods"}}
+            if needed != RPC_CLASS_READ:
+                logger.info("AUDIT rpc method=%s class=%s uid=%s pid=%s", method, needed,
+                            (peer or {}).get("uid", "internal"), (peer or {}).get("pid", "-"))
 
             result = await handler_method(params)
             return {"jsonrpc": "2.0", "id": req_id, "result": result}
@@ -870,46 +3607,6 @@ class RpcHandler:
             if restored else "No configuration snapshot was available to roll back to.",
         }
 
-    async def rpc_system_ipv6_set(self, params: Dict[str, Any]) -> Dict[str, Any]:
-        """Apply the system-wide IPv6 master switch.
-
-        When enabled is True, enables IPv6 forwarding, Router Advertisement
-        reception, and dual-stack kernel parameters.
-        When enabled is False, disables IPv6 on all interfaces via sysctl,
-        flushes default IPv6 routes, and re-compiles nftables with drop rules.
-        """
-        enabled = bool(params.get("enabled", True))
-        logger.info(f"Setting system IPv6 stack: enabled={enabled}")
-
-        disable_val = "0" if enabled else "1"
-        try:
-            subprocess.run(["sysctl", "-w", f"net.ipv6.conf.all.disable_ipv6={disable_val}"], check=False)
-            subprocess.run(["sysctl", "-w", f"net.ipv6.conf.default.disable_ipv6={disable_val}"], check=False)
-            if enabled:
-                subprocess.run(["sysctl", "-w", "net.ipv6.conf.all.forwarding=1"], check=False)
-                subprocess.run(["sysctl", "-w", "net.ipv6.conf.default.forwarding=1"], check=False)
-                subprocess.run(["sysctl", "-w", "net.ipv6.conf.all.accept_ra=2"], check=False)
-                subprocess.run(["sysctl", "-w", "net.ipv6.conf.default.accept_ra=2"], check=False)
-            else:
-                subprocess.run(["ip", "-6", "route", "flush", "default"], check=False)
-        except Exception as e:
-            logger.warning(f"Error applying sysctl IPv6 state: {e}")
-
-        # Trigger firewall recompile to update inet filter ruleset (drop/allow IPv6)
-        app_root = "/usr/local/micron"
-        if os.path.exists(os.path.join(app_root, "spark")):
-            try:
-                subprocess.run(["php", "spark", "firewall:compile"], cwd=app_root, check=False)
-            except Exception:
-                pass
-
-        return {
-            "success": True,
-            "status": "ok",
-            "enabled": enabled,
-            "message": f"IPv6 {'enabled' if enabled else 'disabled'} successfully across appliance.",
-        }
-
     # ------------- System Updates & Upgrade (system.updates_*, system.upgrade)
     # The appliance-wide counterpart to the per-plugin package manager: a full
     # OS/package update surface for the Web UI. Both handlers shell out to apt
@@ -925,9 +3622,9 @@ class RpcHandler:
                         return v
             except OSError:
                 pass
-        return "0.1.23"
+        return "0.0.41"
 
-    MICRONOS_VERSION = "0.1.23"
+    MICRONOS_VERSION = "0.0.41"
 
     async def rpc_system_updates_check(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -1086,18 +3783,12 @@ class RpcHandler:
         }
 
     async def rpc_interface_apply(self, params: Dict[str, Any]) -> Dict[str, Any]:
-        """Applies interface configuration generated by the control plane."""
-        # Save backup & activate rollback timer if requested
-        if params.get("safe_mode", True):
-            self.tx_mgr.start_rollback_timer(self.loop)
-
-        # Reload systemd-networkd or apply via iproute2
-        res = subprocess.run(["networkctl", "reload"], capture_output=True, text=True)
-        return {"status": "applied", "returncode": res.returncode, "output": res.stdout + res.stderr}
+        """Legacy name for network.apply (same transaction engine)."""
+        return await self.rpc_network_apply(params)
 
     async def rpc_interface_confirm(self, params: Dict[str, Any]) -> Dict[str, Any]:
-        self.tx_mgr.confirm_commit()
-        return {"status": "confirmed"}
+        """Legacy name for network.confirm."""
+        return await self.rpc_network_confirm(params)
 
     # ------------------ Bridge Interface Methods ------------------
     async def rpc_bridge_list(self, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -1232,7 +3923,7 @@ class RpcHandler:
             logger.warning("failed to backup nftables snapshot: %s", exc)
 
         # 3. Start rollback timer if safe mode enabled
-        if params.get("safe_mode", True):
+        if params.get("safe_mode", False):
             self.tx_mgr.start_rollback_timer(self.loop)
 
         # 4. Atomic load
@@ -1257,16 +3948,247 @@ class RpcHandler:
 
     # ------------------ VPN: WireGuard Methods ------------------
     async def rpc_vpn_wireguard_sync(self, params: Dict[str, Any]) -> Dict[str, Any]:
-        """Reloads wireguard peer configuration atomically."""
-        interface = params.get("interface", "wg0")
-        config_path = f"/etc/wireguard/{interface}.conf"
-        res = subprocess.run(["wg", "syncconf", interface, config_path], capture_output=True, text=True)
-        return {"status": "synced" if res.returncode == 0 else "error", "error": res.stderr}
+        """Materialise /etc/wireguard/<iface>.conf and bring the live interface in line.
+
+        The management plane compiles the configuration (WireguardCompiler —
+        enabled peers only) and sends it as `config`; this handler validates
+        it, writes it atomically (0600), and then:
+
+          * `enabled` false  → `wg-quick down` (if the interface exists)
+          * interface absent → `wg-quick up`
+          * addresses changed → `wg-quick down` + `up` (syncconf cannot re-address)
+          * otherwise        → `wg syncconf` with the `wg-quick strip`ped config,
+                               which updates peers without dropping sessions.
+
+        Before this, the handler ran `wg syncconf` against a file that nothing
+        ever wrote, so every UI "reloaded" message was false (Programme G1/G2).
+        """
+        interface = str(params.get("interface", "wg0"))
+        if not WG_IFACE_RE.fullmatch(interface):
+            return {"success": False, "status": "error", "message": f"invalid WireGuard interface name: {interface[:32]!r}"}
+        path = os.path.join(WG_CONF_DIR, f"{interface}.conf")
+        enabled = self._diag_checkbox(params.get("enabled", True))
+        steps: list = []
+        warnings: list = []
+        config = params.get("config")
+        previous = self._read_first(path) if os.path.exists(path) else None
+
+        if config is not None:
+            refusal = self._wg_config_refusal(config)
+            if refusal:
+                return {"success": False, "status": "error", "message": refusal}
+            try:
+                safe_atomic_write(path, config if config.endswith("\n") else config + "\n", mode=0o600)
+                steps.append(f"wrote {path}")
+            except OSError as exc:
+                return {"success": False, "status": "error", "message": f"could not write {path}: {exc}"}
+        elif not os.path.exists(path):
+            return {"success": False, "status": "error",
+                    "message": f"no configuration has been written for {interface}; nothing to sync"}
+
+        exists = os.path.isdir(f"/sys/class/net/{interface}")
+        if not enabled:
+            if exists:
+                res = self._run_bounded(["wg-quick", "down", interface], timeout=30)
+                steps.append(f"wg-quick down {interface} rc={res['rc']}")
+                if res["rc"] != 0:
+                    return {"success": False, "status": "error", "steps": steps,
+                            "message": res["output"].strip()[-300:] or "wg-quick down failed"}
+            return {"success": True, "status": "down", "interface": interface, "steps": steps,
+                    "warnings": warnings, "message": f"{interface} is down"}
+
+        def addresses(text: Optional[str]) -> list:
+            return sorted(re.findall(r"^\s*Address\s*=\s*(.+)$", text or "", re.M))
+
+        if not exists or addresses(previous) != addresses(config if config is not None else previous):
+            if exists:
+                res = self._run_bounded(["wg-quick", "down", interface], timeout=30)
+                steps.append(f"wg-quick down {interface} rc={res['rc']}")
+            res = self._run_bounded(["wg-quick", "up", interface], timeout=30)
+            steps.append(f"wg-quick up {interface} rc={res['rc']}")
+            if res["rc"] != 0:
+                return {"success": False, "status": "error", "steps": steps, "interface": interface,
+                        "message": res["output"].strip()[-300:] or "wg-quick up failed"}
+            return {"success": True, "status": "up", "interface": interface, "steps": steps,
+                    "warnings": warnings, "message": f"{interface} brought up"}
+
+        strip = self._run_bounded(["wg-quick", "strip", interface], timeout=15)
+        if strip["rc"] != 0:
+            return {"success": False, "status": "error", "steps": steps,
+                    "message": "wg-quick strip failed: " + strip["output"].strip()[-200:]}
+        with tempfile.NamedTemporaryFile("w", suffix=".conf", delete=False) as tmp:
+            tmp.write(strip["output"])
+            tmp_path = tmp.name
+        os.chmod(tmp_path, 0o600)
+        try:
+            res = self._run_bounded(["wg", "syncconf", interface, tmp_path], timeout=15)
+        finally:
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+        steps.append(f"wg syncconf {interface} rc={res['rc']}")
+        if res["rc"] != 0:
+            return {"success": False, "status": "error", "steps": steps,
+                    "message": res["output"].strip()[-300:] or "wg syncconf failed"}
+        return {"success": True, "status": "synced", "interface": interface, "steps": steps,
+                "warnings": warnings, "message": f"{interface} peers synchronised"}
+
+    async def rpc_vpn_wireguard_service(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Apply one lifecycle action to all configured WireGuard interfaces."""
+        action = str(params.get("action") or "")
+        if action not in SERVICE_ACTIONS:
+            return {"success": False, "status": "error", "message": f"unsupported action: {action}"}
+
+        tunnels = params.get("tunnels")
+        if not isinstance(tunnels, list):
+            return {"success": False, "status": "error", "message": "tunnels must be a list"}
+
+        validated = []
+        seen = set()
+        config_bytes = 0
+        for tunnel in tunnels:
+            if not isinstance(tunnel, dict):
+                return {"success": False, "status": "error", "message": "each tunnel must be an object"}
+            interface = str(tunnel.get("interface") or "")
+            config = tunnel.get("config")
+            enabled = tunnel.get("enabled")
+            if not WG_IFACE_RE.fullmatch(interface) or interface in seen:
+                return {"success": False, "status": "error", "message": f"invalid or duplicate WireGuard interface: {interface[:32]!r}"}
+            if not isinstance(enabled, bool):
+                return {"success": False, "status": "error", "message": f"enabled must be boolean for {interface}"}
+            refusal = self._wg_config_refusal(config)
+            if refusal:
+                return {"success": False, "status": "error", "message": f"{interface}: {refusal}"}
+            config_bytes += len(config.encode("utf-8"))
+            if config_bytes > 8 * 1024 * 1024:
+                return {"success": False, "status": "error", "message": "aggregate WireGuard configs exceed the RPC size limit"}
+            seen.add(interface)
+            validated.append({"interface": interface, "config": config, "enabled": enabled})
+
+        if not validated:
+            return {"success": True, "status": "noop", "service": "wireguard", "action": action,
+                    "state": "stopped", "tunnels": [], "message": "No WireGuard tunnels are configured."}
+
+        failures = []
+        results = []
+
+        async def apply(tunnel: Dict[str, Any], enabled: bool) -> bool:
+            result = await self.rpc_vpn_wireguard_sync({
+                "interface": tunnel["interface"],
+                "enabled": enabled,
+                "config": tunnel["config"],
+            })
+            ok = result.get("success") is True and result.get("status") != "error"
+            results.append({"interface": tunnel["interface"], "enabled": enabled, "success": ok,
+                            "status": result.get("status", "error")})
+            if not ok:
+                failures.append(f"{tunnel['interface']}: {result.get('message', 'daemon reported a failure')}")
+            return ok
+
+        if action == "restart":
+            stopped = set()
+            for tunnel in validated:
+                if await apply(tunnel, False):
+                    stopped.add(tunnel["interface"])
+            for tunnel in validated:
+                if tunnel["enabled"] and tunnel["interface"] in stopped:
+                    await apply(tunnel, True)
+        else:
+            for tunnel in validated:
+                await apply(tunnel, action == "start" and tunnel["enabled"])
+
+        success = not failures
+        state = "stopped" if action == "stop" or not any(t["enabled"] for t in validated) else "running"
+        message = f"WireGuard tunnels {action}ed." if action != "stop" else "WireGuard tunnels stopped."
+        if failures:
+            message = "WireGuard tunnel action failed: " + "; ".join(failures)
+
+        return {"success": success, "status": "applied" if success else "error", "service": "wireguard",
+                "action": action, "state": state if success else "unknown", "tunnels": results,
+                "message": message, "warnings": failures}
+
+    @staticmethod
+    def _wg_config_refusal(config: Any) -> Optional[str]:
+        if not isinstance(config, str) or "[Interface]" not in config:
+            return "config must be a WireGuard configuration with an [Interface] section"
+        if len(config.encode("utf-8")) > 262144 or "\x00" in config:
+            return "config is too large or contains a NUL byte"
+        # wg-quick runs these hooks through a root shell; a compiled
+        # configuration never needs them, so none may arrive over the socket.
+        for line in config.splitlines():
+            key = line.split("=", 1)[0].strip().lower()
+            if key in ("preup", "postup", "predown", "postdown", "saveconfig"):
+                return f"{key} hooks are not accepted in a managed WireGuard configuration"
+        return None
+
+    async def rpc_vpn_wireguard_remove(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Tear down an interface and delete its configuration file."""
+        interface = str(params.get("interface") or "").strip()
+        if not WG_IFACE_RE.fullmatch(interface):
+            return {"success": False, "status": "error", "message": "invalid WireGuard interface name"}
+        steps = []
+        if os.path.isdir(f"/sys/class/net/{interface}"):
+            res = self._run_bounded(["wg-quick", "down", interface], timeout=30)
+            steps.append(f"wg-quick down {interface} rc={res['rc']}")
+        path = os.path.join(WG_CONF_DIR, f"{interface}.conf")
+        if os.path.exists(path):
+            os.remove(path)
+            steps.append(f"removed {path}")
+        return {"success": True, "status": "removed", "interface": interface, "steps": steps}
 
     async def rpc_vpn_wireguard_status(self, params: Dict[str, Any]) -> Dict[str, Any]:
-        interface = params.get("interface", "wg0")
-        res = subprocess.run(["wg", "show", interface, "dump"], capture_output=True, text=True)
-        return {"dump": res.stdout, "status": "ok" if res.returncode == 0 else "down"}
+        interface = str(params.get("interface") or "").strip()
+        if interface and not WG_IFACE_RE.fullmatch(interface):
+            return {"status": "error", "interfaces": {}, "peers": [],
+                    "message": "invalid WireGuard interface name"}
+
+        res = self._run_bounded(["wg", "show", "all", "dump"], timeout=10)
+        if res["rc"] != 0:
+            return {"status": "error", "interfaces": {}, "peers": [],
+                    "message": res["output"].strip()[-300:] or "wg show failed"}
+
+        interfaces: Dict[str, Dict[str, Any]] = {}
+        peers: list = []
+        for line in res["output"].splitlines():
+            fields = line.split("\t")
+            if len(fields) == 5:
+                name, _private_key, public_key, listen_port, _fwmark = fields
+                if interface and name != interface:
+                    continue
+                try:
+                    port = int(listen_port)
+                except ValueError:
+                    port = 0
+                interfaces[name] = {
+                    "interface": name,
+                    "public_key": public_key,
+                    "listen_port": port,
+                    "status": "up",
+                }
+            elif len(fields) >= 9:
+                name, public_key, _preshared_key, endpoint, allowed_ips, handshake, rx, tx, keepalive = fields[:9]
+                if interface and name != interface:
+                    continue
+                try:
+                    latest_handshake = int(handshake)
+                    rx_bytes = int(rx)
+                    tx_bytes = int(tx)
+                    keepalive_seconds = int(keepalive)
+                except ValueError:
+                    continue
+                peers.append({
+                    "interface": name,
+                    "peer": public_key,
+                    "endpoint": "" if endpoint == "(none)" else endpoint,
+                    "allowed_ips": allowed_ips,
+                    "latest_handshake": latest_handshake,
+                    "rx_bytes": rx_bytes,
+                    "tx_bytes": tx_bytes,
+                    "persistent_keepalive": keepalive_seconds,
+                })
+
+        return {"status": "ok", "interfaces": interfaces, "peers": peers}
 
     async def rpc_vpn_wireguard_genkey(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Generates a WireGuard private/public keypair using wg genkey | wg pubkey, with cryptographic fallback."""
@@ -1299,11 +4221,13 @@ class RpcHandler:
                 priv_key = base64.b64encode(priv_bytes).decode("ascii")
                 pub_key = base64.b64encode(pub_bytes).decode("ascii")
             except Exception as e:
+                # Never fabricate a pair: a random public key unrelated to the
+                # private key produces a tunnel that can never handshake.
                 logger.error(f"Fallback keypair generation failed: {e}")
-                priv_key = base64.b64encode(os.urandom(32)).decode("ascii")
-                pub_key = base64.b64encode(os.urandom(32)).decode("ascii")
+                return {"success": False, "status": "error", "private_key": "", "public_key": "",
+                        "message": "neither `wg` nor the cryptography module is available to generate a keypair"}
 
-        return {"private_key": priv_key, "public_key": pub_key}
+        return {"success": True, "status": "ok", "private_key": priv_key, "public_key": pub_key}
 
     async def rpc_vpn_wireguard_pubkey(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Calculates public key from private key."""
@@ -1320,7 +4244,7 @@ class RpcHandler:
                 try:
                     from cryptography.hazmat.primitives.asymmetric import x25519
                     from cryptography.hazmat.primitives import serialization
-                    priv_bytes = base64.b64decode(priv_key)
+                    priv_bytes = base64.b64decode(priv_key, validate=True)
                     priv_obj = x25519.X25519PrivateKey.from_private_bytes(priv_bytes)
                     pub_bytes = priv_obj.public_key().public_bytes(
                         encoding=serialization.Encoding.Raw,
@@ -1936,6 +4860,11 @@ class RpcHandler:
             warnings.append("stopping nftables removes the packet filter until it is started again")
 
         res = self._run(["systemctl", action, unit])
+        if res.returncode != 0 and service == "gateway-monitor":
+            res_probe = self._run(["systemctl", action, "micron-sdwan-probe"])
+            if res_probe.returncode == 0:
+                res = res_probe
+                unit = "micron-sdwan-probe"
         steps.append(f"systemctl {action} {unit} rc={res.returncode}")
         if res.returncode != 0:
             detail = (res.stderr or res.stdout or "").strip()
@@ -1949,6 +4878,7 @@ class RpcHandler:
             "action": action,
             "state": self._service_state(unit),
             "steps": steps,
+            "message": detail[:300] if res.returncode != 0 and detail else "",
             "warnings": warnings,
         }
 
@@ -2456,12 +5386,17 @@ class RpcHandler:
 
     @staticmethod
     def _epoch_to_iso(value: str) -> str:
-        """A gpg colon-record epoch as a local date, or '' when unset."""
+        """A gpg colon-record epoch as a UTC date, or '' when unset.
+
+        UTC, not the appliance's local zone: gpg and apt state key and release
+        dates in UTC, and a local-zone conversion made the same key report a
+        different creation day depending on where the appliance was installed.
+        """
         value = (value or "").strip()
         if not value.isdigit() or int(value) <= 0:
             return ""
         try:
-            return datetime.datetime.fromtimestamp(int(value)).strftime("%Y-%m-%d")
+            return datetime.datetime.fromtimestamp(int(value), tz=datetime.timezone.utc).strftime("%Y-%m-%d")
         except (OverflowError, OSError, ValueError):
             return ""
 
@@ -3820,7 +6755,10 @@ class RpcHandler:
             argv.append("--no-dns")
         if cfg["local_only"]:
             argv.append("--local-only")
-        argv += ["--chroot", cfg["chroot_dir"]]
+        # darkstat drops root after opening the capture and the web socket; it
+        # writes its export database inside the chroot as that user, so the
+        # unit makes the directory and gives it to the same account.
+        argv += ["--chroot", cfg["chroot_dir"], "--user", DARKSTAT_USER]
         if cfg["database_file"]:
             argv += ["--import", cfg["database_file"], "--export", cfg["database_file"]]
         if cfg["daylog"]:
@@ -3845,11 +6783,38 @@ class RpcHandler:
 
     def _darkstat_dropin(self, cfg: Dict[str, Any]) -> str:
         command = " ".join(self._systemd_quote(a) for a in self._darkstat_argv(cfg))
+        chroot = self._systemd_quote(cfg["chroot_dir"])
+        # Debian ships darkstat as a SysV script (gated off by START_DARKSTAT=no
+        # in /etc/darkstat/init.cfg), which systemd wraps as a Type=forking,
+        # RemainAfterExit unit. Replacing only ExecStart left that wrapper in
+        # place: systemd waited for a fork that `--no-daemon` never does, killed
+        # darkstat at the start timeout and still reported the unit "active",
+        # so nothing listened on the web port. Every setting that wrapper sets
+        # is reset here, so the drop-in is correct over a native unit too.
         return (
             "# MicronOS darkstat settings (darkstat plugin) - generated by micrond. Do not edit.\n"
+            "[Unit]\n"
+            "Description=darkstat network traffic analyser (MicronOS)\n"
+            "After=network-online.target\n"
+            "Wants=network-online.target\n"
+            "\n"
             "[Service]\n"
+            "Type=simple\n"
+            "RemainAfterExit=no\n"
+            "GuessMainPID=yes\n"
+            "KillMode=control-group\n"
+            "TimeoutStartSec=30\n"
+            "Restart=on-failure\n"
+            "RestartSec=5\n"
+            "ExecStartPre=\n"
+            f"ExecStartPre=/usr/bin/install -d -m 0750 -o {DARKSTAT_USER} -g {DARKSTAT_GROUP} {chroot}\n"
             "ExecStart=\n"
             f"ExecStart={command}\n"
+            "ExecStop=\n"
+            "ExecReload=\n"
+            "\n"
+            "[Install]\n"
+            "WantedBy=multi-user.target\n"
         )
 
     async def rpc_plugin_darkstat_apply(self, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -3903,6 +6868,10 @@ class RpcHandler:
                         "message": f"{argv[1]} darkstat failed", "steps": steps,
                         "warnings": warnings + ([detail[:300]] if detail else [])}
 
+        missing = [i for i in cfg["interfaces"] if not os.path.exists(os.path.join("/sys/class/net", i))]
+        if missing:
+            warnings.append("capture interface not present on this appliance: " + ", ".join(missing)
+                            + " (darkstat will fail to start until it exists)")
         payload = {"success": True, "status": "applied", "id": "darkstat",
                    "message": f"darkstat is capturing on {', '.join(cfg['interfaces'])}; "
                               f"web UI on port {cfg['port']}",
@@ -3925,6 +6894,17 @@ class RpcHandler:
         except (OSError, ValueError, TypeError):
             return {}
 
+    @staticmethod
+    def _darkstat_listening(port: int) -> bool:
+        """Whether something accepts TCP connections on the darkstat web port."""
+        for host in ("127.0.0.1", "::1"):
+            try:
+                with socket.create_connection((host, port), timeout=0.5):
+                    return True
+            except OSError:
+                continue
+        return False
+
     async def rpc_plugin_darkstat_status(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Read-only: the applied settings plus the unit's live state."""
         if self._plugin_entry("darkstat") is None:
@@ -3933,10 +6913,26 @@ class RpcHandler:
         state = self._service_state(DARKSTAT_UNIT)
         steps = [f"systemctl is-active {DARKSTAT_UNIT} -> {state}"]
         dropin_present = os.path.exists(DARKSTAT_DROPIN)
+        applied = self._darkstat_read_state()
 
         warnings: list = []
         if not dropin_present:
             warnings.append("no darkstat settings have been applied on this appliance yet")
+
+        # "active" from systemd is not proof the web UI answers: probe the port.
+        listening = None
+        port = applied.get("port") if applied.get("enabled", True) else None
+        if dropin_present and isinstance(port, int) and 1 <= port <= 65535:
+            listening = self._darkstat_listening(port)
+            steps.append(f"connect 127.0.0.1:{port} -> {'open' if listening else 'refused'}")
+            if state == "running" and not listening:
+                warnings.append(f"darkstat is running but nothing answers on port {port} yet")
+            elif state != "running":
+                warnings.append(f"darkstat is {state}; check: journalctl -u {DARKSTAT_UNIT}")
+        missing = [i for i in applied.get("interfaces", []) or []
+                   if isinstance(i, str) and not os.path.exists(os.path.join("/sys/class/net", i))]
+        if missing:
+            warnings.append("capture interface not present on this appliance: " + ", ".join(missing))
 
         return {
             "success": True,
@@ -3947,6 +6943,8 @@ class RpcHandler:
                 **self._darkstat_read_state(),
                 "service_state": state,
                 "dropin_present": dropin_present,
+                "listening": listening,
+                "missing_interfaces": missing,
             },
             "steps": steps,
             "warnings": warnings,
@@ -5336,8 +8334,6 @@ class RpcHandler:
     async def rpc_network_route_del(self, params: Dict[str, Any]) -> Dict[str, Any]:
         return await self.rpc_route_del(params)
 
-    async def rpc_network_apply(self, params: Dict[str, Any]) -> Dict[str, Any]:
-        return await self.rpc_interface_apply(params)
 
     async def rpc_firewall_apply_rules(self, params: Dict[str, Any]) -> Dict[str, Any]:
         return await self.rpc_firewall_apply(params)
@@ -6535,6 +9531,11 @@ class RpcHandler:
                 "message": f"could not write {KEA_DHCP4_CONF}: {err}",
             }
         steps.append(f"wrote {KEA_DHCP4_CONF}")
+        try:
+            os.makedirs(os.path.dirname(KEA_MANAGED_MARKER), exist_ok=True)
+            safe_atomic_write(KEA_MANAGED_MARKER, time.strftime("%Y-%m-%d %H:%M:%S") + "\n", mode=0o644)
+        except OSError:
+            pass
 
         # 3. Restart the daemon so it picks up the new file.
         res = self._run(["systemctl", "restart", KEA_DHCP4_UNIT])
@@ -6570,6 +9571,69 @@ class RpcHandler:
             "service": self._service_state(KEA_DHCP4_UNIT),
         }
 
+    @staticmethod
+    def _kea_lease_rows(path: str) -> list:
+        """Rows of a Kea memfile lease CSV (and its rotated .1/.2 companions).
+
+        Kea appends a record each time a lease changes, so the newest record
+        for an address is its current state; files are read oldest first.
+        """
+        import csv
+        rows: list = []
+        for candidate in (path + ".2", path + ".1", path):
+            try:
+                with open(candidate, "r", encoding="utf-8", errors="replace", newline="") as fh:
+                    reader = csv.DictReader(fh)
+                    for row in reader:
+                        if isinstance(row, dict) and row.get("address"):
+                            rows.append(row)
+            except OSError:
+                continue
+        return rows
+
+    async def rpc_dhcp_leases(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Read-only: active DHCPv4 leases from Kea's lease file.
+
+        Only leases that are in the default state and not yet expired are
+        returned. When Kea has never run there is no file and the list is
+        empty — no lease is ever invented.
+        """
+        try:
+            limit = int(params.get("limit", DHCP_LEASES_MAX))
+        except (TypeError, ValueError):
+            limit = DHCP_LEASES_MAX
+        limit = max(1, min(limit, DHCP_LEASES_MAX))
+        now = int(time.time())
+        latest: Dict[str, Dict[str, Any]] = {}
+        for row in self._kea_lease_rows(KEA_LEASES4_CSV):
+            latest[row["address"]] = row
+        leases = []
+        for addr, row in latest.items():
+            try:
+                ipaddress.IPv4Address(addr)
+                expire = int(row.get("expire") or 0)
+                valid = int(row.get("valid_lifetime") or 0)
+                state = int(row.get("state") or 0)
+            except ValueError:
+                continue
+            if state != 0 or expire <= now:
+                continue
+            leases.append({
+                "ip": addr,
+                "mac": (row.get("hwaddr") or "").lower(),
+                "hostname": (row.get("hostname") or "").rstrip("."),
+                "client_id": row.get("client_id") or "",
+                "start": time.strftime("%Y-%m-%d %H:%M", time.localtime(expire - valid)) if valid else "",
+                "expires": time.strftime("%Y-%m-%d %H:%M", time.localtime(expire)),
+                "expires_epoch": expire,
+                "subnet_id": row.get("subnet_id") or "",
+                "status": "active",
+                "type": "dynamic",
+            })
+        leases.sort(key=lambda l: tuple(int(o) for o in l["ip"].split(".")))
+        return {"success": True, "status": "ok", "leases": leases[:limit], "count": len(leases),
+                "source": KEA_LEASES4_CSV if os.path.exists(KEA_LEASES4_CSV) else None}
+
     async def rpc_dhcp_status(self, params: Dict[str, Any]) -> Dict[str, Any]:
         return {
             "success": True,
@@ -6584,11 +9648,20 @@ class RpcHandler:
         if not service:
             return {"status": "error", "message": "No service specified"}
         # Whitelist safe services
-        allowed = {"suricata", "strongswan-starter", "squid", "kea-dhcp4-server", "unbound", "wireguard", "openvpn", "pppoe-server"}
+        allowed = {"suricata", "strongswan", "strongswan-starter", "squid", "kea-dhcp4-server", "unbound", "wireguard", "openvpn", "pppoe-server"}
         base_svc = service.split('@')[0]
         if base_svc not in allowed:
             logger.warning(f"Attempted restart of non-whitelisted service: {service}")
             return {"status": "error", "message": f"Service {service} restart not permitted"}
+        if base_svc in ("strongswan", "strongswan-starter"):
+            # strongSwan 6 (Debian 13) runs swanctl/VICI under strongswan.service;
+            # strongswan-starter (ipsec/stroke) is only present on older images.
+            for unit in ("strongswan", "strongswan-starter"):
+                state = subprocess.run(["systemctl", "show", "-p", "LoadState", "--value", unit],
+                                       capture_output=True, text=True)
+                if state.stdout.strip() == "loaded":
+                    service = unit
+                    break
         res = subprocess.run(["systemctl", "restart", service], capture_output=True, text=True)
         return {"status": "restarted" if res.returncode == 0 else "error", "output": res.stdout + res.stderr}
 
@@ -6852,11 +9925,26 @@ class RpcHandler:
         sessions: list = []
         try:
             import subprocess, re
-            # Query Squid cache manager for active requests
+            # Query Squid's cache manager over HTTP. squidclient does not work
+            # with Squid 6 (Debian 13), so use the manager URL on the plain
+            # http_port, which squid.conf allows from localhost.
+            mgr_port = 3128
+            try:
+                with open("/etc/squid/squid.conf") as conf:
+                    for conf_line in conf:
+                        m = re.match(r"\s*http_port\s+(?:[\d.]+:)?(\d+)\s*$", conf_line)
+                        if m:
+                            mgr_port = int(m.group(1))
+                            break
+            except OSError:
+                pass
             result = subprocess.run(
-                ["squidclient", "-h", "127.0.0.1", "mgr:active_requests"],
-                capture_output=True, text=True, timeout=5
+                ["curl", "-fsS", "--max-time", "5",
+                 f"http://127.0.0.1:{mgr_port}/squid-internal-mgr/active_requests"],
+                capture_output=True, text=True, timeout=8
             )
+            if result.returncode != 0:
+                raise RuntimeError(result.stderr.strip() or "squid cache manager unavailable")
             # Parse minimal fields from Squid active_requests output
             current: dict = {}
             for line in result.stdout.splitlines():
@@ -6929,7 +10017,7 @@ class RpcHandler:
             # A `listen ... ssl` server block with no certificate makes `nginx -t`
             # fail, so provision a self-signed pair if the operator has not
             # installed a real one.
-            cert_err = _ensure_ztna_certificate()
+            cert_err = _ensure_ztna_certificate(str(config.get("summary", {}).get("domain") or ""))
             if cert_err:
                 errors.append(cert_err)
 
@@ -6981,7 +10069,7 @@ class RpcHandler:
             await asyncio.wait_for(proc.communicate(), timeout=5)
             if proc.returncode != 0:
                 start_proc = await asyncio.create_subprocess_exec(
-                    "systemctl", "restart", "guacd",
+                    "systemctl", "enable", "--now", "guacd",
                     stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL
                 )
                 await asyncio.wait_for(start_proc.communicate(), timeout=10)
@@ -7050,9 +10138,74 @@ class RpcHandler:
             "state": state,
         }
 
+    async def rpc_ztna_test_guacd(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Test socket connectivity to guacd daemon."""
+        host = str(params.get("host") or "127.0.0.1").strip()
+        port = int(params.get("port") or 4822)
+        start_time = time.time()
+        try:
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(host, port),
+                timeout=4.0
+            )
+            elapsed_ms = round((time.time() - start_time) * 1000, 2)
+            writer.close()
+            await writer.wait_closed()
+            return {
+                "success": True,
+                "host": host,
+                "port": port,
+                "latency_ms": elapsed_ms,
+                "message": f"Successfully connected to guacd daemon at {host}:{port} ({elapsed_ms}ms).",
+            }
+        except Exception as exc:
+            return {
+                "success": False,
+                "host": host,
+                "port": port,
+                "error": str(exc),
+                "message": f"Could not connect to guacd daemon at {host}:{port}: {exc}",
+            }
+
     async def rpc_ztna_session_kill(self, params: Dict[str, Any]) -> Dict[str, Any]:
-        """Terminate an active ZTNA remote session."""
-        session_id = params.get("session_id", "")
+        """Terminate an active ZTNA remote session.
+
+        The session's tunnel token is added to /run/micron/ztna-revoked.json,
+        which micron-guacd-bridge polls: it refuses the token from then on and
+        closes any tunnel already open with it. Entries are kept until the
+        token would have expired anyway.
+        """
+        session_id = str(params.get("session_id", ""))
+        token = params.get("token", "")
+        if not isinstance(token, str) or "." not in token or len(token) > 8192:
+            return {"status": "error", "session_id": session_id, "message": "A session token is required."}
+        body, signature = token.rsplit(".", 1)
+        if not re.fullmatch(r"[0-9a-f]{64}", signature):
+            return {"status": "error", "session_id": session_id, "message": "Malformed session token."}
+        now = int(time.time())
+        expires = now + 3600
+        try:
+            raw = base64.b64decode(body + "=" * (-len(body) % 4), altchars=b"-_", validate=True)
+            claimed = strict_json_loads(raw.decode("utf-8")).get("expires")
+            if isinstance(claimed, int) and claimed > now:
+                expires = claimed
+        except (ValueError, TypeError, AttributeError):
+            pass
+
+        revoked: Dict[str, int] = {}
+        try:
+            with open(ZTNA_REVOKED_PATH, "r", encoding="utf-8") as fh:
+                loaded = strict_json_loads(fh.read())
+            if isinstance(loaded, dict):
+                revoked = {k: v for k, v in loaded.items() if isinstance(v, int) and v > now}
+        except (OSError, ValueError):
+            pass
+        revoked[signature] = expires
+        try:
+            os.makedirs(os.path.dirname(ZTNA_REVOKED_PATH), exist_ok=True)
+            safe_atomic_write(ZTNA_REVOKED_PATH, json.dumps(revoked), mode=0o644)
+        except OSError as exc:
+            return {"status": "error", "session_id": session_id, "message": f"Could not revoke session: {exc}"}
         return {
             "status": "ok",
             "session_id": session_id,
@@ -8398,6 +11551,118 @@ class RpcHandler:
             "count": len(synced),
         }
 
+    # ------------------ System SSH Configuration ------------------
+    async def rpc_system_ssh_apply(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Applies system-wide OpenSSH daemon configuration to /etc/ssh/sshd_config.d/99-micronos.conf.
+        Validates configuration syntax with `sshd -t` and reloads/restarts ssh.service.
+        """
+        enabled = bool(params.get("enabled", True))
+        try:
+            port = int(params.get("port", 22))
+        except (ValueError, TypeError):
+            port = 22
+        if port < 1 or port > 65535:
+            return {"success": False, "status": "error", "message": f"Invalid SSH port: {port} (must be 1-65535)"}
+
+        # Reserved / conflicting ports check
+        reserved_ports = {53, 67, 68, 8088, 8443, 4822, 7681}
+        if port in reserved_ports:
+            return {"success": False, "status": "error", "message": f"Port {port} is reserved for internal appliance services"}
+
+        root_login = "yes" if bool(params.get("root_login", False)) else "no"
+        try:
+            raw_tries = int(params.get("max_auth_tries", 3))
+            if raw_tries < 1 or raw_tries > 20:
+                return {"success": False, "status": "error", "message": f"Invalid max_auth_tries: {raw_tries} (must be 1-20)"}
+            max_auth_tries = raw_tries
+        except (ValueError, TypeError):
+            max_auth_tries = 3
+
+        auth_methods = params.get("auth_methods", "key,password")
+        if isinstance(auth_methods, list):
+            auth_methods_list = [str(m).strip().lower() for m in auth_methods]
+        elif isinstance(auth_methods, str):
+            auth_methods_list = [m.strip().lower() for m in auth_methods.split(",") if m.strip()]
+        else:
+            auth_methods_list = ["key", "password"]
+
+        pwd_auth = "yes" if "password" in auth_methods_list else "no"
+        pubkey_auth = "yes" if "key" in auth_methods_list else "no"
+        kbd_auth = "yes" if "keyboard-interactive" in auth_methods_list else "no"
+
+        ssh_dropin_dir = "/etc/ssh/sshd_config.d"
+        ssh_dropin = os.path.join(ssh_dropin_dir, "99-micronos.conf")
+
+        content = (
+            "# Micron OS — Managed OpenSSH Appliance Configuration\n"
+            f"Port {port}\n"
+            f"PasswordAuthentication {pwd_auth}\n"
+            f"PubkeyAuthentication {pubkey_auth}\n"
+            f"KbdInteractiveAuthentication {kbd_auth}\n"
+            f"PermitRootLogin {root_login}\n"
+            f"MaxAuthTries {max_auth_tries}\n"
+            "Banner /etc/issue.net\n"
+            "PrintMotd yes\n"
+        )
+
+        steps = []
+        if os.name != "nt":
+            os.makedirs(ssh_dropin_dir, exist_ok=True)
+            backup = None
+            if os.path.exists(ssh_dropin):
+                try:
+                    with open(ssh_dropin, "r", encoding="utf-8") as f:
+                        backup = f.read()
+                except OSError:
+                    pass
+
+            try:
+                safe_atomic_write(ssh_dropin, content, mode=0o644)
+                steps.append(f"wrote {ssh_dropin}")
+            except Exception as exc:
+                return {"success": False, "status": "error", "message": f"Failed writing SSH config: {exc}"}
+
+            # Pre-flight syntax validation using sshd -t if available
+            if self._which("sshd"):
+                test_res = self._run_bounded(["sshd", "-t"], timeout=10)
+                if test_res["rc"] != 0:
+                    # Rollback
+                    if backup is not None:
+                        safe_atomic_write(ssh_dropin, backup, mode=0o644)
+                    else:
+                        try:
+                            os.remove(ssh_dropin)
+                        except OSError:
+                            pass
+                    return {
+                        "success": False,
+                        "status": "error",
+                        "message": f"sshd syntax check failed: {test_res['stderr'] or test_res['stdout']}",
+                    }
+                steps.append("sshd -t syntax validated")
+
+            # Manage systemd ssh unit
+            if self._which("systemctl"):
+                if enabled:
+                    self._run_bounded(["systemctl", "enable", "ssh"], timeout=10)
+                    r = self._run_bounded(["systemctl", "reload-or-restart", "ssh"], timeout=15)
+                    steps.append(f"systemctl reload-or-restart ssh (rc={r['rc']})")
+                else:
+                    self._run_bounded(["systemctl", "stop", "ssh"], timeout=10)
+                    self._run_bounded(["systemctl", "disable", "ssh"], timeout=10)
+                    steps.append("systemctl stop/disable ssh")
+        else:
+            steps.append(f"(mock) SSH configured on port {port}, enabled={enabled}")
+
+        return {
+            "success": True,
+            "status": "applied",
+            "port": port,
+            "enabled": enabled,
+            "steps": steps,
+        }
+
     # ------------------ Bonding & Link Aggregation (LACP) Methods ------------------
     async def rpc_bond_list(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -8874,8 +12139,20 @@ async def _write_response(writer: asyncio.StreamWriter, response_data: Any) -> N
     await writer.drain()
 
 
+def _accepts_peer(handler) -> bool:
+    """Whether handler.handle_request takes the caller identity (RpcHandler does)."""
+    try:
+        import inspect
+        return "peer" in inspect.signature(handler.handle_request).parameters
+    except (TypeError, ValueError):
+        return False
+
+
 async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter, handler: RpcHandler):
     """Processes length-prefixed JSON-RPC requests on a client connection."""
+    # The caller's kernel-attested identity, read once per connection; it
+    # decides which method classes this connection may invoke.
+    peer = rpc_peer_credentials(writer)
     try:
         while True:
             # Read 4-byte header
@@ -8901,7 +12178,8 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
                 })
                 continue
 
-            response_data = await handler.handle_request(req_data)
+            response_data = await (handler.handle_request(req_data, peer) if _accepts_peer(handler)
+                                   else handler.handle_request(req_data))
             await _write_response(writer, response_data)
     except asyncio.IncompleteReadError:
         pass
@@ -8945,14 +12223,60 @@ async def _systemd_watchdog_loop():
         notify_systemd("WATCHDOG=1")
 
 
+async def _database_watchdog_loop(handler: "RpcHandler"):
+    """Periodically verifies database integrity and maintains WAL checkpoints."""
+    while True:
+        await asyncio.sleep(300)
+        try:
+            handler.maintain_database()
+        except Exception as exc:
+            logger.error(f"Periodic database maintenance failed: {exc}")
+
+
+# Per-appliance master key. The web application derives its encryption key
+# from it (Config\Encryption) and encrypted backups carry it, so stored
+# secrets (PPPoE, RADIUS, connectors) survive a restore onto new hardware.
+MASTER_KEY_PATH = "/etc/micron/secrets.key"
+
+
+def ensure_master_key(path: Optional[str] = None) -> bool:
+    """Create the appliance master key on first start; never replace one.
+
+    Written as 64 hex characters, mode 0640, root:www-data, so the web
+    application (www-data) can read it and nobody else can. Returns True when
+    a new key was created.
+    """
+    path = path or MASTER_KEY_PATH
+    if os.path.exists(path):
+        return False
+    safe_atomic_write(path, secrets.token_hex(32) + "\n", mode=0o640)
+    try:
+        import grp
+        os.chown(path, 0, grp.getgrnam("www-data").gr_gid)
+    except (KeyError, PermissionError, OSError, ImportError):
+        pass
+    return True
+
+
 async def main():
     os.makedirs(os.path.dirname(SOCKET_PATH), exist_ok=True)
+    try:
+        if ensure_master_key():
+            logger.info(f"generated appliance master key at {MASTER_KEY_PATH}")
+    except Exception as exc:  # never keep the daemon from starting
+        logger.error(f"could not create the appliance master key: {exc}")
     if os.path.exists(SOCKET_PATH):
         os.remove(SOCKET_PATH)
 
     loop = asyncio.get_running_loop()
     tx_mgr = SafeTransactionManager()
     handler = RpcHandler(tx_mgr, loop)
+    try:
+        recovered = handler.net_recover_on_start()
+        if recovered:
+            logger.warning(f"network transaction left from before start: {recovered}")
+    except Exception as exc:  # never keep the daemon from starting
+        logger.error(f"network recovery failed: {exc}")
 
     server = await asyncio.start_unix_server(
         lambda r, w: handle_client(r, w, handler),
@@ -8974,15 +12298,17 @@ async def main():
 
     logger.info(f"MicronOS IPC Daemon (micrond) running on {SOCKET_PATH}")
 
-    # Signal service readiness and launch watchdog keepalive loop
+    # Signal service readiness and launch watchdog keepalive and database maintenance loops
     notify_systemd("READY=1")
     watchdog_task = asyncio.create_task(_systemd_watchdog_loop())
+    db_watchdog_task = asyncio.create_task(_database_watchdog_loop(handler))
 
     try:
         async with server:
             await server.serve_forever()
     finally:
         watchdog_task.cancel()
+        db_watchdog_task.cancel()
         notify_systemd("STOPPING=1")
 
 

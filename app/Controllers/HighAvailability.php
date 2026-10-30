@@ -27,44 +27,14 @@ class HighAvailability extends BaseController
         $settings = $this->haSettingsModel->getSettings();
         $vips     = $this->haVipModel->findAll();
 
-        // Seed sample VIPs if empty
-        if (empty($vips)) {
-            $this->haVipModel->insert([
-                'interface'      => 'lan0',
-                'vip_type'       => 'vrrp',
-                'ip_address'     => '192.168.1.254',
-                'subnet_mask'    => '255.255.255.0',
-                'vrrp_router_id' => 51,
-                'vrrp_priority'  => 110,
-                'description'    => 'LAN Default Gateway Cluster VIP',
-                'status'         => 'MASTER',
-            ]);
-            $this->haVipModel->insert([
-                'interface'      => 'wan0',
-                'vip_type'       => 'vrrp',
-                'ip_address'     => '203.0.113.10',
-                'subnet_mask'    => '255.255.255.0',
-                'vrrp_router_id' => 52,
-                'vrrp_priority'  => 110,
-                'description'    => 'Public-facing VRRP WAN virtual address',
-                'status'         => 'MASTER',
-            ]);
-            $vips = $this->haVipModel->findAll();
-        }
-
+        // Only real, configured interfaces are offered — an empty list is
+        // shown as such rather than padded with invented ones.
         $interfaces = $this->interfaceModel->findAll();
-        if (empty($interfaces)) {
-            $interfaces = [
-                ['name' => 'wan0', 'label' => 'WAN (Internet)'],
-                ['name' => 'lan0', 'label' => 'LAN (Internal)'],
-                ['name' => 'sync0', 'label' => 'SYNC (Dedicated Heartbeat)'],
-            ];
-        }
 
         $haStatus = $this->ipc->call('ha.status')['result'] ?? [];
 
-        // Generate Keepalived config preview
-        $keepalivedConfig = $this->generateKeepalivedConfig($settings, $vips);
+        // Preview of exactly what `ha.sync` sends, with the VRRP password masked.
+        $keepalivedConfig = (new \App\Libraries\ServiceConfigCompiler())->keepalivedPreview();
 
         $data = [
             'title'            => 'High Availability & Cluster Failover',
@@ -99,6 +69,14 @@ class HighAvailability extends BaseController
             'config_sync_api_key'  => $this->request->getPost('config_sync_api_key'),
         ];
 
+        // Secrets are never sent back to the browser; an empty field means
+        // "keep the stored value", so forms that do not carry them cannot wipe them.
+        foreach (['vrrp_auth_pass', 'config_sync_api_key'] as $secret) {
+            if (trim((string) ($data[$secret] ?? '')) === '') {
+                unset($data[$secret]);
+            }
+        }
+
         if ($id) {
             $this->haSettingsModel->update($id, $data);
         } else {
@@ -106,8 +84,8 @@ class HighAvailability extends BaseController
         }
 
         [$key, $message] = $this->ipcFlash(
-            $this->ipc->call('ha.sync', $data),
-            'High Availability cluster settings saved and synced.',
+            $this->applier()->haSync(),
+            'High Availability cluster settings saved and applied.',
             'Saved, but the HA sync'
         );
 
@@ -135,7 +113,7 @@ class HighAvailability extends BaseController
         }
 
         [$key, $message] = $this->ipcFlash(
-            $this->ipc->call('ha.sync'),
+            $this->applier()->haSync(),
             'Virtual IP successfully updated.',
             'Updated, but the HA sync'
         );
@@ -147,7 +125,7 @@ class HighAvailability extends BaseController
     {
         $this->haVipModel->delete($id);
         [$key, $message] = $this->ipcFlash(
-            $this->ipc->call('ha.sync'),
+            $this->applier()->haSync(),
             'Virtual IP removed.',
             'Removed, but the HA sync'
         );
@@ -166,53 +144,33 @@ class HighAvailability extends BaseController
             'vrrp_priority' => $targetPriority,
         ]);
 
-        $res = $this->ipc->call('ha.failover', ['target' => $targetMode]);
+        [$key, $message] = $this->ipcFlash(
+            $this->applier()->haFailover($targetMode),
+            "Failover applied: this node now runs as {$targetMode} (VRRP priority {$targetPriority}).",
+            'The failover'
+        );
+        if ($key !== 'success') {
+            // The node did not change role, so the stored role must not either.
+            $this->haSettingsModel->update($settings['id'], [
+                'mode'          => $settings['mode'],
+                'vrrp_priority' => $settings['vrrp_priority'],
+            ]);
+        }
 
-        return redirect()->to('/ha')->with('success', "Cluster failover triggered! Transitioned to {$targetMode} (Priority {$targetPriority}).");
+        return redirect()->to('/ha')->with($key, $message);
     }
 
     public function syncConfig()
     {
-        $res = $this->ipc->call('ha.sync', ['force' => true]);
-        return redirect()->to('/ha')->with('success', 'Full configuration sync pushed to peer node successfully.');
-    }
+        // This re-applies the local Keepalived configuration. Pushing the
+        // configuration to the peer node is not implemented; the message says
+        // exactly what happened.
+        [$key, $message] = $this->ipcFlash(
+            $this->applier()->haSync(),
+            'Keepalived configuration recompiled and re-applied on this node.',
+            'The HA re-apply'
+        );
 
-    private function generateKeepalivedConfig(array $settings, array $vips): string
-    {
-        $vrrpInstances = "";
-        $mode = strtoupper($settings['mode'] ?? 'MASTER');
-        $priority = $settings['vrrp_priority'] ?? 110;
-        $auth = $settings['vrrp_auth_pass'] ?? 'VRRP_S3cur3';
-
-        foreach ($vips as $vip) {
-            $name = strtoupper(preg_replace('/[^a-zA-Z0-9]/', '_', $vip['interface'])) . "_VIP_" . $vip['vrrp_router_id'];
-            $vrrpInstances .= "vrrp_instance {$name} {\n";
-            $vrrpInstances .= "    state {$mode}\n";
-            $vrrpInstances .= "    interface {$vip['interface']}\n";
-            $vrrpInstances .= "    virtual_router_id {$vip['vrrp_router_id']}\n";
-            $vrrpInstances .= "    priority {$priority}\n";
-            $vrrpInstances .= "    advert_int 1\n";
-            $vrrpInstances .= "    authentication {\n";
-            $vrrpInstances .= "        auth_type PASS\n";
-            $vrrpInstances .= "        auth_pass {$auth}\n";
-            $vrrpInstances .= "    }\n";
-            $vrrpInstances .= "    virtual_ipaddress {\n";
-            $vrrpInstances .= "        {$vip['ip_address']}/24 dev {$vip['interface']}\n";
-            $vrrpInstances .= "    }\n";
-            $vrrpInstances .= "    track_interface {\n";
-            $vrrpInstances .= "        {$vip['interface']}\n";
-            $vrrpInstances .= "    }\n";
-            $vrrpInstances .= "}\n\n";
-        }
-
-        return "# MicronOS Automated Keepalived Configuration\n"
-             . "# Node: " . ($settings['node_name'] ?? 'node-01') . " | Mode: {$mode}\n\n"
-             . "global_defs {\n"
-             . "    router_id " . ($settings['node_name'] ?? 'micron-gw-01') . "\n"
-             . "    vrrp_version 3\n"
-             . "    script_user root\n"
-             . "    enable_script_security\n"
-             . "}\n\n"
-             . $vrrpInstances;
+        return redirect()->to('/ha')->with($key, $message);
     }
 }

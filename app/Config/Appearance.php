@@ -37,6 +37,7 @@ class Appearance extends BaseConfig
         'solar'    => ['label' => 'Solar Amber', 'dot' => 'linear-gradient(135deg,#fdf7ee,#ea580c)', 'mode' => 'light'],
         'mint'     => ['label' => 'Mint Breeze', 'dot' => 'linear-gradient(135deg,#f0fdf9,#0d9488)', 'mode' => 'light'],
         'paper'    => ['label' => 'Paper Ink',   'dot' => 'linear-gradient(135deg,#f7f7f8,#4f46e5)', 'mode' => 'light'],
+        'micronos' => ['label' => 'Micron OS',   'dot' => 'linear-gradient(135deg,#fbf8ff,#663399)', 'mode' => 'light'],
     ];
 
     /**
@@ -48,6 +49,30 @@ class Appearance extends BaseConfig
         'sidebar' => 'Sidebar — left navigation panel',
         'topnav'  => 'Top Nav — menus in the header',
     ];
+
+    /**
+     * Factory defaults, used whenever no preference has been saved (fresh
+     * install, live ISO, a stale or invalid stored value).
+     */
+    public string $defaultTheme = 'micronos';
+
+    public string $defaultLayout = 'topnav';
+
+    /** A saved theme id if it is valid, otherwise the default. */
+    public function resolveTheme(?string $id): string
+    {
+        if ($id === 'open') {
+            return 'micronos';
+        }
+
+        return in_array((string) $id, $this->ids(), true) ? (string) $id : $this->defaultTheme;
+    }
+
+    /** A saved layout id if it is valid, otherwise the default. */
+    public function resolveLayout(?string $id): string
+    {
+        return in_array((string) $id, $this->layoutIds(), true) ? (string) $id : $this->defaultLayout;
+    }
 
     /** All valid theme ids. @return list<string> */
     public function ids(): array
@@ -76,6 +101,10 @@ class Appearance extends BaseConfig
     /** True when the theme id renders on a light base. */
     public function isLight(string $id): bool
     {
+        if ($id === 'open') {
+            return true;
+        }
+
         return ($this->themes[$id]['mode'] ?? 'dark') === 'light';
     }
 }

@@ -1,7 +1,7 @@
 {
     "name": "micron/micron-firewall-os",
     "description": "Micron Firewall OS (MicronOS) — enterprise Linux network security appliance and routing platform",
-    "license": "proprietary",
+    "license": "Apache-2.0",
     "type": "project",
     "require": {
         "php": "^8.2",

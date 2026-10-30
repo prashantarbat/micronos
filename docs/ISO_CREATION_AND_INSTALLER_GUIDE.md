@@ -667,10 +667,13 @@ systemctl enable --now apache2 php8.4-fpm micrond
 # 7. Print Console Banner
 cat << 'BANNER' > /etc/issue
 
-┌╦═╦═╦┐ ┌═╤╦╤═┐ ┌╦═══╦┐ ┌╦═══╦┐ ┌╦═══╦┐ ┌╦═╗ ╦┐      ┌╦═══╦┐ ┌╦═══╦┐
-│║ ║ ║│   │║│   │║      │╠══╦╩┘ │║   ║│ │║ ║ ║│      │║   ║│ └╩═══╦┐
-└╩   ╩┘ └═╧╩╧═┘ └╩═══╩┘ └╩  ╚═┘ └╩═══╩┘ └╩ ╚═╩┘      └╩═══╩┘ └╩═══╩┘
- Enterprise Linux Firewall & Network Appliance
+███╗   ███╗██╗ ██████╗██████╗  ██████╗ ███╗   ██╗     ██████╗ ███████╗
+████╗ ████║██║██╔════╝██╔══██╗██╔═══██╗████╗  ██║    ██╔═══██╗██╔════╝
+██╔████╔██║██║██║     ██████╔╝██║   ██║██╔██╗ ██║    ██║   ██║███████╗
+██║╚██╔╝██║██║██║     ██╔══██╗██║   ██║██║╚██╗██║    ██║   ██║╚════██║
+██║ ╚═╝ ██║██║╚██████╗██║  ██║╚██████╔╝██║ ╚████║    ╚██████╔╝███████║
+╚═╝     ╚═╝╚═╝ ╚═════╝╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝     ╚═════╝ ╚══════╝
+ Enterprise  Next-Gen Firewall & Network Appliance
 
  WAN Interface : $WAN_IF (DHCP Client)
  LAN Interface : $LAN_IF (192.168.1.1/24)
@@ -834,28 +837,15 @@ ADMIN_PW="M1Cr0N"
 # 'yes' = auto-reboot after install (5 s countdown); 'no' = stay on completion screen
 REBOOT="yes"
 
-# 7. Optional Initial Network Configuration (single physical LAN port)
+# 7. Optional Initial Network Configuration (one physical NIC per role)
 WAN_IF=""
 LAN_IF=""
 LAN_IP="10.10.10.10"
 LAN_NETMASK="255.255.255.0"
-
-# 8. Layer 2 Switch Bridge — Multi-Port Appliance Mode
-# Set LAN_IS_BRIDGE="yes" to bundle slave ports into a single Layer 2 switch (br0).
-# BRIDGE_SLAVES is a space-separated list of physical ports to enslave.
-# LAN_IP is applied to the bridge interface (br0); STP is auto-enabled.
-#
-# Example — 4-port appliance (eth0=WAN, eth1/eth2/eth3 → br0 LAN):
-#   WAN_IF="eth0"
-#   LAN_IS_BRIDGE="yes"
-#   BRIDGE_SLAVES="eth1 eth2 eth3"
-#   LAN_IP="10.10.10.10"
-LAN_IS_BRIDGE=""
-BRIDGE_SLAVES=""
 ```
 
 > [!NOTE]
-> When `WAN_IF` is left empty the installer configures base networking as *unconfigured*, relying on the interactive CLI option **1) Assign Interfaces** after first boot.
+> When `WAN_IF` is left empty, boot-time discovery assigns physical NIC 1 to WAN and NIC 2 to LAN. Additional NICs remain separate; console option **1) Assign Interfaces** maps them to independent OPT roles.
 
 ### 13.3 Delivering a Kickstart File via USB (OEMDRV Volume)
 
@@ -1015,8 +1005,9 @@ cd /root/micronos-builder
 Then populate it from the Windows-side repository using `rsync` over the `/mnt/` mount:
 
 ```bash
-# Stage the live-build configuration from the repository
-rsync -av /mnt/d/laragon/app/micronos/packaging/live-build/ /root/micronos-builder/
+# Stage the live-build configuration from the repository (adjust path to your repo mount)
+REPO="/mnt/d/micronos-workspace/micronos" # or your local repo path
+rsync -av "${REPO}/packaging/live-build/" /root/micronos-builder/
 chmod +x auto/config auto/clean auto/build 2>/dev/null || true
 ```
 
@@ -1082,119 +1073,65 @@ ls -lh /root/micronos-builder/*.iso
 # Expected: ~900 MB – 1.1 GB
 ```
 
-### 15.8 Copy the ISO to Windows
+### 15.8 Automated Artifact Packaging & Directory Structure
 
-Copy the generated ISO from the WSL native filesystem back to your Windows workspace:
+When `rebuild_iso.sh` or `finalize_iso.sh` finishes, build artifacts are copied directly to the Windows workspace in a version-isolated directory:
 
-```bash
-# Copy to the Windows workspace (outside repository tree, directly in D:\laragon\www\micronos)
-cp /root/micronos-builder/micronos-0.1.23-amd64.hybrid.iso \
-   /mnt/d/laragon/www-iso/micronos-0.1.23-amd64.hybrid.iso
-
-# Or to your Desktop
-cp /root/micronos-builder/micronos-0.1.23-amd64.hybrid.iso \
-   "/mnt/c/Users/$USER/Desktop/micronos-0.1.23-amd64.hybrid.iso"
+```
+D:\laragon\www\micronos\micronos-<version>-amd64.hybrid\
+├── micronos-<version>-amd64.hybrid.iso            # The bootable hybrid ISO image (~950 MB)
+├── micronos-<version>-amd64.hybrid.iso.checksums.txt # Single-manifest MD5, SHA1, SHA256, SHA512
+├── micronos-<version>-amd64.hybrid.iso.sha256    # Standard sha256sum verification file
+└── build.log                                     # Complete live-build log for auditing
 ```
 
-On the Windows side the file is then accessible from File Explorer, Rufus, Hyper-V, VirtualBox, or any other tool.
+### 15.9 Authoritative Build Scripts: `rebuild_iso.sh` vs `finalize_iso.sh`
 
-### 15.9 Quick Rebuild After Source Changes
+The `packaging/` directory provides two specialized scripts tailored for different stages of the build lifecycle:
 
-When only the PHP application or CLI changed (no package additions), skip the full chroot rebuild to save time:
+| Script | When to Use | Description |
+|---|---|---|
+| **`packaging/rebuild_iso.sh`** | **Full ISO Rebuild** | Authoritative end-to-end rebuild pipeline. Cleans binary stage, stages application overlay, runs `lb config` and `lb build`, validates bootable El Torito metadata, moves ISO to Windows workspace, and computes unified checksums. |
+| **`packaging/finalize_iso.sh`** | **Post-Build Packaging** | Fast utility when `live-image-amd64.hybrid.iso` is already compiled. Instantly copies the ISO to the Windows workspace and regenerates all cryptographic checksums without re-running `lb build`. |
 
+---
+
+### 15.10 Rebuild Script Reference (`packaging/rebuild_iso.sh`)
+
+The script is located at `packaging/rebuild_iso.sh` in the repository and synced to `/root/micronos-builder/rebuild_iso.sh` in WSL.
+
+#### Command-Line Options:
 ```bash
-cd /root/micronos-builder
-
-# 1. Re-stage the overlay (picks up all application changes)
-bash /mnt/d/laragon/app/micronos/packaging/live-build/stage-overlay.sh
-
-# 2. Clean only the binary layer (keeps the chroot)
-sudo lb clean
-
-# 3. Rebuild the binary ISO from the existing chroot
-sudo lb build 2>&1 | tee build.log
+Usage: sudo packaging/rebuild_iso.sh [--bump | --no-bump | --version <version>]
 ```
 
-This cuts rebuild time from ~30 minutes to **3–8 minutes**.
+- **Default (no flags)**: `auto` mode. Reads current version from `VERSION`. If an ISO for that version already exists in the output directory, it automatically increments the patch version (e.g. `0.1.42` → `0.1.43`). If not, it builds with the current version.
+- **`--bump`**: Forces an immediate patch version bump in `VERSION` and `system/os-release` before building.
+- **`--no-bump`**: Forces building with the exact version in `VERSION` without incrementing, even if an ISO already exists.
+- **`--version <ver>`**: Explicitly sets the build version (e.g. `--version 0.2.0`), updating `VERSION` and `system/os-release`.
 
-### 15.10 Complete Manual Build Script (`rebuild_iso.sh`)
+#### Execution from Windows PowerShell:
+You can invoke the build pipeline directly from PowerShell on your Windows host:
 
-Save this as `/root/rebuild_iso.sh` inside WSL for one-command rebuilds:
+```powershell
+# 1. Full rebuild with auto-versioning:
+wsl -d kali-linux -u root -- bash /root/micronos-builder/rebuild_iso.sh
 
-```bash
-#!/bin/bash
-# ==============================================================================
-# MicronOS — Manual ISO Rebuild Script (WSL2 / Native Linux)
-# Usage: sudo bash rebuild_iso.sh [--full]
-#   --full  : purge chroot cache and rebuild from scratch (slow, ~30–45 min)
-#   default : keep chroot, re-stage overlay and rebuild binary only (fast, ~5 min)
-# ==============================================================================
-set -e
+# 2. Force bump patch version:
+wsl -d kali-linux -u root -- bash /root/micronos-builder/rebuild_iso.sh --bump
 
-REPO_WIN_PATH="/mnt/d/laragon/app/micronos"
-BUILD_DIR="/root/micronos-builder"
-OUT_ISO_NAME="micronos-0.1.23-amd64.hybrid.iso"
+# 3. Build current version without bumping:
+wsl -d kali-linux -u root -- bash /root/micronos-builder/rebuild_iso.sh --no-bump
 
-FULL_BUILD=0
-[ "$1" = "--full" ] && FULL_BUILD=1
-
-echo "=== MicronOS ISO Builder ==="
-echo "Repository : $REPO_WIN_PATH"
-echo "Build Dir  : $BUILD_DIR"
-echo "Mode       : $([ $FULL_BUILD -eq 1 ] && echo 'FULL (purge + rebuild)' || echo 'FAST (overlay only)')"
-echo ""
-
-mkdir -p "$BUILD_DIR"
-cd "$BUILD_DIR"
-
-# Stage the live-build config from the repository (idempotent)
-rsync -av --exclude='.git' \
-    "$REPO_WIN_PATH/packaging/live-build/" "$BUILD_DIR/"
-chmod +x auto/config auto/clean auto/build 2>/dev/null || true
-
-# Stage the application overlay
-bash "$REPO_WIN_PATH/packaging/live-build/stage-overlay.sh"
-
-# Configure live-build (runs lb config)
-lb config
-
-# Clean
-if [ $FULL_BUILD -eq 1 ]; then
-    echo "--- Purging build caches (full rebuild)..."
-    lb clean --purge
-else
-    echo "--- Cleaning binary layer only (fast rebuild)..."
-    lb clean
-fi
-
-# Build
-echo "--- Starting lb build (output logged to build.log)..."
-lb build 2>&1 | tee build.log
-
-# Verify
-if [ -f "$BUILD_DIR/$OUT_ISO_NAME" ]; then
-    SIZE=$(du -sh "$BUILD_DIR/$OUT_ISO_NAME" | cut -f1)
-    echo ""
-    echo "=== Build Successful ==="
-    echo "ISO : $BUILD_DIR/$OUT_ISO_NAME"
-    echo "Size: $SIZE"
-    # Copy to Windows workspace
-    cp "$BUILD_DIR/$OUT_ISO_NAME" "$REPO_WIN_PATH/$OUT_ISO_NAME"
-    echo "Copied to Windows: $REPO_WIN_PATH/$OUT_ISO_NAME"
-else
-    echo "ERROR: ISO not found after build. Check build.log for errors."
-    exit 1
-fi
+# 4. Fast finalize if ISO was already compiled:
+wsl -d kali-linux -u root -- bash /root/micronos-builder/finalize_iso.sh
 ```
 
-**Usage:**
-```bash
-# Fast rebuild (keeps chroot, ~5 min)
-sudo bash /root/rebuild_iso.sh
-
-# Full rebuild from scratch (~30-45 min)
-sudo bash /root/rebuild_iso.sh --full
-```
+#### Key Architecture Safeguards in `rebuild_iso.sh`:
+- **Self-Overwrite Protection**: When executed as `/root/micronos-builder/rebuild_iso.sh`, the script guards against overwriting itself in Step 1 using `realpath "$0"`, preventing file offset corruption during live Bash execution.
+- **Single Source of Truth**: Synchronizes `VERSION` and `system/os-release` consistently.
+- **Clean Artifact Staging**: Purges stale ISO files in the repository directory to avoid deploying unversioned or stale images.
+- **Cryptographic Hash Manifest**: Writes a consolidated, human-readable and machine-verifiable `*.checksums.txt` file containing MD5, SHA1, SHA256, and SHA512.
 
 ### 15.11 Installer Error Handling & Recovery
 
@@ -1217,7 +1154,7 @@ The **Maintenance Shell** option (choice 2 in the error dialog) drops to a root 
 | **NUM LOCK** | Forced ON at installer start, across all TTYs (`/dev/tty[1-6]`, `/dev/tty0`, `/dev/console`) and persisted into the installed system via a `numlock-enable.service` systemd unit |
 | **Kickstart engine** | Sources a shell-fragment answer file; supports CLI path, kernel cmdline, OEMDRV USB, and remote HTTP/FTP URL |
 | **Y/n prompts** | All confirmations default to Yes on bare Enter — installer never blocks for explicit "yes" |
-| **Bridge LAN** | `LAN_IS_BRIDGE=yes` + `BRIDGE_SLAVES="eth1 eth2 eth3"` creates `br0` with STP and enslaves member ports; writes `/etc/network/interfaces` bridge stanza and inserts into `interface_bridges` SQLite table |
+| **Physical interface roles** | NIC 1 is WAN, NIC 2 is LAN, and each later NIC remains independent as an OPT interface; installation and factory reset do not create a LAN bridge |
 | **LAN IP** | Default LAN management address is `10.10.10.10/24` (configurable via `LAN_IP` in kickstart or interactively) |
 | **A/B Slots** | Installs ESP + Swap + Root Slot A (active) + Root Slot B (standby) + Data partition; registers GRUB boot-slot selector (`grub.d/09_micron_slots`) |
 | **UEFI + BIOS** | Installs GRUB for both `x86_64-efi` and MBR/BIOS fallback |
@@ -1225,6 +1162,26 @@ The **Maintenance Shell** option (choice 2 in the error dialog) drops to a root 
 
 ---
 
-*Document Version:* 2.0.0 (Updated — Kickstart Engine, Bridge LAN, Manual WSL Build Workflow)  
+*Document Version:* 2.0.0 (Updated — Kickstart Engine, Independent Physical NICs, Manual WSL Build Workflow)
 *Project:* Micron Firewall OS (MicronOS)  
 *Component:* Appliance Image Builder & Installer  
+
+## Defaults and services added in the 2026-10-14 pass
+
+| Item | Where it is set up | Result on the live ISO and after install |
+|---|---|---|
+| IPv6 master switch | `system/60-micron-ipv6.conf` → `/etc/sysctl.d/` (hook and `install.sh`); rewritten at every boot by `micron-network` from the database | IPv6 **off** until enabled in System › Networking |
+| IPv4 forwarding | `system/99-micron-routing.conf` | IPv4 only; IPv6 forwarding follows the switch |
+| Boot networking | `micron-network` → `php spark network boot-files` + `micron_netcfg.py boot` | addresses, firewall and DHCP are built from the database on every boot |
+| Web Terminal | `micron-terminald.service` (enabled), `micron-term` account, Apache `proxy` + `proxy_wstunnel`, `ProxyPass /terminal/ws` in the management vhost | Terminal menu works offline after first boot |
+| Theme / layout | factory defaults (Solar Amber, Top nav) | applied on first page load |
+| Serial console | GRUB `serial --speed=115200`, `console=ttyS0,115200n8 console=tty0` | fixed 115200 8N1; not configurable from the Web UI |
+
+Post-install checks:
+
+```bash
+sysctl net.ipv6.conf.all.disable_ipv6        # 1 by default
+php /usr/local/micron/spark network status    # plan vs kernel
+systemctl status micron-terminald
+microctl terminal status
+```

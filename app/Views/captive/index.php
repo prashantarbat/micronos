@@ -192,7 +192,13 @@
           <label class="form-label">Captive Interface <span style="color:var(--color-rose);">*</span></label>
           <select name="interface" id="z_interface" class="form-control" required>
             <?php foreach ($interfaces as $iface): ?>
-              <option value="<?= esc($iface['id']) ?>"><?= esc($iface['label']) ?></option>
+              <?php
+                $val   = $iface['id'] ?? ($iface['name'] ?? '');
+                $name  = $iface['name'] ?? $val;
+                $dev   = $iface['physical_device'] ?? '';
+                $label = $iface['label'] ?? (($dev !== '' && $dev !== $name) ? "{$name} ({$dev})" : $name);
+              ?>
+              <option value="<?= esc($val) ?>"><?= esc($label) ?></option>
             <?php endforeach; ?>
           </select>
           <small style="font-size:0.7rem; color:var(--text-muted);">Interface whose traffic will be redirected.</small>
@@ -288,7 +294,21 @@ function editZone(z) {
   document.getElementById('z_id').value = z.id;
   document.getElementById('z_name').value = z.name;
   document.getElementById('z_slug').value = z.slug;
-  document.getElementById('z_interface').value = z.interface;
+  const ifSelect = document.getElementById('z_interface');
+  if (z.interface) {
+    let found = false;
+    for (let i = 0; i < ifSelect.options.length; i++) {
+      if (ifSelect.options[i].value.toLowerCase() === String(z.interface).toLowerCase()) {
+        ifSelect.selectedIndex = i;
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      ifSelect.add(new Option(z.interface, z.interface, true, true));
+      ifSelect.value = z.interface;
+    }
+  }
   document.getElementById('z_auth_mode').value = z.auth_mode;
   document.getElementById('z_session_timeout').value = z.session_timeout;
   document.getElementById('z_idle_timeout').value = z.idle_timeout;

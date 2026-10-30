@@ -14,6 +14,9 @@ class KeaDhcpCompiler
 {
     protected ?BaseConnection $db;
 
+    /** @var list<string> problems found while compiling (nothing is refused) */
+    public array $warnings = [];
+
     public function __construct(?BaseConnection $db = null)
     {
         $this->db = $db ?? \Config\Database::connect();
@@ -24,6 +27,7 @@ class KeaDhcpCompiler
      */
     public function compile(): string
     {
+        $this->warnings = [];
         $interfaces = $this->fetchInterfaces();
 
         $subnets = [];
@@ -36,9 +40,17 @@ class KeaDhcpCompiler
                 continue; // Interface DHCP is disabled
             }
 
+            // DHCP is served only from an interface with a static address; its
+            // subnet is always derived from that address, never stored.
+            if (($iface['ip_assignment_type'] ?? 'static') !== 'static' || empty($iface['ipv4_address'])) {
+                if ($setting && ! empty($setting['enabled'])) {
+                    $this->warnings[] = "DHCP on {$ifId} skipped: the interface has no static IPv4 address";
+                }
+                continue;
+            }
             $dev = $iface['physical_device'] ?? $iface['name'] ?? 'eth1';
-            $ip = $iface['ipv4_address'] ?? '10.10.10.10';
-            $netmask = (int) ($iface['ipv4_netmask'] ?? 24);
+            $ip = (string) $iface['ipv4_address'];
+            $netmask = \App\Libraries\Network\NetworkPlan::prefix($iface['ipv4_netmask'] ?? 24);
 
             // Compute subnet base
             $ipLong = ip2long($ip);
@@ -49,6 +61,15 @@ class KeaDhcpCompiler
             $startOffset = ($ipLong === ($ipLong & $maskLong) + 10) ? 20 : 10;
             $poolStart = $setting['range_from'] ?? long2ip(($ipLong & $maskLong) + $startOffset);
             $poolEnd   = $setting['range_to'] ?? long2ip(($ipLong & $maskLong) + 245);
+            // A pool left over from a previous subnet would make Kea refuse
+            // the whole configuration: fall back to the derived range.
+            if (! \App\Libraries\Network\NetworkPlan::inSubnet((string) $poolStart, $subnetBase, $netmask)
+                || ! \App\Libraries\Network\NetworkPlan::inSubnet((string) $poolEnd, $subnetBase, $netmask)) {
+                $this->warnings[] = "DHCP pool {$poolStart}-{$poolEnd} on {$ifId} is outside {$subnetBase}/{$netmask}; using the derived range";
+                $hosts     = (1 << (32 - $netmask)) - 2;
+                $poolStart = long2ip(($ipLong & $maskLong) + ($hosts >= 254 ? 100 : max(2, intdiv($hosts, 2) + 1)));
+                $poolEnd   = long2ip(($ipLong & $maskLong) + ($hosts >= 254 ? 200 : $hosts));
+            }
 
             $gateway = !empty($setting['gateway']) ? $setting['gateway'] : $ip;
             $dnsServers = array_filter([
@@ -84,6 +105,10 @@ class KeaDhcpCompiler
                                  ->getResultArray();
             $reservations = [];
             foreach ($resQuery as $res) {
+                if (! \App\Libraries\Network\NetworkPlan::inSubnet((string) $res['ip_address'], $subnetBase, $netmask)) {
+                    $this->warnings[] = "reservation {$res['ip_address']} ({$res['mac_address']}) is outside {$subnetBase}/{$netmask} and was left out";
+                    continue;
+                }
                 $reservations[] = [
                     'hw-address' => $res['mac_address'],
                     'ip-address' => $res['ip_address'],

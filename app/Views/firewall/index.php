@@ -553,7 +553,7 @@ input:checked + .mno-slider:before {
   inset: 0;
   background: rgba(0,0,0,0.75);
   backdrop-filter: blur(4px);
-  z-index: 1000;
+  z-index: 5000;
   display: none;
   align-items: center;
   justify-content: center;
@@ -574,6 +574,13 @@ input:checked + .mno-slider:before {
   box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
   overflow: hidden;
   animation: modalSlideIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.mno-modal-dialog > form {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
 }
 @keyframes modalSlideIn {
   from { opacity: 0; transform: translateY(-20px) scale(0.98); }
@@ -659,12 +666,7 @@ input:checked + .mno-slider:before {
 <!-- Page Header -->
 <div class="page-header animate-in">
   <div class="page-header-content">
-    <div class="page-breadcrumb">
-      <span>Security</span>
-      <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-      <span>Firewall Policies</span>
-    </div>
-    <div style="display:flex; align-items:center; gap:12px; margin-top:4px;">
+    <div style="display:flex; align-items:center; gap:12px;">
       <div class="page-title-icon" style="background:var(--tone-cyan-bg); color:var(--tone-cyan-fg); border:1px solid var(--tone-cyan-border);">
         <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
           <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
@@ -672,7 +674,7 @@ input:checked + .mno-slider:before {
       </div>
       <div>
         <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-          <h1 class="page-title">Firewall Policy &amp; Objects</h1>
+          <h1 class="page-title">Firewall Policies</h1>
           <span class="badge badge-info" style="font-size:0.75rem;">Policy Engine</span>
           <?php if (!empty($isMock)): ?>
             <span class="badge badge-warning" style="font-size:0.75rem;">IPC Mock Active</span>
@@ -821,11 +823,49 @@ input:checked + .mno-slider:before {
       <select onchange="window.location.href='<?= base_url('firewall/rules?view=' . $viewMode . '&if=') ?>' + this.value"
               style="background:var(--color-surface-3); border:1px solid var(--color-border); color:var(--text-primary); padding:5px 10px; border-radius:var(--radius-sm); font-size:0.8rem;">
         <option value="all" <?= $selectedIface === 'all' ? 'selected' : '' ?>>All Interfaces (Pair View)</option>
-        <?php foreach ($interfaces as $if): ?>
-          <option value="<?= esc($if['id']) ?>" <?= $selectedIface === $if['id'] ? 'selected' : '' ?>>
-            <?= esc($if['name']) ?> (<?= esc($if['physical_device']) ?>)
-          </option>
-        <?php endforeach; ?>
+
+        <?php if (!empty($physicalInterfaces)): ?>
+          <optgroup label="Physical &amp; System Interfaces">
+            <?php foreach ($physicalInterfaces as $if): ?>
+              <option value="<?= esc($if['id']) ?>" <?= ($selectedIface === (string)$if['id'] || $selectedIface === ($if['physical_device'] ?? '')) ? 'selected' : '' ?>>
+                <?= esc($if['name']) ?> (<?= esc($if['physical_device']) ?>)
+              </option>
+            <?php endforeach; ?>
+          </optgroup>
+        <?php endif; ?>
+
+        <?php if (!empty($vpnInterfaces['wireguard'])): ?>
+          <optgroup label="WireGuard VPN Tunnels">
+            <?php foreach ($vpnInterfaces['wireguard'] as $wg): ?>
+              <?php $wgIf = $wg['interface'] ?? $wg['interface_name'] ?? $wg['physical_device'] ?? $wg['id'] ?? ''; ?>
+              <option value="<?= esc($wgIf) ?>" <?= $selectedIface === $wgIf ? 'selected' : '' ?>>
+                <?= esc($wg['name'] ?? $wgIf) ?> (<?= esc($wgIf) ?>) <?= !empty($wg['addresses']) ? '[' . esc($wg['addresses']) . ']' : '' ?>
+              </option>
+            <?php endforeach; ?>
+          </optgroup>
+        <?php endif; ?>
+
+        <?php if (!empty($vpnInterfaces['openvpn'])): ?>
+          <optgroup label="OpenVPN Tunnels">
+            <?php foreach ($vpnInterfaces['openvpn'] as $ovpn): ?>
+              <?php $ovpnIf = $ovpn['interface'] ?? $ovpn['interface_name'] ?? $ovpn['physical_device'] ?? $ovpn['id'] ?? ''; ?>
+              <option value="<?= esc($ovpnIf) ?>" <?= $selectedIface === $ovpnIf ? 'selected' : '' ?>>
+                <?= esc($ovpn['name'] ?? $ovpnIf) ?> (<?= esc($ovpnIf) ?>)
+              </option>
+            <?php endforeach; ?>
+          </optgroup>
+        <?php endif; ?>
+
+        <?php if (!empty($vpnInterfaces['ipsec'])): ?>
+          <optgroup label="IPsec VTI Tunnels">
+            <?php foreach ($vpnInterfaces['ipsec'] as $ipsec): ?>
+              <?php $ipsecIf = $ipsec['interface'] ?? $ipsec['interface_name'] ?? $ipsec['physical_device'] ?? $ipsec['id'] ?? ''; ?>
+              <option value="<?= esc($ipsecIf) ?>" <?= $selectedIface === $ipsecIf ? 'selected' : '' ?>>
+                <?= esc($ipsec['name'] ?? $ipsecIf) ?> (<?= esc($ipsecIf) ?>)
+              </option>
+            <?php endforeach; ?>
+          </optgroup>
+        <?php endif; ?>
       </select>
     </div>
 
@@ -929,7 +969,7 @@ input:checked + .mno-slider:before {
               </thead>
               <tbody>
                 <?php foreach ($pair['rules'] as $rule): ?>
-                  <?= view('firewall/_policy_row', ['rule' => $rule, 'canReorder' => $canReorder, 'addresses' => $addresses, 'addressGroups' => $addressGroups, 'services' => $services, 'serviceGroups' => $serviceGroups, 'schedules' => $schedules, 'interfaces' => $interfaces]) ?>
+                  <?= view('firewall/_policy_row', ['rule' => $rule, 'canReorder' => $canReorder, 'addresses' => $addresses, 'addressGroups' => $addressGroups, 'services' => $services, 'serviceGroups' => $serviceGroups, 'schedules' => $schedules ?? [], 'interfaces' => $interfaces]) ?>
                 <?php endforeach; ?>
                 <!-- Implicit Deny / Cleanup Rule (Zero Trust Terminator) -->
                 <tr class="system-cleanup-row">
@@ -1086,7 +1126,7 @@ input:checked + .mno-slider:before {
             </tr>
 
             <?php foreach ($rules as $rule): ?>
-              <?= view('firewall/_policy_row', ['rule' => $rule, 'canReorder' => $canReorder, 'showInterfaces' => true, 'addresses' => $addresses, 'addressGroups' => $addressGroups, 'services' => $services, 'serviceGroups' => $serviceGroups, 'schedules' => $schedules, 'interfaces' => $interfaces]) ?>
+              <?= view('firewall/_policy_row', ['rule' => $rule, 'canReorder' => $canReorder, 'showInterfaces' => true, 'addresses' => $addresses, 'addressGroups' => $addressGroups, 'services' => $services, 'serviceGroups' => $serviceGroups, 'schedules' => $schedules ?? [], 'interfaces' => $interfaces]) ?>
             <?php endforeach; ?>
 
             <!-- Bottom Rule: Implicit Deny All / Cleanup Rule -->
@@ -1199,9 +1239,38 @@ input:checked + .mno-slider:before {
             </label>
             <select name="src_interface" id="polSrcIface" required data-fw-iface
                     style="width:100%; background:var(--color-surface-3); border:1px solid var(--color-border); color:var(--text-primary); padding:8px 12px; border-radius:var(--radius-sm); font-size:0.875rem;">
-              <?php foreach ($interfaces as $if): ?>
-                <option value="<?= esc($if['id']) ?>"<?= \App\Libraries\ObjectTip::iface($if) ?>><?= esc($if['name']) ?> (<?= esc($if['physical_device']) ?>)</option>
-              <?php endforeach; ?>
+              <option value="any">any (All Interfaces / Any Zone)</option>
+              <?php if (!empty($physicalInterfaces)): ?>
+                <optgroup label="Physical &amp; System Interfaces">
+                  <?php foreach ($physicalInterfaces as $if): ?>
+                    <option value="<?= esc($if['id']) ?>"<?= \App\Libraries\ObjectTip::iface($if) ?>><?= esc($if['name']) ?> (<?= esc($if['physical_device']) ?>)</option>
+                  <?php endforeach; ?>
+                </optgroup>
+              <?php endif; ?>
+              <?php if (!empty($vpnInterfaces['wireguard'])): ?>
+                <optgroup label="WireGuard VPN Tunnels">
+                  <?php foreach ($vpnInterfaces['wireguard'] as $wg): ?>
+                    <?php $wgIf = $wg['interface'] ?? $wg['interface_name'] ?? $wg['physical_device'] ?? $wg['id'] ?? ''; ?>
+                    <option value="<?= esc($wgIf) ?>"><?= esc($wg['name'] ?? $wgIf) ?> (<?= esc($wgIf) ?>) <?= !empty($wg['addresses']) ? '[' . esc($wg['addresses']) . ']' : '' ?></option>
+                  <?php endforeach; ?>
+                </optgroup>
+              <?php endif; ?>
+              <?php if (!empty($vpnInterfaces['openvpn'])): ?>
+                <optgroup label="OpenVPN Tunnels">
+                  <?php foreach ($vpnInterfaces['openvpn'] as $ovpn): ?>
+                    <?php $ovpnIf = $ovpn['interface'] ?? $ovpn['interface_name'] ?? $ovpn['physical_device'] ?? $ovpn['id'] ?? ''; ?>
+                    <option value="<?= esc($ovpnIf) ?>"><?= esc($ovpn['name'] ?? $ovpnIf) ?> (<?= esc($ovpnIf) ?>)</option>
+                  <?php endforeach; ?>
+                </optgroup>
+              <?php endif; ?>
+              <?php if (!empty($vpnInterfaces['ipsec'])): ?>
+                <optgroup label="IPsec VTI Tunnels">
+                  <?php foreach ($vpnInterfaces['ipsec'] as $ipsec): ?>
+                    <?php $ipsecIf = $ipsec['interface'] ?? $ipsec['interface_name'] ?? $ipsec['physical_device'] ?? $ipsec['id'] ?? ''; ?>
+                    <option value="<?= esc($ipsecIf) ?>"><?= esc($ipsec['name'] ?? $ipsecIf) ?> (<?= esc($ipsecIf) ?>)</option>
+                  <?php endforeach; ?>
+                </optgroup>
+              <?php endif; ?>
             </select>
           </div>
 
@@ -1212,9 +1281,39 @@ input:checked + .mno-slider:before {
             </label>
             <select name="dst_interface" id="polDstIface" required data-fw-iface
                     style="width:100%; background:var(--color-surface-3); border:1px solid var(--color-border); color:var(--text-primary); padding:8px 12px; border-radius:var(--radius-sm); font-size:0.875rem;">
-              <?php foreach ($interfaces as $if): ?>
-                <option value="<?= esc($if['id']) ?>"<?= \App\Libraries\ObjectTip::iface($if) ?> <?= strtoupper($if['id']) === 'WAN' ? 'selected' : '' ?>><?= esc($if['name']) ?> (<?= esc($if['physical_device']) ?>)</option>
-              <?php endforeach; ?>
+              <option value="any">any (All Interfaces / Any Zone)</option>
+              <option value="local">This Firewall (services on the appliance, e.g. Clientless Gateway)</option>
+              <?php if (!empty($physicalInterfaces)): ?>
+                <optgroup label="Physical &amp; System Interfaces">
+                  <?php foreach ($physicalInterfaces as $if): ?>
+                    <option value="<?= esc($if['id']) ?>"<?= \App\Libraries\ObjectTip::iface($if) ?> <?= strtoupper((string)$if['id']) === 'WAN' ? 'selected' : '' ?>><?= esc($if['name']) ?> (<?= esc($if['physical_device']) ?>)</option>
+                  <?php endforeach; ?>
+                </optgroup>
+              <?php endif; ?>
+              <?php if (!empty($vpnInterfaces['wireguard'])): ?>
+                <optgroup label="WireGuard VPN Tunnels">
+                  <?php foreach ($vpnInterfaces['wireguard'] as $wg): ?>
+                    <?php $wgIf = $wg['interface'] ?? $wg['interface_name'] ?? $wg['physical_device'] ?? $wg['id'] ?? ''; ?>
+                    <option value="<?= esc($wgIf) ?>"><?= esc($wg['name'] ?? $wgIf) ?> (<?= esc($wgIf) ?>) <?= !empty($wg['addresses']) ? '[' . esc($wg['addresses']) . ']' : '' ?></option>
+                  <?php endforeach; ?>
+                </optgroup>
+              <?php endif; ?>
+              <?php if (!empty($vpnInterfaces['openvpn'])): ?>
+                <optgroup label="OpenVPN Tunnels">
+                  <?php foreach ($vpnInterfaces['openvpn'] as $ovpn): ?>
+                    <?php $ovpnIf = $ovpn['interface'] ?? $ovpn['interface_name'] ?? $ovpn['physical_device'] ?? $ovpn['id'] ?? ''; ?>
+                    <option value="<?= esc($ovpnIf) ?>"><?= esc($ovpn['name'] ?? $ovpnIf) ?> (<?= esc($ovpnIf) ?>)</option>
+                  <?php endforeach; ?>
+                </optgroup>
+              <?php endif; ?>
+              <?php if (!empty($vpnInterfaces['ipsec'])): ?>
+                <optgroup label="IPsec VTI Tunnels">
+                  <?php foreach ($vpnInterfaces['ipsec'] as $ipsec): ?>
+                    <?php $ipsecIf = $ipsec['interface'] ?? $ipsec['interface_name'] ?? $ipsec['physical_device'] ?? $ipsec['id'] ?? ''; ?>
+                    <option value="<?= esc($ipsecIf) ?>"><?= esc($ipsec['name'] ?? $ipsecIf) ?> (<?= esc($ipsecIf) ?>)</option>
+                  <?php endforeach; ?>
+                </optgroup>
+              <?php endif; ?>
             </select>
           </div>
 
@@ -1226,7 +1325,9 @@ input:checked + .mno-slider:before {
             </label>
             <select name="schedule" id="polSchedule"
                     style="width:100%; background:var(--color-surface-3); border:1px solid var(--color-border); color:var(--text-primary); padding:8px 12px; border-radius:var(--radius-sm); font-size:0.875rem;">
+              <option value="always">Always (24/7 / No Schedule Restriction)</option>
               <?php foreach (($schedules ?? []) as $sc): ?>
+                <?php if (strtolower($sc['name']) === 'always') continue; ?>
                 <option value="<?= esc($sc['name']) ?>">
                   <?= esc(ucwords(str_replace('_', ' ', $sc['name']))) ?> (<?= esc(\App\Models\ScheduleModel::formatSummary($sc)) ?>)
                 </option>
@@ -2272,101 +2373,134 @@ function filterPolicies() {
 }
 
 function openCreatePolicyModal() {
-  document.getElementById('policyModalTitle').innerText = 'New Firewall Policy';
-  document.getElementById('policyForm').action = '<?= base_url('firewall/policies/store') ?>';
-  document.getElementById('policyId').value = '';
-  document.getElementById('polName').value = '';
-  document.getElementById('actAccept').checked = true;
-  document.getElementById('polNat').checked = true;
-  document.getElementById('polDnat').value = '';
-  document.getElementById('polSnatPool').value = '';
-  document.getElementById('profIps').checked = false;
-  document.getElementById('profAv').checked = false;
-  document.getElementById('profWeb').checked = false;
-  document.getElementById('polSchedule').value = 'always';
-  document.getElementById('polDesc').value = '';
+  try {
+    const modal = document.getElementById('policyModal');
+    if (!modal) return;
 
-  // Reset multi-selects to default
-  const srcSelect = document.getElementById('polSources');
-  for (let i = 0; i < srcSelect.options.length; i++) {
-    srcSelect.options[i].selected = (srcSelect.options[i].value === 'all');
+    document.getElementById('policyModalTitle').innerText = 'New Firewall Policy';
+    document.getElementById('policyForm').action = '<?= base_url('firewall/policies/store') ?>';
+    document.getElementById('policyId').value = '';
+    document.getElementById('polName').value = '';
+    if (document.getElementById('polSrcIface')) document.getElementById('polSrcIface').value = 'any';
+    if (document.getElementById('polDstIface')) document.getElementById('polDstIface').value = 'any';
+    if (document.getElementById('actAccept')) document.getElementById('actAccept').checked = true;
+    if (document.getElementById('polNat')) document.getElementById('polNat').checked = true;
+    if (document.getElementById('polDnat')) document.getElementById('polDnat').value = '';
+    if (document.getElementById('polSnatPool')) document.getElementById('polSnatPool').value = '';
+    if (document.getElementById('profIps')) document.getElementById('profIps').checked = false;
+    if (document.getElementById('profAv')) document.getElementById('profAv').checked = false;
+    if (document.getElementById('profWeb')) document.getElementById('profWeb').checked = false;
+    if (document.getElementById('polLog')) document.getElementById('polLog').value = 'all';
+    if (document.getElementById('polSchedule')) document.getElementById('polSchedule').value = 'always';
+    if (document.getElementById('polDesc')) document.getElementById('polDesc').value = '';
+
+    if (window.MicronPickerSearch && typeof window.MicronPickerSearch.reset === 'function') {
+      window.MicronPickerSearch.reset();
+    }
+
+    function selectOnly(id, val) {
+      const sel = document.getElementById(id);
+      if (!sel) return;
+      for (let i = 0; i < sel.options.length; i++) {
+        sel.options[i].selected = (sel.options[i].value.toLowerCase() === String(val).toLowerCase());
+      }
+    }
+    selectOnly('polSources', 'all');
+    selectOnly('polDestinations', 'all');
+    selectOnly('polServices', 'ALL');
+
+    ['polSources', 'polDestinations', 'polServices'].forEach(renderPick);
+
+    modal.classList.add('active');
+    scrollModalTop('policyModal');
+    resetPickScroll();
+  } catch (err) {
+    console.error('Error opening policy modal:', err);
+    const m = document.getElementById('policyModal');
+    if (m) m.classList.add('active');
   }
-  const dstSelect = document.getElementById('polDestinations');
-  for (let i = 0; i < dstSelect.options.length; i++) {
-    dstSelect.options[i].selected = (dstSelect.options[i].value === 'all');
-  }
-  const svcSelect = document.getElementById('polServices');
-  for (let i = 0; i < svcSelect.options.length; i++) {
-    svcSelect.options[i].selected = (svcSelect.options[i].value === 'ALL');
-  }
-
-  ['polSources', 'polDestinations', 'polServices'].forEach(renderPick);
-
-  MicronPickerSearch.reset();
-
-  document.getElementById('policyModal').classList.add('active');
-  // Both resets must come *after* the dialog is displayed; scrollTop on a
-  // display:none element is silently ignored.
-  scrollModalTop('policyModal');
-  resetPickScroll();
 }
 
 function editPolicy(data) {
-  document.getElementById('policyModalTitle').innerText = 'Edit Firewall Policy #' + (data.sequence || data.id);
-  document.getElementById('policyForm').action = '<?= base_url('firewall/policies') ?>/' + encodeURIComponent(data.id) + '/update';
-  document.getElementById('policyId').value = data.id;
-  document.getElementById('polName').value = data.name || '';
-  document.getElementById('polSrcIface').value = data.src_interface || data.interface_id || 'lan';
-  document.getElementById('polDstIface').value = data.dst_interface || 'wan';
-  
-  if (data.action === 'accept' || data.action === 'pass') {
-    document.getElementById('actAccept').checked = true;
-  } else {
-    document.getElementById('actDeny').checked = true;
-  }
-
-  document.getElementById('polNat').checked = parseInt(data.nat_enabled) === 1;
-  document.getElementById('polDnat').value = data.dnat_name || '';
-  document.getElementById('polSnatPool').value = data.snat_pool_name || '';
-
-  // Profiles
-  let secProfiles = [];
   try {
-    secProfiles = JSON.parse(data.security_profiles || '[]');
-  } catch(e) {}
-  document.getElementById('profIps').checked = secProfiles.includes('ips');
-  document.getElementById('profAv').checked = secProfiles.includes('av');
-  document.getElementById('profWeb').checked = secProfiles.includes('webfilter');
+    const modal = document.getElementById('policyModal');
+    if (!modal) return;
 
-  document.getElementById('polLog').value = data.log_traffic || 'all';
-  document.getElementById('polSchedule').value = data.schedule || 'always';
-  document.getElementById('polDesc').value = data.description || '';
+    document.getElementById('policyModalTitle').innerText = 'Edit Firewall Policy #' + (data.sequence || data.id);
+    document.getElementById('policyForm').action = '<?= base_url('firewall/policies') ?>/' + encodeURIComponent(data.id) + '/update';
+    document.getElementById('policyId').value = data.id;
+    document.getElementById('polName').value = data.name || '';
+    
+    function setIfaceVal(selectEl, val) {
+      if (!selectEl || !val) return;
+      let found = false;
+      for (let i = 0; i < selectEl.options.length; i++) {
+        if (selectEl.options[i].value.toLowerCase() === String(val).toLowerCase()) {
+          selectEl.selectedIndex = i;
+          found = true;
+          break;
+        }
+      }
+      if (!found) {
+        const opt = new Option(val + ' (Virtual/Tunnel)', val, true, true);
+        selectEl.add(opt);
+        selectEl.value = val;
+      }
+    }
 
-  // Parse multi-selects. A legacy rule may carry no objects at all, in which
-  // case the picker opens on the sentinel.
-  const srcObjects = pickerObjects(data.sources,      PICK_ANY.polSources);
-  const dstObjects = pickerObjects(data.destinations, PICK_ANY.polDestinations);
-  const svcObjects = pickerObjects(data.services,     PICK_ANY.polServices);
+    setIfaceVal(document.getElementById('polSrcIface'), data.src_interface || data.interface_id || 'lan');
+    setIfaceVal(document.getElementById('polDstIface'), data.dst_interface || 'wan');
+    
+    if (data.action === 'accept' || data.action === 'pass') {
+      if (document.getElementById('actAccept')) document.getElementById('actAccept').checked = true;
+    } else {
+      if (document.getElementById('actDeny')) document.getElementById('actDeny').checked = true;
+    }
 
-  // Start from a clean page — no query left over from the last edit — then hand
-  // each picker the objects this rule carries. Source and destination page from
-  // the server, so those objects are usually not among the rows in the page:
-  // setSelection resolves them on the endpoint and re-applies them here, which
-  // is what keeps them in the form that is about to be submitted.
-  MicronPickerSearch.reset();
-  MicronPickerSearch.setSelection('polSources', srcObjects);
-  MicronPickerSearch.setSelection('polDestinations', dstObjects);
-  MicronPickerSearch.setSelection('polServices', svcObjects);
+    if (document.getElementById('polNat')) document.getElementById('polNat').checked = parseInt(data.nat_enabled) === 1;
+    if (document.getElementById('polDnat')) document.getElementById('polDnat').value = data.dnat_name || '';
+    if (document.getElementById('polSnatPool')) document.getElementById('polSnatPool').value = data.snat_pool_name || '';
 
-  ['polSources', 'polDestinations', 'polServices'].forEach(renderPick);
+    let secProfiles = [];
+    try {
+      secProfiles = JSON.parse(data.security_profiles || '[]');
+    } catch(e) {}
+    if (document.getElementById('profIps')) document.getElementById('profIps').checked = secProfiles.includes('ips');
+    if (document.getElementById('profAv')) document.getElementById('profAv').checked = secProfiles.includes('av');
+    if (document.getElementById('profWeb')) document.getElementById('profWeb').checked = secProfiles.includes('webfilter');
 
-  document.getElementById('policyModal').classList.add('active');
-  scrollModalTop('policyModal');
-  resetPickScroll();
+    if (document.getElementById('polLog')) document.getElementById('polLog').value = data.log_traffic || 'all';
+    if (document.getElementById('polSchedule')) document.getElementById('polSchedule').value = data.schedule || 'always';
+    if (document.getElementById('polDesc')) document.getElementById('polDesc').value = data.description || '';
+
+    const srcObjects = pickerObjects(data.sources,      PICK_ANY.polSources);
+    const dstObjects = pickerObjects(data.destinations, PICK_ANY.polDestinations);
+    const svcObjects = pickerObjects(data.services,     PICK_ANY.polServices);
+
+    if (window.MicronPickerSearch) {
+      if (typeof window.MicronPickerSearch.reset === 'function') window.MicronPickerSearch.reset();
+      if (typeof window.MicronPickerSearch.setSelection === 'function') {
+        window.MicronPickerSearch.setSelection('polSources', srcObjects);
+        window.MicronPickerSearch.setSelection('polDestinations', dstObjects);
+        window.MicronPickerSearch.setSelection('polServices', svcObjects);
+      }
+    }
+
+    ['polSources', 'polDestinations', 'polServices'].forEach(renderPick);
+
+    modal.classList.add('active');
+    scrollModalTop('policyModal');
+    resetPickScroll();
+  } catch (err) {
+    console.error('Error opening edit policy modal:', err);
+    const m = document.getElementById('policyModal');
+    if (m) m.classList.add('active');
+  }
 }
 
 function closePolicyModal() {
-  document.getElementById('policyModal').classList.remove('active');
+  const modal = document.getElementById('policyModal');
+  if (modal) modal.classList.remove('active');
 }
 
 function openObjectsModal(tab = 'addresses') {

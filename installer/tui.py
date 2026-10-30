@@ -5,6 +5,7 @@ Micron Firewall OS (MicronOS) — Interactive Console TUI Installer
 Curses / Dialog-driven console installation wizard for appliance hardware deployment.
 """
 
+import getpass
 import os
 import subprocess
 import sys
@@ -50,9 +51,14 @@ def main():
             input("\nPress Enter to return...")
         elif choice == '3':
             clear_screen()
-            print("Resetting 'Ministrator' password to 'M1Cr0N'...")
-            # Run php spark reset if available
-            subprocess.run(["php", "spark", "user:reset-admin"], cwd="/usr/local/micron")
+            print("Reset the 'Ministrator' Web GUI password (no default; min 8 characters).")
+            new_pw = getpass.getpass("New password: ")
+            if len(new_pw) < 8 or new_pw == "M1Cr0N" or new_pw != getpass.getpass("Confirm: "):
+                input("\nRejected: too short, the factory password, or not matching. Press Enter...")
+                continue
+            # The password travels in the environment, not argv.
+            subprocess.run(["php", "spark", "user:reset-admin", "--from-env"], cwd="/usr/local/micron",
+                           env={**os.environ, "MICRON_ADMIN_PW": new_pw})
             input("\nAdmin password reset. Press Enter...")
         elif choice == '4':
             clear_screen()

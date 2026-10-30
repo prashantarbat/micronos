@@ -61,7 +61,7 @@ final class FirewallRulesPickersTest extends BaseTestCase
         // A search input without the wiring behind it would look present but do
         // nothing, so pin the binding too: the behaviour (filtering, the ↑ / ↓
         // highlight, Space, Enter) is the shared helper, pulled in once here.
-        $this->assertSame(1, substr_count((string) $page->getBody(), 'window.MicronPickerSearch'));
+        $this->assertSame(1, substr_count((string) $page->getBody(), 'window.MicronPickerSearch = ('));
         $page->assertSee('MicronPickerSearch.init(');
         $page->assertSee("select: 'polSources'");
         $page->assertSee("select: 'polDestinations'");

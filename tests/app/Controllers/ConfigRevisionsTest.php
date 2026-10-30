@@ -31,9 +31,15 @@ final class ConfigRevisionsTest extends BaseTestCase
 
     private string $csrfToken = '';
 
+    /** The real VERSION file, restored byte for byte after each test. */
+    private ?string $savedVersionFile = null;
+
     protected function setUp(): void
     {
         parent::setUp();
+        $path = AppVersion::getVersionFilePath();
+        $this->savedVersionFile = is_file($path) ? (string) file_get_contents($path) : null;
+        AppVersion::setVersion(0, 1, 23);
         AppVersion::clearCache();
 
         // Seed CSRF token
@@ -55,7 +61,10 @@ final class ConfigRevisionsTest extends BaseTestCase
     protected function tearDown(): void
     {
         parent::tearDown();
-        AppVersion::setVersion(0, 1, 23);
+        if ($this->savedVersionFile !== null) {
+            file_put_contents(AppVersion::getVersionFilePath(), $this->savedVersionFile);
+        }
+        AppVersion::clearCache();
     }
 
     private function session(): array

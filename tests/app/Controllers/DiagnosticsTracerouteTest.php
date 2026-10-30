@@ -268,7 +268,7 @@ final class DiagnosticsTracerouteTest extends BaseTestCase
     /** With no daemon (the dev box) the simulated trace still reflects the form. */
     public function testTracerouteFallsBackToSimulatedOutputWhenTheDaemonIsUnreachable(): void
     {
-        Services::injectMock('ipc', new FakeIpcClient());
+        Services::injectMock('ipc', (new FakeIpcClient())->asDevelopmentMock());
 
         $result = $this->post('diag/traceroute', $this->csrf([
             'host'    => '2001:db8::5',
@@ -291,7 +291,7 @@ final class DiagnosticsTracerouteTest extends BaseTestCase
     /** With the switch on, the simulated trace shows the PTR names. */
     public function testTheReverseLookupSwitchChangesTheSimulatedOutput(): void
     {
-        Services::injectMock('ipc', new FakeIpcClient());
+        Services::injectMock('ipc', (new FakeIpcClient())->asDevelopmentMock());
 
         $named = $this->post('diag/traceroute', $this->csrf([
             'host'    => '8.8.8.8',

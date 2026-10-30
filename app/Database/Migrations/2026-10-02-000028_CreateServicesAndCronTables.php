@@ -155,9 +155,9 @@ class CreateServicesAndCronTables extends Migration
             ],
             [
                 'id'                 => 'wireguard',
-                'name'               => 'wireguard',
+                'name'               => 'WireGuard tunnels',
                 'subsystem'          => 'vpn',
-                'description'        => 'WireGuard Fast Kernel Cryptographic Tunnel Module (wg0)',
+                'description'        => 'Aggregate lifecycle control for configured WireGuard tunnel interfaces',
                 'enabled_at_boot'    => 1,
                 'watchdog_monitored' => 1,
                 'status'             => 'running',

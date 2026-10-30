@@ -192,7 +192,7 @@ class Multicast extends BaseController
             $running = strtolower((string) $state) === 'running';
             $db->table('system_services')->where('id', $id)->update([
                 'status'     => $running ? 'running' : 'stopped',
-                'pid'        => $running ? ($row['pid'] ?: rand(1800, 4500)) : null,
+                'pid'        => $running ? ($row['pid'] ?: null) : null,
                 'updated_at' => $now,
             ]);
         }

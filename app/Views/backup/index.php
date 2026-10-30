@@ -673,7 +673,7 @@
 <!-- ══════════════════════════════════════════════════════════════
      MODAL: QUICK CREATE BACKUP SNAPSHOT
 ══════════════════════════════════════════════════════════════ -->
-<div class="mno-modal-backdrop" id="createBackupModal" onclick="if(event.target===this)closeModal('createBackupModal')">
+<div class="mno-modal-backdrop" id="createBackupModal">
   <div class="mno-modal-dialog">
     <form method="POST" action="<?= base_url('backup/create') ?>">
       <?= csrf_field() ?>

@@ -205,7 +205,7 @@ class VpnIpsec extends BaseController
     public function restart(): \CodeIgniter\HTTP\RedirectResponse
     {
         [$key, $message] = $this->ipcFlash(
-            $this->ipc->call('service.restart', ['service' => 'strongswan-starter']),
+            $this->ipc->call('service.restart', ['service' => 'strongswan']),
             'strongSwan IPsec daemon reloaded.',
             'strongSwan restart'
         );

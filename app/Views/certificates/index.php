@@ -817,7 +817,7 @@
 <!-- ══════════════════════════════════════════════════════════════
      MODAL: ISSUE CERTIFICATE
 ══════════════════════════════════════════════════════════════ -->
-<div class="mno-modal-backdrop" id="createCertModal" onclick="if(event.target===this)closeModal('createCertModal')">
+<div class="mno-modal-backdrop" id="createCertModal">
   <div class="mno-modal-dialog">
     <form action="<?= base_url('certificates/create') ?>" method="post">
       <?= csrf_field() ?>
@@ -913,7 +913,7 @@
 <!-- ══════════════════════════════════════════════════════════════
      MODAL: GENERATE ROOT CA
 ══════════════════════════════════════════════════════════════ -->
-<div class="mno-modal-backdrop" id="createCaModal" onclick="if(event.target===this)closeModal('createCaModal')">
+<div class="mno-modal-backdrop" id="createCaModal">
   <div class="mno-modal-dialog">
     <form action="<?= base_url('certificates/create-ca') ?>" method="post">
       <?= csrf_field() ?>
@@ -987,7 +987,7 @@
 <!-- ══════════════════════════════════════════════════════════════
      MODAL: IMPORT CERTIFICATE AUTHORITY
 ══════════════════════════════════════════════════════════════ -->
-<div class="mno-modal-backdrop" id="importCaModal" onclick="if(event.target===this)closeModal('importCaModal')">
+<div class="mno-modal-backdrop" id="importCaModal">
   <div class="mno-modal-dialog">
     <form action="<?= base_url('certificates/import-ca') ?>" method="post">
       <?= csrf_field() ?>
@@ -1034,7 +1034,7 @@
 <!-- ══════════════════════════════════════════════════════════════
      MODAL: IMPORT CERTIFICATE
 ══════════════════════════════════════════════════════════════ -->
-<div class="mno-modal-backdrop" id="importCertModal" onclick="if(event.target===this)closeModal('importCertModal')">
+<div class="mno-modal-backdrop" id="importCertModal">
   <div class="mno-modal-dialog">
     <form action="<?= base_url('certificates/import') ?>" method="post">
       <?= csrf_field() ?>
@@ -1106,7 +1106,7 @@
 <!-- ══════════════════════════════════════════════════════════════
      MODAL: CREATE CERTIFICATE SIGNING REQUEST (CSR)
 ══════════════════════════════════════════════════════════════ -->
-<div class="mno-modal-backdrop" id="csrModal" onclick="if(event.target===this)closeModal('csrModal')">
+<div class="mno-modal-backdrop" id="csrModal">
   <div class="mno-modal-dialog">
     <form action="<?= base_url('certificates/create-csr') ?>" method="post">
       <?= csrf_field() ?>
@@ -1183,7 +1183,7 @@
 <!-- ══════════════════════════════════════════════════════════════
      MODAL: COMPLETE CSR (paste the signed certificate)
 ══════════════════════════════════════════════════════════════ -->
-<div class="mno-modal-backdrop" id="completeCsrModal" onclick="if(event.target===this)closeModal('completeCsrModal')">
+<div class="mno-modal-backdrop" id="completeCsrModal">
   <div class="mno-modal-dialog">
     <form id="completeCsrForm" action="" method="post">
       <?= csrf_field() ?>

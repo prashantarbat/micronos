@@ -7,7 +7,7 @@
   <meta http-equiv="Pragma" content="no-cache">
   <title><?= esc($branding['title'] ?? 'Guest Wi-Fi') ?></title>
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@600&display=swap');
+    @import url('<?= base_url('assets/fonts/fonts.css') ?>'); /* self-hosted: the portal must render with no internet */
     *, *::before, *::after { box-sizing: border-box; }
     :root {
       --bg:     <?= esc($branding['bg_color']     ?? '#0f172a') ?>;

@@ -1,0 +1,19 @@
+[Unit]
+Description=MicronOS SQLite Database Integrity & Auto-Heal Boot Check
+Documentation=https://micronos.io/docs
+DefaultDependencies=no
+After=local-fs.target
+Before=micrond.service apache2.service php8.2-fpm.service network.target sysinit.target
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/usr/local/micron
+ExecStart=/usr/bin/php /usr/local/micron/spark micron:db-resilience --auto-heal
+TimeoutStartSec=45s
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=basic.target

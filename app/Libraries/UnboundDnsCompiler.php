@@ -19,6 +19,17 @@ class UnboundDnsCompiler
         $this->db = $db ?? \Config\Database::connect();
     }
 
+    private function ipv6Enabled(): bool
+    {
+        try {
+            $row = $this->db->table('system_settings')->where('id', 1)->get()->getRowArray();
+
+            return (int) ($row['ipv6_enabled'] ?? 0) === 1;
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
     /**
      * Compiles /etc/unbound/unbound.conf file content.
      */
@@ -32,11 +43,16 @@ class UnboundDnsCompiler
         $lines[] = '';
         $lines[] = 'server:';
         $lines[] = '    verbosity: 1';
+        // IPv6 master switch (System > Networking): no IPv6 listener and no
+        // IPv6 upstream queries while it is off.
+        $ipv6 = $this->ipv6Enabled();
         $lines[] = '    interface: 0.0.0.0';
-        $lines[] = '    interface: ::0';
+        if ($ipv6) {
+            $lines[] = '    interface: ::0';
+        }
         $lines[] = '    port: 53';
         $lines[] = '    do-ip4: yes';
-        $lines[] = '    do-ip6: yes';
+        $lines[] = '    do-ip6: ' . ($ipv6 ? 'yes' : 'no');
         $lines[] = '    do-udp: yes';
         $lines[] = '    do-tcp: yes';
         $lines[] = '';
@@ -54,6 +70,7 @@ class UnboundDnsCompiler
         $lines[] = '    harden-dnssec-stripped: yes';
         $lines[] = '    use-caps-for-id: yes';
         $lines[] = '    auto-trust-anchor-file: "/var/lib/unbound/root.key"';
+        $lines[] = '    tls-cert-bundle: "/etc/ssl/certs/ca-certificates.crt"';
         $lines[] = '';
         $lines[] = '    # Performance & Memory';
         $lines[] = '    num-threads: 2';

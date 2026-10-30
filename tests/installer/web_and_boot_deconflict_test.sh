@@ -26,6 +26,8 @@ INSTALLER="${ROOT}/installer/install.sh"
 HOOK="${ROOT}/packaging/live-build/config/hooks/live/01-micronos-setup.hook.chroot"
 BANNER="${ROOT}/system/micron-banner"
 MENU="${ROOT}/bin/micron-menu"
+PACKAGED_MENU="${ROOT}/packaging/live-build/config/includes.chroot/usr/local/micron/bin/micron-menu"
+NETWORK_COMMAND="${ROOT}/app/Commands/NetworkCommand.php"
 ZTNA="${ROOT}/app/Libraries/ZtnaCompiler.php"
 MICROND="${ROOT}/system/micrond/micrond.py"
 
@@ -95,7 +97,8 @@ assert_lacks    "no stanza for unresolved WAN name" "$INSTALLER" 'iface \$WAN_IF
 assert_lacks    "no stanza for unresolved LAN name" "$INSTALLER" 'iface \$LAN_IF inet'
 assert_contains "WAN stanza uses resolved device"   "$INSTALLER" 'iface \$WAN_IF_DEV inet dhcp'
 assert_contains "LAN stanza uses resolved device"   "$INSTALLER" 'iface \$LAN_IF_DEV inet static'
-assert_contains "bridge slaves are filtered"        "$INSTALLER" 'sys/class/net/\$sl'
+assert_lacks    "installer never creates a bridge for LAN" "$INSTALLER" 'LAN_IS_BRIDGE|BRIDGE_SLAVES|bridge_ports'
+assert_lacks    "kickstart defaults do not request bridge mode" "$ROOT/installer/micron-kickstart.cfg.example" 'LAN_IS_BRIDGE|BRIDGE_SLAVES'
 
 echo
 echo "== D. boot slot is resolved by label, not partition number =="
@@ -106,6 +109,34 @@ assert_lacks    "banner has no partition-number guess"  "$BANNER" 'sda4\|nvme0n1
 # micron-menu already did this correctly; keep it that way.
 assert_contains "console menu resolves by label too"    "$MENU"   'MICRON_ROOT_A\) ACTIVE_SLOT="A"'
 assert_lacks    "console menu has no numbering guess"   "$MENU"   'nvme0n1p4'
+
+echo
+echo "== E. console role changes use the network transaction =="
+assert_contains "network command handles console assignment" "$NETWORK_COMMAND" "case 'assign':"
+assert_contains "network command parses factory reset flag" "$NETWORK_COMMAND" "factory-reset"
+assert_contains "factory reset removes existing bridges" "$NETWORK_COMMAND" 'bridgeDelete'
+assert_contains "source menu uses network assignment" "$MENU" 'network_command assign'
+assert_contains "factory reset maps NIC one to WAN" "$MENU" 'reset_nics\[0\].*reset_nics\[1\]'
+assert_contains "factory reset captures later NICs" "$MENU" 'reset_opt_args=\(\)'
+assert_contains "factory reset assigns later NICs independently" "$MENU" 'opt\$\{opt_index\}=\$\{dev\}'
+assert_contains "source menu applies interface mode/address transactionally" "$MENU" 'network_command set-mode'
+assert_contains "source menu applies interface address transactionally" "$MENU" 'network_command set-address'
+assert_contains "source menu keeps remaining ports independent" "$MENU" 'opt\$\{opt_index\}=\$\{cand\}'
+assert_contains "source menu defaults first NIC to WAN" "$MENU" 'DEFAULT_WAN="\$\{available_nics\[0\]\}"'
+assert_contains "source menu defaults second NIC to LAN" "$MENU" 'DEFAULT_LAN="\$\{available_nics\[1\]\}"'
+assert_lacks    "source menu does not build a bridge for LAN" "$MENU" 'IS_BRIDGE_LAN|bridge_ports|LAN=br0'
+assert_contains "image staging copies the source bin tree" "$ROOT/packaging/live-build/stage-overlay.sh" 'cp -a "\$\{root\}/\$\{entry\}" "\$\{app_root\}/"'
+assert_lacks "source menu does not mutate LAN binding directly" "$MENU" "UPDATE interfaces SET physical_device=.*WHERE id=.lan."
+assert_lacks "packaged menu does not mutate LAN binding directly" "$PACKAGED_MENU" "UPDATE interfaces SET physical_device=.*WHERE id=.lan."
+
+echo
+echo "== F. mDNS and SNMP services are deconflicted and safely configured =="
+assert_contains "image hook masks mdns-reflector" "$HOOK" 'systemctl mask mdns-reflector'
+assert_contains "installer masks mdns-reflector"  "$INSTALLER" 'systemctl mask mdns-reflector'
+assert_contains "image hook disables snmpd"       "$HOOK" 'systemctl disable snmpd'
+assert_contains "installer disables snmpd"        "$INSTALLER" 'systemctl disable snmpd'
+assert_contains "image hook baseline snmpd.conf"  "$HOOK" 'agentaddress udp:127.0.0.1:161'
+assert_contains "installer baseline snmpd.conf"   "$INSTALLER" 'agentaddress udp:127.0.0.1:161'
 
 echo
 if [ "$FAIL" -eq 0 ]; then

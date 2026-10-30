@@ -94,12 +94,16 @@ if command -v setleds >/dev/null 2>&1; then
 fi
 
 clear 2>/dev/null || true
-echo -e "${CYAN}"
+echo -e "${YELLOW}"
 cat << 'BANNER'
-┌╦═╦═╦┐ ┌═╤╦╤═┐ ┌╦═══╦┐ ┌╦═══╦┐ ┌╦═══╦┐ ┌╦═╗ ╦┐      ┌╦═══╦┐ ┌╦═══╦┐
-│║ ║ ║│   │║│   │║      │╠══╦╩┘ │║   ║│ │║ ║ ║│      │║   ║│ └╩═══╦┐
-└╩   ╩┘ └═╧╩╧═┘ └╩═══╩┘ └╩  ╚═┘ └╩═══╩┘ └╩ ╚═╩┘      └╩═══╩┘ └╩═══╩┘
- Enterprise Linux Firewall & Network Appliance — Installation Wizard
+
+███╗   ███╗██╗ ██████╗██████╗  ██████╗ ███╗   ██╗     ██████╗ ███████╗
+████╗ ████║██║██╔════╝██╔══██╗██╔═══██╗████╗  ██║    ██╔═══██╗██╔════╝
+██╔████╔██║██║██║     ██████╔╝██║   ██║██╔██╗ ██║    ██║   ██║███████╗
+██║╚██╔╝██║██║██║     ██╔══██╗██║   ██║██║╚██╗██║    ██║   ██║╚════██║
+██║ ╚═╝ ██║██║╚██████╗██║  ██║╚██████╔╝██║ ╚████║    ╚██████╔╝███████║
+╚═╝     ╚═╝╚═╝ ╚═════╝╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝     ╚═════╝ ╚══════╝
+ Enterprise  Next-Gen Firewall & Network Appliance — Installation Wizard
 BANNER
 echo -e "${NC}"
 
@@ -659,14 +663,57 @@ fi
 # Step 4: Administrator & Console Credentials
 # ------------------------------------------------------------------------------
 echo -e "\n${BOLD}[Step 4/5] Appliance Administrative Credentials${NC}"
+# There is no default password. The published factory password (M1Cr0N) is
+# refused so that no installed appliance shares a known credential.
+ADMIN_PW_MIN_LENGTH=8
+ADMIN_PW_GENERATED=0
+
+admin_pw_problem() {
+    local pw="$1"
+    if [ "${#pw}" -lt "$ADMIN_PW_MIN_LENGTH" ]; then
+        echo "must be at least ${ADMIN_PW_MIN_LENGTH} characters"
+    elif [ "$pw" = "M1Cr0N" ]; then
+        echo "must not be the published factory password"
+    elif [[ "$pw" == *:* ]] || [[ "$pw" == *$'\n'* ]]; then
+        echo "must not contain ':' or a line break"
+    fi
+}
+
 if [ "$KICKSTART_MODE" -eq 1 ]; then
-    ADMIN_PW=${ADMIN_PW:-M1Cr0N}
-    echo -e "${GREEN}[Kickstart] Administrative password configured.${NC}\n"
+    if [ -z "${ADMIN_PW:-}" ]; then
+        # Unattended install without a password: generate one and leave it
+        # for the operator on the console and in a root-only file.
+        ADMIN_PW="$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 16)"
+        ADMIN_PW_GENERATED=1
+        echo -e "${YELLOW}[Kickstart] No ADMIN_PW set; a random password was generated.${NC}\n"
+    else
+        PW_PROBLEM="$(admin_pw_problem "$ADMIN_PW")"
+        if [ -n "$PW_PROBLEM" ]; then
+            echo -e "${RED}[Kickstart] ADMIN_PW ${PW_PROBLEM}. Installation aborted before touching the disk.${NC}"
+            exit 1
+        fi
+        echo -e "${GREEN}[Kickstart] Administrative password configured.${NC}\n"
+    fi
 else
     echo "Unified credentials for Web GUI ('Ministrator') and OS ('root', 'ministrator')."
-    read -r -s -p "Enter appliance administrative password [M1Cr0N]: " ADMIN_PW
-    echo ""
-    ADMIN_PW=${ADMIN_PW:-M1Cr0N}
+    echo "Choose a password of at least ${ADMIN_PW_MIN_LENGTH} characters. There is no default."
+    while true; do
+        read -r -s -p "Enter appliance administrative password: " ADMIN_PW
+        echo ""
+        PW_PROBLEM="$(admin_pw_problem "$ADMIN_PW")"
+        if [ -n "$PW_PROBLEM" ]; then
+            echo -e "${RED}[!] The password ${PW_PROBLEM}. Try again.${NC}"
+            continue
+        fi
+        read -r -s -p "Confirm administrative password: " ADMIN_PW_CONFIRM
+        echo ""
+        if [ "$ADMIN_PW" != "$ADMIN_PW_CONFIRM" ]; then
+            echo -e "${RED}[!] The passwords do not match. Try again.${NC}"
+            continue
+        fi
+        unset ADMIN_PW_CONFIRM
+        break
+    done
     echo -e "${GREEN}[OK] Administrative password configured.${NC}\n"
 fi
 
@@ -772,6 +819,7 @@ echo -e "${CYAN}Showing overall transfer percentage progress:${NC}"
 rsync -aAX --info=progress2 --no-inc-recursive \
     --exclude={"/dev/*","/proc/*","/sys/*","/tmp/*","/run/*","/mnt/*","/media/*","/lost+found"} \
     / "$TARGET_MNT/"
+echo -e "${GREEN}Overall transfer complete: 100%${NC}"
 
 echo -e "\nSynchronizing factory baseline to Standby Slot B..."
 TARGET_MNT_B="/mnt/micron_target_b"
@@ -842,10 +890,16 @@ EOF
 
     # A/B boot slot selector (/etc/grub.d/09_micron_slots) must be the default entry
     mkdir -p "$mnt/etc/default"
-    sed -i '/^GRUB_DEFAULT=/d;/^GRUB_TIMEOUT=/d;/^GRUB_TIMEOUT_STYLE=/d;/^GRUB_DISABLE_OS_PROBER=/d' "$mnt/etc/default/grub" 2>/dev/null || true
+    sed -i '/^GRUB_DEFAULT=/d;/^GRUB_TIMEOUT=/d;/^GRUB_TIMEOUT_STYLE=/d;/^GRUB_DISABLE_OS_PROBER=/d;/^GRUB_TERMINAL_INPUT=/d;/^GRUB_TERMINAL_OUTPUT=/d;/^GRUB_SERIAL_COMMAND=/d;/^GRUB_CMDLINE_LINUX=/d' "$mnt/etc/default/grub" 2>/dev/null || true
     cat >> "$mnt/etc/default/grub" << 'EOF'
 
 # Micron OS — A/B boot slot selector (see /etc/grub.d/09_micron_slots)
+# Serial console is fixed at 115200 8N1 (not configurable from the Web UI);
+# GRUB's menu is mirrored to it so headless appliances can be recovered.
+GRUB_TERMINAL_INPUT="console serial"
+GRUB_TERMINAL_OUTPUT="console serial"
+GRUB_SERIAL_COMMAND="serial --speed=115200 --unit=0 --word=8 --parity=no --stop=1"
+GRUB_CMDLINE_LINUX="console=ttyS0,115200n8 console=tty0"
 GRUB_DEFAULT=0
 GRUB_TIMEOUT=3
 GRUB_TIMEOUT_STYLE=menu
@@ -937,9 +991,9 @@ EOF
     micron_resolve_if() { # <requested-name> -> resolved device name, or empty
         local want="${1:-}"
         [ -n "$want" ] || return 0
-        # Devices we create ourselves (bridge/bond/VLAN) always pass through.
+        # Devices we create ourselves (bond/VLAN) always pass through.
         case "$want" in
-            br*|bond*|*.*) printf '%s\n' "$want"; return 0 ;;
+            bond*|*.*) printf '%s\n' "$want"; return 0 ;;
         esac
         [ -e "/sys/class/net/$want" ] && { printf '%s\n' "$want"; return 0; }
         local phys=() d
@@ -977,44 +1031,7 @@ EOF
             LAN_IF="$LAN_IF_DEV"
             LAN_IP_ADDR="${LAN_IP:-10.10.10.10}"
             LAN_NM="${LAN_NETMASK:-255.255.255.0}"
-            if [ "$LAN_IF" = "br0" ] || [ "${LAN_IS_BRIDGE:-no}" = "yes" ] || [ -n "${BRIDGE_SLAVES:-}" ]; then
-                LAN_DEV="br0"
-                SLAVES=""
-                # Only enslave member ports that exist on this machine.
-                for sl in ${BRIDGE_SLAVES:-eth1 eth2 eth3}; do
-                    [ -e "/sys/class/net/$sl" ] && SLAVES="${SLAVES:+$SLAVES }$sl"
-                done
-                [ -n "$SLAVES" ] || SLAVES="${LAN_IF_DEV}"
-                cat << EOF >> "$mnt/etc/network/interfaces"
-
-auto $LAN_DEV
-allow-hotplug $LAN_DEV
-iface $LAN_DEV inet static
-    address $LAN_IP_ADDR
-    netmask $LAN_NM
-    bridge_ports $SLAVES
-    bridge_stp on
-    bridge_fd 2
-EOF
-                for sl in $SLAVES; do
-                    cat << EOF >> "$mnt/etc/network/interfaces"
-
-allow-hotplug $sl
-iface $sl inet manual
-EOF
-                done
-                sl_json=$(printf '["%s"]' "$(echo $SLAVES | sed 's/ /", "/g')")
-                cat << EOF > "$mnt/etc/micron/network_init.json"
-{
-  "wan_interface": "$WAN_IF_DEV",
-  "lan_interface": "$LAN_DEV",
-  "lan_is_bridge": true,
-  "bridge_slaves": $sl_json,
-  "configured": true
-}
-EOF
-            else
-                cat << EOF >> "$mnt/etc/network/interfaces"
+            cat << EOF >> "$mnt/etc/network/interfaces"
 
 auto $LAN_IF_DEV
 allow-hotplug $LAN_IF_DEV
@@ -1022,14 +1039,13 @@ iface $LAN_IF_DEV inet static
     address $LAN_IP_ADDR
     netmask $LAN_NM
 EOF
-                cat << EOF > "$mnt/etc/micron/network_init.json"
+            cat << EOF > "$mnt/etc/micron/network_init.json"
 {
   "wan_interface": "$WAN_IF_DEV",
   "lan_interface": "$LAN_IF_DEV",
   "configured": true
 }
 EOF
-            fi
         fi
     else
         cat << 'EOF' > "$mnt/etc/network/interfaces"
@@ -1050,12 +1066,37 @@ EOF
     fi
 done
 
-# Apply Administrative Passwords
+# Apply Administrative Passwords and production access policy.
+# The live image keeps its accounts password-locked with console autologin and
+# passwordless sudo so the installer can run; an installed appliance must not.
 for mnt in "$TARGET_MNT" "$TARGET_MNT_B"; do
     if [ -f "$mnt/etc/shadow" ]; then
-        chroot "$mnt" bash -c "echo 'ministrator:${ADMIN_PW}' | chpasswd; echo 'root:${ADMIN_PW}' | chpasswd" 2>/dev/null || true
+        # Passwords go over stdin, never through a shell string or argv.
+        printf 'ministrator:%s\nroot:%s\n' "$ADMIN_PW" "$ADMIN_PW" | chroot "$mnt" chpasswd 2>/dev/null || true
+    fi
+    # sudo asks for the administrator's own password.
+    if [ -d "$mnt/etc/sudoers.d" ]; then
+        printf 'ministrator ALL=(ALL:ALL) ALL\n' > "$mnt/etc/sudoers.d/99-ministrator"
+        chmod 0440 "$mnt/etc/sudoers.d/99-ministrator"
+    fi
+    # The console asks for a login; the menu still starts right after it.
+    rm -f "$mnt/etc/systemd/system/getty@tty1.service.d/autologin.conf"
+    rmdir "$mnt/etc/systemd/system/getty@tty1.service.d" 2>/dev/null || true
+    # SSH: no password logins as root; sign in as ministrator and use sudo.
+    if [ -d "$mnt/etc/ssh/sshd_config.d" ]; then
+        cat > "$mnt/etc/ssh/sshd_config.d/99-micronos.conf" << 'SSHEOF'
+PasswordAuthentication yes
+PermitRootLogin prohibit-password
+MaxAuthTries 4
+LoginGraceTime 30
+Banner /etc/issue.net
+PrintMotd yes
+SSHEOF
     fi
 done
+if [ "$ADMIN_PW_GENERATED" -eq 1 ] && [ -d "$TARGET_MNT/etc/micron" ]; then
+    ( umask 077; printf '%s\n' "$ADMIN_PW" > "$TARGET_MNT/etc/micron/initial-admin-password" )
+fi
 
 # Setup chroot environment mounts with full recursive bindings
 # IMPORTANT: These mounts must happen BEFORE update-initramfs and grub-install.
@@ -1261,8 +1302,73 @@ for mnt in "$TARGET_MNT" "$TARGET_MNT_B"; do
         install -m 0644 "$mnt/usr/local/micron/system/micron-network.service" "$mnt/etc/systemd/system/micron-network.service"
         ln -sf /etc/systemd/system/micron-network.service "$mnt/etc/systemd/system/multi-user.target.wants/micron-network.service"
     fi
+    if [ -f "$mnt/usr/local/micron/system/wireguard.service" ]; then
+        install -m 0644 "$mnt/usr/local/micron/system/wireguard.service" "$mnt/etc/systemd/system/wireguard.service"
+        ln -sf /etc/systemd/system/wireguard.service "$mnt/etc/systemd/system/multi-user.target.wants/wireguard.service"
+    fi
+    if [ -f "$mnt/usr/local/micron/system/micrond.service" ]; then
+        install -m 0644 "$mnt/usr/local/micron/system/micrond.service" "$mnt/etc/systemd/system/micrond.service"
+        ln -sf /etc/systemd/system/micrond.service "$mnt/etc/systemd/system/multi-user.target.wants/micrond.service"
+    fi
+    if [ -f "$mnt/usr/local/micron/system/micrond/micrond.py" ]; then
+        chmod 0755 "$mnt/usr/local/micron/system/micrond/micrond.py"
+        ln -sf /usr/local/micron/system/micrond/micrond.py "$mnt/usr/local/bin/micrond"
+    fi
+    if [ -f "$mnt/usr/local/micron/system/micron-db-check.service" ]; then
+        install -m 0644 "$mnt/usr/local/micron/system/micron-db-check.service" "$mnt/etc/systemd/system/micron-db-check.service"
+        mkdir -p "$mnt/etc/systemd/system/basic.target.wants"
+        ln -sf /etc/systemd/system/micron-db-check.service "$mnt/etc/systemd/system/basic.target.wants/micron-db-check.service"
+    fi
     if [ -f "$mnt/usr/local/micron/system/99-micron-routing.conf" ]; then
         install -m 0644 "$mnt/usr/local/micron/system/99-micron-routing.conf" "$mnt/etc/sysctl.d/99-micron-routing.conf"
+    fi
+    if [ -f "$mnt/usr/local/micron/system/50-micron-resilience.conf" ]; then
+        install -m 0644 "$mnt/usr/local/micron/system/50-micron-resilience.conf" "$mnt/etc/sysctl.d/50-micron-resilience.conf"
+    fi
+    if [ -f "$mnt/usr/local/micron/system/50-micron-watchdog.conf" ]; then
+        mkdir -p "$mnt/etc/systemd/system.conf.d"
+        install -m 0644 "$mnt/usr/local/micron/system/50-micron-watchdog.conf" "$mnt/etc/systemd/system.conf.d/50-micron-watchdog.conf"
+    fi
+    mkdir -p "$mnt/etc/systemd/system/apache2.service.d"
+    cat << 'EOF' > "$mnt/etc/systemd/system/apache2.service.d/50-micron-resilience.conf"
+[Unit]
+StartLimitIntervalSec=60s
+StartLimitBurst=5
+
+[Service]
+Restart=always
+RestartSec=2s
+TimeoutStopSec=10s
+OOMScoreAdjust=-800
+EOF
+    for php_ver in php8.4-fpm php8.3-fpm php8.2-fpm php-fpm; do
+        mkdir -p "$mnt/etc/systemd/system/${php_ver}.service.d"
+        cat << 'EOF' > "$mnt/etc/systemd/system/${php_ver}.service.d/50-micron-resilience.conf"
+[Unit]
+StartLimitIntervalSec=60s
+StartLimitBurst=5
+
+[Service]
+Restart=always
+RestartSec=2s
+TimeoutStopSec=10s
+OOMScoreAdjust=-800
+EOF
+    done
+    # IPv6 factory default: off. micron-network rewrites this at every boot from
+    # the configuration database, so an administrator's choice survives slot
+    # upgrades (the database, not this file, is the authority).
+    if [ -f "$mnt/usr/local/micron/system/60-micron-ipv6.conf" ]; then
+        install -m 0644 "$mnt/usr/local/micron/system/60-micron-ipv6.conf" "$mnt/etc/sysctl.d/60-micron-ipv6.conf"
+    fi
+    if [ -f "$mnt/usr/local/micron/system/micron-terminald.service" ]; then
+        install -m 0644 "$mnt/usr/local/micron/system/micron-terminald.service" "$mnt/etc/systemd/system/micron-terminald.service"
+        ln -sf /etc/systemd/system/micron-terminald.service "$mnt/etc/systemd/system/multi-user.target.wants/micron-terminald.service"
+        chmod 0755 "$mnt/usr/local/micron/system/micron-terminald"
+    fi
+    if ! chroot "$mnt" getent passwd micron-term >/dev/null 2>&1; then
+        chroot "$mnt" useradd --system --create-home --home-dir /var/lib/micron-term --shell /bin/bash \
+            --comment "Micron OS browser terminal (standard sessions)" micron-term 2>/dev/null || true
     fi
     if [ -f "$mnt/usr/local/micron/system/micron-ready-beep" ]; then
         install -m 0755 "$mnt/usr/local/micron/system/micron-ready-beep" "$mnt/usr/local/bin/micron-ready-beep"
@@ -1283,7 +1389,7 @@ for mnt in "$TARGET_MNT" "$TARGET_MNT_B"; do
         MICRON_OS_VERSION=$(sed -n 's/^VERSION_ID="\{0,1\}\([^"]*\)"\{0,1\}/\1/p' \
             "$mnt/usr/local/micron/system/os-release" | head -n1)
     fi
-    [ -n "$MICRON_OS_VERSION" ] || MICRON_OS_VERSION="0.1.23"
+    [ -n "$MICRON_OS_VERSION" ] || MICRON_OS_VERSION="0.1.44"
     cat > "$mnt/etc/os-release" << OSRELEASEEOF
 PRETTY_NAME="Micron OS ${MICRON_OS_VERSION} (amd64)"
 NAME="Micron OS"
@@ -1305,7 +1411,7 @@ done
 
 # Initialize SQLite database
 if [ -d "$TARGET_MNT/usr/local/micron" ]; then
-    chroot "$TARGET_MNT" bash -c "cd /usr/local/micron && php spark migrate --all && php spark db:seed InitialApplianceSeeder && php spark db:seed RolesPermissionsSeeder && php spark user:reset-admin '${ADMIN_PW}' && php spark micron:db-resilience --snapshot" || true
+    MICRON_ADMIN_PW="$ADMIN_PW" chroot "$TARGET_MNT" bash -c "cd /usr/local/micron && export MICRON_APPLIANCE=1 && php spark migrate --all && php spark db:seed InitialApplianceSeeder && php spark db:seed RolesPermissionsSeeder && php spark user:reset-admin --from-env && php spark micron:db-resilience --snapshot" || true
     chroot "$TARGET_MNT" chown -R www-data:www-data /usr/local/micron/writable || true
     chroot "$TARGET_MNT" chmod -R 777 /usr/local/micron/writable || true
 fi
@@ -1343,6 +1449,18 @@ for mnt in "$TARGET_MNT" "$TARGET_MNT_B"; do
         SetHandler "proxy:unix:/run/php/php8.4-fpm.sock|fcgi://localhost"
     </FilesMatch>
 
+    # Web Terminal: the WebSocket goes to micron-terminald on 127.0.0.1:7681
+    # (never exposed directly). The service only accepts a one-time ticket the
+    # Web UI issued for this user, Origin and client address.
+    ProxyPass        "/terminal/ws" "ws://127.0.0.1:7681/ws"
+    ProxyPassReverse "/terminal/ws" "ws://127.0.0.1:7681/ws"
+
+    # Clientless Gateway viewer: guacd is not a WebSocket server, so the
+    # browser's Guacamole tunnel goes to micron-guacd-bridge on 127.0.0.1:4823,
+    # which checks the signed session token and relays to guacd.
+    ProxyPass        "/vpn/clientless-gateway/tunnel" "ws://127.0.0.1:4823/vpn/clientless-gateway/tunnel"
+    ProxyPassReverse "/vpn/clientless-gateway/tunnel" "ws://127.0.0.1:4823/vpn/clientless-gateway/tunnel"
+
     ErrorLog ${APACHE_LOG_DIR}/micron_error.log
     CustomLog ${APACHE_LOG_DIR}/micron_access.log combined
 </VirtualHost>
@@ -1370,7 +1488,7 @@ APACHEPORTS
 
     # Enable required modules, disable default site, enable MicronOS site
     chroot "$mnt" bash -c "
-        a2enmod rewrite proxy_fcgi headers deflate 2>/dev/null || true
+        a2enmod rewrite proxy proxy_fcgi proxy_wstunnel headers deflate 2>/dev/null || true
         a2dismod ssl 2>/dev/null || true
         a2dissite 000-default.conf 2>/dev/null || true
         a2dissite default-ssl.conf 2>/dev/null || true
@@ -1430,6 +1548,190 @@ for mnt in "$TARGET_MNT" "$TARGET_MNT_B"; do
     echo -e "  ${GREEN}[OK]${NC} pcspkr unblacklisted in ${mnt}"
 done
 
+# ==============================================================================
+# Appliance Service Initializers & Port 53 Deconfliction
+# ==============================================================================
+echo -e "\n${BOLD}Configuring appliance service initializers, daemons, and resolvers...${NC}"
+for mnt in "$TARGET_MNT" "$TARGET_MNT_B"; do
+    # 1. Deconflict Port 53: disable/mask systemd-resolved so Unbound binds cleanly
+    chroot "$mnt" systemctl disable systemd-resolved 2>/dev/null || true
+    chroot "$mnt" systemctl mask systemd-resolved 2>/dev/null || true
+    if [ -L "$mnt/etc/resolv.conf" ]; then
+        rm -f "$mnt/etc/resolv.conf"
+        cat > "$mnt/etc/resolv.conf" << 'RESOLVEOF'
+# MicronOS Baseline Appliance Resolver
+nameserver 127.0.0.1
+nameserver 1.1.1.1
+nameserver 8.8.8.8
+RESOLVEOF
+    fi
+
+    # 1b. Deconflict mDNS & Net-SNMP daemons:
+    # Mask Debian's stock mdns-reflector.service so it never starts with missing interfaces.
+    # Micron OS runs its own mdns-repeater.service wrapper.
+    chroot "$mnt" systemctl disable mdns-reflector 2>/dev/null || true
+    chroot "$mnt" systemctl mask mdns-reflector 2>/dev/null || true
+    rm -f "$mnt/etc/systemd/system/multi-user.target.wants/mdns-reflector.service" 2>/dev/null || true
+
+    # Net-SNMP: disable snmpd at boot (managed on-demand via Services > SNMP)
+    # and provide a clean IPv4-only baseline configuration so snmpd never crashes on [::1].
+    chroot "$mnt" systemctl disable snmpd 2>/dev/null || true
+    rm -f "$mnt/etc/systemd/system/multi-user.target.wants/snmpd.service" 2>/dev/null || true
+    mkdir -p "$mnt/etc/snmp"
+    cat > "$mnt/etc/snmp/snmpd.conf" << 'SNMPEOF'
+# Micron OS — Net-SNMP daemon baseline configuration
+# SNMP is disabled by default; configure and enable via Services > SNMP.
+agentaddress udp:127.0.0.1:161
+SNMPEOF
+    chmod 0600 "$mnt/etc/snmp/snmpd.conf" 2>/dev/null || true
+
+    # 2. Unbound DNSSEC Trust Anchor, Baseline Configuration & Enablement
+    mkdir -p "$mnt/var/lib/unbound" "$mnt/etc/unbound/unbound.conf.d"
+    if chroot "$mnt" command -v unbound-anchor >/dev/null 2>&1; then
+        chroot "$mnt" unbound-anchor -a /var/lib/unbound/root.key 2>/dev/null || true
+    elif [ -x "$mnt/usr/sbin/unbound-anchor" ]; then
+        chroot "$mnt" /usr/sbin/unbound-anchor -a /var/lib/unbound/root.key 2>/dev/null || true
+    fi
+
+    # Fallback: seed root trust anchor if unbound-anchor could not run or lacked network
+    if [ ! -s "$mnt/var/lib/unbound/root.key" ]; then
+        if [ -f "$mnt/usr/share/dns/root.key" ]; then
+            cp "$mnt/usr/share/dns/root.key" "$mnt/var/lib/unbound/root.key"
+        else
+            cat > "$mnt/var/lib/unbound/root.key" << 'ROOTEK'
+. IN DS 20326 8 2 E06D44B80B8F1D39A95C0B0D7C65D08458E880409BBC683457104237C7F8EC8D
+ROOTEK
+        fi
+    fi
+    chmod 0644 "$mnt/var/lib/unbound/root.key" 2>/dev/null || true
+
+    # Baseline IPv4-only Unbound configuration (prevents crash on [::1] when IPv6 is disabled)
+    cat > "$mnt/etc/unbound/unbound.conf" << 'UNBOUNDEOF'
+# ----------------------------------------------------------------------
+# Micron Firewall OS (MicronOS) — Baseline Unbound DNS Resolver
+# ----------------------------------------------------------------------
+server:
+    verbosity: 1
+    interface: 0.0.0.0
+    port: 53
+    do-ip4: yes
+    do-ip6: no
+    do-udp: yes
+    do-tcp: yes
+
+    # Access Control
+    access-control: 127.0.0.0/8 allow
+    access-control: 10.0.0.0/8 allow
+    access-control: 172.16.0.0/12 allow
+    access-control: 192.168.0.0/16 allow
+    access-control: 0.0.0.0/0 refuse
+
+    # Security & Hardening
+    hide-identity: yes
+    hide-version: yes
+    harden-glue: yes
+    harden-dnssec-stripped: yes
+    use-caps-for-id: yes
+    auto-trust-anchor-file: "/var/lib/unbound/root.key"
+    tls-cert-bundle: "/etc/ssl/certs/ca-certificates.crt"
+
+    # Performance & Memory
+    num-threads: 2
+    msg-cache-slabs: 4
+    rrset-cache-slabs: 4
+    infra-cache-slabs: 4
+    key-cache-slabs: 4
+    msg-cache-size: 64m
+    rrset-cache-size: 128m
+
+forward-zone:
+    name: "."
+    forward-tls-upstream: yes
+    # Cloudflare & Quad9 DNS over TLS (DoT)
+    forward-addr: 1.1.1.1@853#cloudflare-dns.com
+    forward-addr: 1.0.0.1@853#cloudflare-dns.com
+    forward-addr: 9.9.9.9@853#dns.quad9.net
+UNBOUNDEOF
+
+    chroot "$mnt" chown -R unbound:unbound /var/lib/unbound /etc/unbound 2>/dev/null || true
+    chroot "$mnt" systemctl enable unbound.service 2>/dev/null || true
+
+    # 3. Time Synchronization: enable chrony, disable systemd-timesyncd
+    chroot "$mnt" systemctl disable systemd-timesyncd 2>/dev/null || true
+    chroot "$mnt" systemctl enable chrony 2>/dev/null || true
+
+    # 4. C-ICAP Service Enablement
+    if [ -f "$mnt/etc/default/c-icap" ]; then
+        sed -i 's/^START=.*/START=yes/' "$mnt/etc/default/c-icap" || echo "START=yes" >> "$mnt/etc/default/c-icap"
+    fi
+
+    # 5. FRRouting Daemons Configuration
+    mkdir -p "$mnt/etc/frr"
+    cat > "$mnt/etc/frr/daemons" << 'FRREOF'
+zebra=yes
+bgpd=yes
+ospfd=yes
+ospf6d=yes
+ripd=yes
+ripngd=yes
+isisd=yes
+pimd=yes
+ldpd=no
+nhrpd=no
+eigrpd=no
+babeld=no
+sharpd=no
+pbrd=yes
+bfdd=yes
+fabricd=no
+vrrpd=no
+pathd=no
+
+vtysh_enable=yes
+zebra_options="  -A 127.0.0.1 -s 90000000"
+bgpd_options="   -A 127.0.0.1"
+ospfd_options="  -A 127.0.0.1"
+ospf6d_options=" -A ::1"
+ripd_options="   -A 127.0.0.1"
+ripngd_options=" -A ::1"
+isisd_options="  -A 127.0.0.1"
+pimd_options="   -A 127.0.0.1"
+pbrd_options="   -A 127.0.0.1"
+bfdd_options="   -A 127.0.0.1"
+FRREOF
+    touch "$mnt/etc/frr/frr.conf" "$mnt/etc/frr/vtysh.conf"
+    chroot "$mnt" chown -R frr:frr /etc/frr 2>/dev/null || true
+    chmod 640 "$mnt/etc/frr/frr.conf" "$mnt/etc/frr/daemons" 2>/dev/null || true
+    chroot "$mnt" systemctl enable frr.service 2>/dev/null || true
+
+
+    # 6. Squid Cache Directories
+    mkdir -p "$mnt/var/spool/squid" "$mnt/var/log/squid"
+    chroot "$mnt" chown -R proxy:proxy /var/spool/squid /var/log/squid 2>/dev/null || true
+    chroot "$mnt" squid -z 2>/dev/null || true
+
+    # 7. Custom Service Units: gateway-monitor & mdns-repeater
+    if [ -f "$mnt/etc/systemd/system/micron-sdwan-probe.service" ]; then
+        ln -sf micron-sdwan-probe.service "$mnt/etc/systemd/system/gateway-monitor.service"
+        chroot "$mnt" systemctl enable gateway-monitor.service 2>/dev/null || true
+    fi
+    if [ -f "$mnt/etc/systemd/system/mdns-repeater.service" ]; then
+        chroot "$mnt" systemctl enable mdns-repeater.service 2>/dev/null || true
+    fi
+    # 8. Cap shutdown/reboot timeouts (prevent 90s hang on networking stop / DHCP release)
+    mkdir -p "$mnt/etc/systemd/system/networking.service.d" "$mnt/etc/systemd/system.conf.d"
+    cat > "$mnt/etc/systemd/system/networking.service.d/timeout.conf" << 'TIMEOUTEOF'
+[Service]
+TimeoutStopSec=5s
+TIMEOUTEOF
+    cat > "$mnt/etc/systemd/system.conf.d/timeout.conf" << 'TIMEOUTEOF'
+[Manager]
+DefaultTimeoutStopSec=10s
+TIMEOUTEOF
+
+    echo -e "  ${GREEN}[OK]${NC} Appliance services and initializers configured in ${mnt}"
+done
+
 # Cleanup mounts
 sync
 umount "$TARGET_MNT_B" 2>/dev/null || true
@@ -1450,6 +1752,11 @@ echo -e "${GREEN}  MICRON FIREWALL OS (Micron OS) INSTALLATION COMPLETE!${NC}"
 echo -e "${CYAN}══════════════════════════════════════════════════════════════════════${NC}"
 echo -e "Active Boot Slot   : Slot A (Primary)"
 echo -e "Standby Slot       : Slot B (Healthy Failover)"
+if [ "$ADMIN_PW_GENERATED" -eq 1 ]; then
+    echo -e "\n${BOLD}${YELLOW}Generated administrator password: ${ADMIN_PW}${NC}"
+    echo -e "Used for the Web GUI (Ministrator) and the console (ministrator, root)."
+    echo -e "Also saved to /etc/micron/initial-admin-password (root only). Delete it after first sign-in."
+fi
 echo -e "\n${BOLD}${YELLOW}Reboot Instructions:${NC}"
 echo -e "Leave the USB installation drive connected while rebooting."
 echo -e "Remove the USB drive as soon as the screen powers off or the BIOS logo appears."

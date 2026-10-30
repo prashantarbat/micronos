@@ -41,7 +41,9 @@ class SystemSettingsModel extends Model
         // Networking
         'ipv6_enabled',
         // Misc
-        'console_speed', 'dns_default_servers', 'theme', 'language', 'layout', 'updated_at',
+        // console_speed (fixed 115200) and language (English only) are kept as
+        // columns for older rows but are no longer writable from the Web UI.
+        'dns_default_servers', 'theme', 'layout', 'updated_at',
     ];
 
     /**
@@ -105,10 +107,11 @@ class SystemSettingsModel extends Model
 
         'console_speed'       => '115200',
         'dns_default_servers' => '1.1.1.1, 8.8.8.8',
-        'ipv6_enabled'        => 1,
-        'theme'               => 'dark',
+        // IPv6 is off until an administrator turns it on (System > Networking).
+        'ipv6_enabled'        => 0,
+        'theme'               => 'micronos',
         'language'            => 'en',
-        'layout'              => 'sidebar',
+        'layout'              => 'topnav',
     ];
 
     /** Return the singleton settings row, merged with defaults. */
@@ -127,12 +130,17 @@ class SystemSettingsModel extends Model
      */
     public function ipv6Enabled(): bool
     {
-        return (int) ($this->getSettings()['ipv6_enabled'] ?? 1) === 1;
+        return (int) ($this->getSettings()['ipv6_enabled'] ?? 0) === 1;
     }
+
+    /** Serial console speed used by the bootloader, kernel and getty. */
+    public const CONSOLE_BAUD = 115200;
 
     /** Persist updated fields to the singleton row. */
     public function saveSettings(array $data): bool
     {
+        // Fields the Web UI no longer offers are ignored if a stale form posts them.
+        unset($data['language'], $data['console_speed']);
         $data['updated_at'] = date('Y-m-d H:i:s');
         $exists = $this->find(1);
         if ($exists) {

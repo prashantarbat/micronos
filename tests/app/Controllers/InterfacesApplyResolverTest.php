@@ -98,7 +98,7 @@ final class InterfacesApplyResolverTest extends BaseTestCase
     public function testApplyMergesReportedDynamicServersWhenOverrideIsEnabled(): void
     {
         $ipc = new FakeIpcClient([
-            'network.apply'         => ['error' => null, 'result' => ['status' => 'applied']],
+            'network.apply'         => ['error' => null, 'result' => ['status' => 'applied', 'success' => true]],
             'interface.dynamic_dns' => ['error' => null, 'result' => [
                 'success' => true,
                 'sources' => [['source' => 'dhcp', 'interface' => 'WAN', 'servers' => ['10.0.0.138']]],
@@ -141,7 +141,7 @@ final class InterfacesApplyResolverTest extends BaseTestCase
         $this->db->table('dns_settings')->where('id', 'global')->update(['dns_server_override' => 0]);
 
         $ipc = new FakeIpcClient([
-            'network.apply'      => ['error' => null, 'result' => ['status' => 'applied']],
+            'network.apply'      => ['error' => null, 'result' => ['status' => 'applied', 'success' => true]],
             'dns.resolver.apply' => ['error' => null, 'result' => ['status' => 'applied']],
         ]);
         Services::injectMock('ipc', $ipc);

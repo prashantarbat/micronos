@@ -1,6 +1,5 @@
 # Core Linux Kernel & System Utilities
 linux-image-amd64
-linux-headers-amd64
 firmware-linux
 firmware-linux-nonfree
 firmware-realtek
@@ -11,7 +10,7 @@ intel-microcode
 amd64-microcode
 systemd
 systemd-sysv
-systemd-timesyncd
+chrony
 udev
 pciutils
 usbutils
@@ -55,34 +54,71 @@ watchdog
 # at interactive shell startup — the Terminal CLI's completion is staged there.
 bash-completion
 
-# Networking & Firewall Data Plane
+# Networking, Diagnostics & Firewall Data Plane
 nftables
 iproute2
 iptables
 bridge-utils
 vlan
 conntrack
+conntrackd
 tcpdump
+ngrep
 iperf3
 iputils-ping
+fping
 traceroute
+tcptraceroute
 mtr-tiny
 bind9-dnsutils
 net-tools
+nmap
+telnet
+netcat-openbsd
+iputils-arping
+iputils-tracepath
+# netdiag is not in Debian 13; hooks/live/00-micronos-extra-packages builds it
+whois
+
+# PPPoE client (pppd, pon/poff) and access concentrator (pppoe-server)
+ppp
+pppoe
+
+# Wi-Fi access point / station mode (micrond wifi.apply)
+hostapd
+wpasupplicant
+iw
+
+# Dynamic Routing Suite (BGP, OSPF, BFD, PIM)
+frr
+frr-pythontools
+
+# High Availability & Multicast Services
+keepalived
+igmpproxy
+mdns-reflector
 
 # VPN Protocols
 wireguard
 wireguard-tools
 strongswan
 strongswan-swanctl
+# swanctl's daemon (strongswan.service); the hook masks the legacy ipsec starter
+charon-systemd
 libstrongswan-extra-plugins
 libcharon-extra-plugins
 openvpn
 easy-rsa
 
-# Web Proxy, DNS, DHCP, IDS/IPS, IPv6 Daemons
-squid
+# Web Proxy, DNS, DHCP, IDS/IPS, IPv6 & Content Filtering Daemons
+# squid-openssl is the SSL-bump build of squid and replaces the plain package;
+# listing both makes apt refuse the pair.
 squid-openssl
+c-icap
+libc-icap-mod-virus-scan
+clamav-daemon
+clamav-freshclam
+clamdscan
 suricata
 kea-dhcp4-server
 kea-dhcp6-server
@@ -90,8 +126,19 @@ radvd
 dhcpcd-base
 isc-dhcp-client
 unbound
+unbound-anchor
+dns-root-data
+tayga
 ca-certificates
 openssl
+
+# Monitoring, Discovery & System Daemons
+snmpd
+snmp
+rsyslog
+logrotate
+darkstat
+lldpd
 
 # Web Server & CodeIgniter 4 Runtime
 apache2
@@ -110,11 +157,10 @@ sqlite3
 
 # Python 3 Runtime for micrond IPC daemon
 python3
-python3-pip
-python3-setuptools
-python3-pyroute2
-python3-systemd
-python3-psutil
+# x25519 key generation for WireGuard peers (micrond)
+python3-cryptography
 
 # ZTNA & Clientless Gateway Daemons
 nginx
+# guacd and its RDP/SSH/VNC clients are not in Debian 13; they are compiled
+# from source by hooks/live/00-micronos-extra-packages.hook.chroot

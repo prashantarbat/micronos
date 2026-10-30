@@ -195,4 +195,36 @@ final class HeaderResponsiveTest extends CIUnitTestCase
             'and the title has to truncate visibly rather than run under the sign-out button'
         );
     }
+
+    public function testTerminalIsIconOnlyInTopnavAndKeepsItsSidebarLabel(): void
+    {
+        $layout      = $this->layout();
+        $topnavStart = strpos($layout, '<nav class="topnav-menu"');
+        $sidebarStart = strpos($layout, '<nav class="sidebar"');
+
+        $this->assertNotFalse($topnavStart);
+        $this->assertNotFalse($sidebarStart);
+
+        $topnav  = substr($layout, (int) $topnavStart, (int) $sidebarStart - (int) $topnavStart);
+        $sidebar = substr($layout, (int) $sidebarStart);
+        $needle  = '<a href="<?= base_url(\'terminal\') ?>"';
+        $topLinkStart = strpos($topnav, $needle);
+        $sideLinkStart = strpos($sidebar, $needle);
+
+        $this->assertNotFalse($topLinkStart);
+        $this->assertNotFalse($sideLinkStart);
+
+        $topLinkEnd = strpos($topnav, '</a>', (int) $topLinkStart);
+        $sideLinkEnd = strpos($sidebar, '</a>', (int) $sideLinkStart);
+        $this->assertNotFalse($topLinkEnd);
+        $this->assertNotFalse($sideLinkEnd);
+
+        $topLink  = substr($topnav, (int) $topLinkStart, (int) $topLinkEnd - (int) $topLinkStart);
+        $sideLink = substr($sidebar, (int) $sideLinkStart, (int) $sideLinkEnd - (int) $sideLinkStart);
+
+        $this->assertStringContainsString('aria-label="Terminal"', $topLink);
+        $this->assertStringContainsString('<svg', $topLink);
+        $this->assertDoesNotMatchRegularExpression('/>\s*Terminal\s*</', $topLink);
+        $this->assertMatchesRegularExpression('/>\s*Terminal\s*$/s', $sideLink);
+    }
 }

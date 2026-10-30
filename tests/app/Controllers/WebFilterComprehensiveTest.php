@@ -625,28 +625,28 @@ final class WebFilterComprehensiveTest extends BaseTestCase
     public function testSaveCacheDoNotCacheList(): void
     {
         $payload = $this->csrf([
-            'cache_do_not_cache' => "aucbakola.com\nakolaurban.com\n10.11.83.66",
+            'cache_do_not_cache' => "app.example.internal\nportal.example.corp\n192.168.10.66",
         ]);
 
         $this->withSession($this->sessionData())->post('/webfilter/save-cache', $payload)->assertStatus(302);
 
         $settings = (new WebfilterSettingsModel())->getSettings();
-        $this->assertStringContainsString('aucbakola.com', $settings['cache_do_not_cache']);
-        $this->assertStringContainsString('10.11.83.66', $settings['cache_do_not_cache']);
+        $this->assertStringContainsString('app.example.internal', $settings['cache_do_not_cache']);
+        $this->assertStringContainsString('192.168.10.66', $settings['cache_do_not_cache']);
     }
 
     public function testCompilerEmitsCacheBypassAcls(): void
     {
         (new WebfilterSettingsModel())->saveSettings([
             'cache_enabled'      => 1,
-            'cache_do_not_cache' => "aucbakola.com\n*.tracker.net\n10.11.83.66\n10.11.83.0/24\n2001:db8::1",
+            'cache_do_not_cache' => "app.example.internal\n*.tracker.net\n192.168.10.66\n192.168.10.0/24\n2001:db8::1",
         ]);
 
         $output = (new SquidConfigCompiler())->compile();
 
         $this->assertStringContainsString('# 8c. Do Not Cache Destinations', $output);
-        $this->assertStringContainsString('acl cache_bypass_domains dstdomain .aucbakola.com .tracker.net', $output);
-        $this->assertStringContainsString('acl cache_bypass_ips dst 10.11.83.66 10.11.83.0/24 2001:db8::1', $output);
+        $this->assertStringContainsString('acl cache_bypass_domains dstdomain .app.example.internal .tracker.net', $output);
+        $this->assertStringContainsString('acl cache_bypass_ips dst 192.168.10.66 192.168.10.0/24 2001:db8::1', $output);
         $this->assertStringContainsString('cache deny cache_bypass_domains', $output);
         $this->assertStringContainsString('cache deny cache_bypass_ips', $output);
     }
@@ -669,7 +669,7 @@ final class WebFilterComprehensiveTest extends BaseTestCase
     {
         (new WebfilterSettingsModel())->saveSettings([
             'cache_enabled'      => 0,
-            'cache_do_not_cache' => 'aucbakola.com',
+            'cache_do_not_cache' => 'app.example.internal',
         ]);
 
         $output = (new SquidConfigCompiler())->compile();

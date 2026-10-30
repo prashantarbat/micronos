@@ -132,7 +132,7 @@ class Qos extends BaseController
         }
 
         [$key, $message] = $this->ipcFlash(
-            $this->ipc->call('qos.apply'),
+            $this->applier()->qos(),
             'Traffic Shaper queue policy updated and loaded.',
             'Saved, but the QoS apply'
         );
@@ -145,7 +145,7 @@ class Qos extends BaseController
         $this->shaperModel->delete($id);
 
         [$key, $message] = $this->ipcFlash(
-            $this->ipc->call('qos.apply'),
+            $this->applier()->qos(),
             'Traffic Shaper removed.',
             'Removed, but the QoS apply'
         );
@@ -177,7 +177,7 @@ class Qos extends BaseController
         }
 
         [$key, $message] = $this->ipcFlash(
-            $this->ipc->call('qos.apply'),
+            $this->applier()->qos(),
             'Traffic classification rule saved.',
             'Saved, but the QoS apply'
         );
@@ -190,7 +190,7 @@ class Qos extends BaseController
         $this->ruleModel->delete($id);
 
         [$key, $message] = $this->ipcFlash(
-            $this->ipc->call('qos.apply'),
+            $this->applier()->qos(),
             'Traffic classification rule deleted.',
             'Deleted, but the QoS apply'
         );
@@ -201,7 +201,7 @@ class Qos extends BaseController
     public function apply()
     {
         [$key, $message] = $this->ipcFlash(
-            $this->ipc->call('qos.apply', ['force' => true]),
+            $this->applier()->qos(),
             'Kernel TC qdisc queues and DSCP mangle rules applied successfully.',
             'QoS apply'
         );

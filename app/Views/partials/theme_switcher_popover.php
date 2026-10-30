@@ -10,12 +10,12 @@
 if (! function_exists('document_theme')) {
     function document_theme(): string {
         $h = \Config\Services::request()->getServer('HTTP_X_UI_THEME');
-        return $h ?? 'dark'; // actual value is read from html data-theme in JS
+        return $h ?? config('Appearance')->defaultTheme; // actual value is read from html data-theme in JS
     }
 }
 if (! function_exists('document_layout')) {
     function document_layout(): string {
-        return 'sidebar'; // actual value is read from html data-layout in JS
+        return config('Appearance')->defaultLayout; // actual value is read from html data-layout in JS
     }
 }
 

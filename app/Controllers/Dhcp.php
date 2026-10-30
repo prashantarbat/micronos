@@ -109,8 +109,10 @@ class Dhcp extends BaseController
         // Fetch settings for this interface
         $settings = $this->settingsModel->getForInterface($currentIfaceId, $currentIface);
 
-        // Seed default static reservations if empty
-        if ($db->table('dhcp_reservations')->countAllResults() === 0) {
+        // Development client only: one example reservation so the page is not
+        // empty. An appliance starts with none — anything here would be pushed
+        // into the live Kea configuration.
+        if ($this->ipc->isMock() && $db->table('dhcp_reservations')->countAllResults() === 0) {
             $db->table('dhcp_reservations')->insert([
                 'id'           => 'res_' . bin2hex(random_bytes(6)),
                 'interface_id' => 'lan',
@@ -131,40 +133,52 @@ class Dhcp extends BaseController
                            ->get()
                            ->getResultArray();
 
-        // Leases for this interface
-        $prefix = implode('.', array_slice(explode('.', $ipv4), 0, 3));
-        $leases = [
-            [
-                'ip'         => "{$prefix}.101",
-                'mac'        => 'bc:24:11:4d:9a:10',
-                'hostname'   => 'workstation-dev01',
-                'client_id'  => 'MSFT 5.0',
-                'start'      => date('Y-m-d H:i', strtotime('-1 hour')),
-                'expires'    => date('Y-m-d H:i', strtotime('+1 hour')),
-                'status'     => 'active',
-                'type'       => 'dynamic',
-            ],
-            [
-                'ip'         => "{$prefix}.102",
-                'mac'        => '00:1a:2b:3c:4d:5e',
-                'hostname'   => 'nas-storage.lan',
-                'client_id'  => 'Synology-DS920',
-                'start'      => date('Y-m-d H:i', strtotime('-18 hours')),
-                'expires'    => date('Y-m-d H:i', strtotime('+6 hours')),
-                'status'     => 'active',
-                'type'       => 'dynamic',
-            ],
-            [
-                'ip'         => "{$prefix}.105",
-                'mac'        => 'd8:3b:bf:22:91:04',
-                'hostname'   => 'iphone-alice',
-                'client_id'  => 'Apple-iPhone',
-                'start'      => date('Y-m-d H:i', strtotime('-30 mins')),
-                'expires'    => date('Y-m-d H:i', strtotime('+90 mins')),
-                'status'     => 'active',
-                'type'       => 'dynamic',
-            ],
-        ];
+        // Leases: Kea's lease file on an appliance (`dhcp.leases`), limited to
+        // this interface's subnet. The development client shows samples.
+        $leases = [];
+        if (! $this->ipc->isMock()) {
+            $resp = $this->ipc->call('dhcp.leases');
+            foreach ((array) ($resp['result']['leases'] ?? []) as $lease) {
+                $leaseLong = ip2long((string) ($lease['ip'] ?? ''));
+                if ($leaseLong !== false && ($leaseLong & $maskLong) === $subnetBaseLong) {
+                    $leases[] = $lease;
+                }
+            }
+        } else {
+            $prefix = implode('.', array_slice(explode('.', $ipv4), 0, 3));
+            $leases = [
+                [
+                    'ip'         => "{$prefix}.101",
+                    'mac'        => 'bc:24:11:4d:9a:10',
+                    'hostname'   => 'workstation-dev01',
+                    'client_id'  => 'MSFT 5.0',
+                    'start'      => date('Y-m-d H:i', strtotime('-1 hour')),
+                    'expires'    => date('Y-m-d H:i', strtotime('+1 hour')),
+                    'status'     => 'active',
+                    'type'       => 'dynamic',
+                ],
+                [
+                    'ip'         => "{$prefix}.102",
+                    'mac'        => '00:1a:2b:3c:4d:5e',
+                    'hostname'   => 'nas-storage.lan',
+                    'client_id'  => 'Synology-DS920',
+                    'start'      => date('Y-m-d H:i', strtotime('-18 hours')),
+                    'expires'    => date('Y-m-d H:i', strtotime('+6 hours')),
+                    'status'     => 'active',
+                    'type'       => 'dynamic',
+                ],
+                [
+                    'ip'         => "{$prefix}.105",
+                    'mac'        => 'd8:3b:bf:22:91:04',
+                    'hostname'   => 'iphone-alice',
+                    'client_id'  => 'Apple-iPhone',
+                    'start'      => date('Y-m-d H:i', strtotime('-30 mins')),
+                    'expires'    => date('Y-m-d H:i', strtotime('+90 mins')),
+                    'status'     => 'active',
+                    'type'       => 'dynamic',
+                ],
+            ];
+        }
 
         return view('dhcp/index', [
             'title'              => 'DHCP Server & Leases — MicronOS',

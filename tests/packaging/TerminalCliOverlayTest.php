@@ -172,7 +172,8 @@ final class TerminalCliOverlayTest extends CIUnitTestCase
 
         // Every top-level command the CLI dispatches on.
         $this->assertSame(
-            ['status', 'interface', 'firewall', 'backup', 'config', 'admin', 'help'],
+            ['status', 'interface', 'ipv6', 'network', 'terminal', 'firewall', 'backup', 'config', 'admin',
+                'version', 'health', 'services', 'service', 'logs', 'vpn', 'plugins', 'rpc', 'doctor', 'help'],
             $sections['top']
         );
 

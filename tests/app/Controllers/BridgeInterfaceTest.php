@@ -30,14 +30,17 @@ final class BridgeInterfaceTest extends BaseTestCase
         return $params + ['csrf_test_name' => service('security')->getHash()];
     }
 
-    public function testInterfacesIndexRendersBridgesTab(): void
+    public function testInterfacesIndexRendersAllSectionsOnOnePage(): void
     {
-        $response = $this->withSession($this->session())->get('interfaces?tab=bridges');
+        $response = $this->withSession($this->session())->get('interfaces');
         $response->assertStatus(200);
 
         $body = $response->getBody();
-        $this->assertStringContainsString('tabNavBridges', $body);
-        $this->assertStringContainsString('tabPaneBridges', $body);
+        $this->assertStringContainsString('id="interfacesSection"', $body);
+        $this->assertStringContainsString('id="bondsSection"', $body);
+        $this->assertStringContainsString('id="bridgesSection"', $body);
+        $this->assertStringNotContainsString('iface-nav-tab', $body);
+        $this->assertStringNotContainsString('iface-card-item', $body);
         $this->assertStringContainsString('addBridgeModal', $body);
         $this->assertStringContainsString('deleteBridgeModal', $body);
     }
@@ -57,7 +60,7 @@ final class BridgeInterfaceTest extends BaseTestCase
         $response = $this->withSession($this->session())
             ->post('interfaces/bridges/store', $this->csrf($payload));
 
-        $response->assertRedirectTo(base_url('interfaces?tab=bridges'));
+        $response->assertRedirectTo(base_url('interfaces'));
 
         // Verify interface_bridges record
         $bridgeRow = $this->db->table('interface_bridges')->where('id', 'br0')->get()->getRowArray();
@@ -81,7 +84,7 @@ final class BridgeInterfaceTest extends BaseTestCase
         $response = $this->withSession($this->session())
             ->post('interfaces/bridges/br0/delete', $this->csrf([]));
 
-        $response->assertRedirectTo(base_url('interfaces?tab=bridges'));
+        $response->assertRedirectTo(base_url('interfaces'));
 
         $bridgeRow = $this->db->table('interface_bridges')->where('id', 'br0')->get()->getRowArray();
         $this->assertNull($bridgeRow);

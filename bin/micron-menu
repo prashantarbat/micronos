@@ -51,6 +51,10 @@ run_root() {
     fi
 }
 
+network_command() {
+    run_root bash -c 'cd "$1" && shift && php spark network "$@"' _ "$app_root" "$@"
+}
+
 # ------------------------------------------------------------------------------
 # NUM LOCK Enforcement Helper (Always ON at CLI layer)
 # ------------------------------------------------------------------------------
@@ -78,7 +82,12 @@ get_network_info() {
 
     # 1. Detect WAN Interface
     WAN_IF=""
-    if [ -f /etc/micron/network_init.json ]; then
+    local network_db="/usr/local/micron/writable/micron_config.db"
+    [ -f "$network_db" ] || network_db="$app_root/writable/micron_config.db"
+    if [ -f "$network_db" ] && command -v sqlite3 >/dev/null 2>&1; then
+        WAN_IF=$(run_root sqlite3 "$network_db" "SELECT physical_device FROM interfaces WHERE id='wan' AND enabled=1;" 2>/dev/null || true)
+    fi
+    if [ -z "$WAN_IF" ] && [ -f /etc/micron/network_init.json ]; then
         WAN_IF=$(grep -o '"wan_interface"[[:space:]]*:[[:space:]]*"[^"]*"' /etc/micron/network_init.json 2>/dev/null | cut -d'"' -f4 || true)
     fi
     if [ -z "$WAN_IF" ] || [ ! -d "/sys/class/net/$WAN_IF" ]; then
@@ -91,7 +100,10 @@ get_network_info() {
 
     # 2. Detect LAN Interface
     LAN_IF=""
-    if [ -f /etc/micron/network_init.json ]; then
+    if [ -f "$network_db" ] && command -v sqlite3 >/dev/null 2>&1; then
+        LAN_IF=$(run_root sqlite3 "$network_db" "SELECT physical_device FROM interfaces WHERE id='lan' AND enabled=1;" 2>/dev/null || true)
+    fi
+    if [ -z "$LAN_IF" ] && [ -f /etc/micron/network_init.json ]; then
         LAN_IF=$(grep -o '"lan_interface"[[:space:]]*:[[:space:]]*"[^"]*"' /etc/micron/network_init.json 2>/dev/null | cut -d'"' -f4 || true)
     fi
     if [ -z "$LAN_IF" ] || [ ! -d "/sys/class/net/$LAN_IF" ]; then
@@ -143,6 +155,16 @@ get_network_info() {
                 if [ -n "$LL_ADDR" ]; then
                     run_root ip addr del "$LL_ADDR" dev "$LAN_IF" 2>/dev/null || true
                 fi
+                # De-conflict: ensure TARGET_LAN_IP is not lingering on another interface
+                for other_path in /sys/class/net/*; do
+                    [ -d "$other_path" ] || continue
+                    other_dev=$(basename "$other_path")
+                    [ "$other_dev" != "$LAN_IF" ] || continue
+                    [[ "$other_dev" =~ ^(lo|virbr|docker|veth|wg|tun) ]] && continue
+                    if ip -o -4 addr show dev "$other_dev" 2>/dev/null | grep -qw "$TARGET_LAN_IP"; then
+                        run_root ip addr del "$TARGET_LAN_IP" dev "$other_dev" 2>/dev/null || true
+                    fi
+                done
                 run_root ip addr add "$TARGET_LAN_IP" dev "$LAN_IF" 2>/dev/null || true
                 run_root ip link set dev "$LAN_IF" up 2>/dev/null || true
                 LAN_IP=$(ip -4 addr show dev "$LAN_IF" 2>/dev/null | awk '/inet / && !/169\.254/ {print $2}' | head -n1 || echo "$TARGET_LAN_IP")
@@ -232,33 +254,97 @@ get_network_info() {
     [ "$OS_ARCH" = "x86_64" ] && OS_ARCH="amd64"
 }
 
+print_interface_status() {
+    local network_db="/usr/local/micron/writable/micron_config.db"
+    local interface_rows interface_id interface_device link_status carrier operstate addresses address_summary color
+    [ -f "$network_db" ] || network_db="$app_root/writable/micron_config.db"
+
+    interface_rows=""
+    if [ -f "$network_db" ] && command -v sqlite3 >/dev/null 2>&1; then
+        interface_rows=$(sqlite3 -separator '|' "$network_db" "SELECT id, physical_device FROM interfaces WHERE enabled=1 AND COALESCE(physical_device, '') != '' ORDER BY CASE lower(id) WHEN 'wan' THEN 0 WHEN 'lan' THEN 1 ELSE 2 END, lower(id);" 2>/dev/null || true)
+    fi
+
+    if [ -n "$interface_rows" ]; then
+        while IFS='|' read -r interface_id interface_device; do
+            [ -n "$interface_id" ] && [ -n "$interface_device" ] || continue
+            [[ "$interface_id" =~ ^[a-zA-Z][a-zA-Z0-9_-]{0,31}$ ]] || continue
+            [[ "$interface_device" =~ ^[a-zA-Z0-9_.:@-]{1,15}$ ]] || continue
+
+            if [ -d "/sys/class/net/$interface_device" ]; then
+                if [ -r "/sys/class/net/$interface_device/carrier" ]; then
+                    carrier=$(cat "/sys/class/net/$interface_device/carrier" 2>/dev/null || true)
+                    [ "$carrier" = "0" ] && link_status="NO CARRIER" || link_status="LINK UP"
+                else
+                    operstate=$(cat "/sys/class/net/$interface_device/operstate" 2>/dev/null || true)
+                    case "$operstate" in
+                        up|unknown) link_status="LINK UP" ;;
+                        down) link_status="NO CARRIER" ;;
+                        *) link_status="UNKNOWN" ;;
+                    esac
+                fi
+                addresses=$(ip -o -4 addr show dev "$interface_device" scope global 2>/dev/null | awk '{print $4}')
+            else
+                link_status="NOT PRESENT"
+                addresses=""
+            fi
+
+            if [ -n "$addresses" ]; then
+                address_summary=$(printf '%s\n' "$addresses" | awk 'NF {if (count++) printf ", "; printf "%s", $0}')
+            elif [ "$interface_id" = "wan" ]; then
+                address_summary="$WAN_IP"
+            elif [ "$interface_id" = "lan" ]; then
+                address_summary="$LAN_IP"
+            else
+                address_summary="No IPv4"
+            fi
+
+            color="$YELLOW"
+            [ "$link_status" = "LINK UP" ] && color="$GREEN"
+            [ "$link_status" = "NO CARRIER" ] && color="$RED"
+            printf '  %-16s -> %-10s %b[%s]%b -> v4: %s\n' "${interface_id^^} ($interface_id)" "$interface_device" "$color" "$link_status" "$NC" "$address_summary"
+
+            if [ "$interface_id" != "wan" ] && [ -n "$addresses" ]; then
+                while IFS= read -r address; do
+                    [ -n "$address" ] || continue
+                    printf '    Web UI (%s): http://%s/ (Port 80)\n' "$interface_id" "${address%/*}"
+                done <<< "$addresses"
+            fi
+        done <<< "$interface_rows"
+    else
+        if [ "$WAN_LINK" = "NO LINK" ]; then
+            printf "  %-16s -> %-10s ${RED}[NO CARRIER]${NC} -> %s\n" "WAN (wan)" "$WAN_IF" "v4: $WAN_IP"
+        else
+            printf "  %-16s -> %-10s ${GREEN}[LINK UP]${NC}   -> %s\n" "WAN (wan)" "$WAN_IF" "v4: $WAN_IP"
+        fi
+        if [ "$LAN_LINK" = "NO LINK" ]; then
+            printf "  %-16s -> %-10s ${RED}[NO CARRIER]${NC} -> %s\n" "LAN (lan)" "$LAN_IF" "v4: $LAN_IP"
+        else
+            printf "  %-16s -> %-10s ${GREEN}[LINK UP]${NC}   -> %s\n" "LAN (lan)" "$LAN_IF" "v4: $LAN_IP"
+        fi
+        printf "  %-16s -> %s\n" "Web Management" "http://${MGMT_IP}/ (Port 80)"
+    fi
+}
+
 print_header() {
     ensure_numlock
     clear 2>/dev/null || true
-    echo -e "${CYAN}"
+    echo -e "${YELLOW}"
     cat << 'BANNER'
 
-┌╦═╦═╦┐ ┌═╤╦╤═┐ ┌╦═══╦┐ ┌╦═══╦┐ ┌╦═══╦┐ ┌╦═╗ ╦┐      ┌╦═══╦┐ ┌╦═══╦┐
-│║ ║ ║│   │║│   │║      │╠══╦╩┘ │║   ║│ │║ ║ ║│      │║   ║│ └╩═══╦┐
-└╩   ╩┘ └═╧╩╧═┘ └╩═══╩┘ └╩  ╚═┘ └╩═══╩┘ └╩ ╚═╩┘      └╩═══╩┘ └╩═══╩┘
- Enterprise Linux Firewall & Network Appliance
+███╗   ███╗██╗ ██████╗██████╗  ██████╗ ███╗   ██╗     ██████╗ ███████╗
+████╗ ████║██║██╔════╝██╔══██╗██╔═══██╗████╗  ██║    ██╔═══██╗██╔════╝
+██╔████╔██║██║██║     ██████╔╝██║   ██║██╔██╗ ██║    ██║   ██║███████╗
+██║╚██╔╝██║██║██║     ██╔══██╗██║   ██║██║╚██╗██║    ██║   ██║╚════██║
+██║ ╚═╝ ██║██║╚██████╗██║  ██║╚██████╔╝██║ ╚████║    ╚██████╔╝███████║
+╚═╝     ╚═╝╚═╝ ╚═════╝╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝     ╚═════╝ ╚══════╝
+ Enterprise  Next-Gen Firewall & Network Appliance
 BANNER
     echo -e "${NC}"
 
     get_network_info
 
     echo -e "${BOLD}*** Welcome to Micron OS ${OS_VERSION} (${OS_ARCH}) on ${HOSTNAME} ***${NC}\n"
-    if [ "$WAN_LINK" = "NO LINK" ]; then
-        printf "  %-16s -> %-10s ${RED}[NO CARRIER]${NC} -> %s\n" "WAN (wan)" "$WAN_IF" "v4: $WAN_IP"
-    else
-        printf "  %-16s -> %-10s ${GREEN}[LINK UP]${NC}   -> %s\n" "WAN (wan)" "$WAN_IF" "v4: $WAN_IP"
-    fi
-    if [ "$LAN_LINK" = "NO LINK" ]; then
-        printf "  %-16s -> %-10s ${RED}[NO CARRIER]${NC} -> %s\n" "LAN (lan)" "$LAN_IF" "v4: $LAN_IP"
-    else
-        printf "  %-16s -> %-10s ${GREEN}[LINK UP]${NC}   -> %s\n" "LAN (lan)" "$LAN_IF" "v4: $LAN_IP"
-    fi
-    printf "  %-16s -> %s\n" "Web Management" "http://${MGMT_IP}/ (Port 80)"
+    print_interface_status
     printf "  %-16s -> Slot %s (%s)\n\n" "Active Root Slot" "$ACTIVE_SLOT" "$SLOT_STATUS"
 
     echo " 0) Logout (SSH only)                 10) Filter & System Logs"
@@ -388,110 +474,93 @@ assign_interfaces_pfsense() {
         fi
     fi
 
-    # Auto-detection list of physical ports
-    available_nics=($(ls -1 /sys/class/net 2>/dev/null | grep -E -v '^(lo|virbr|docker|veth|wg|tun|br)'))
-
-    NEW_WAN=""
-    NEW_LAN=""
-    NEW_OPT1=""
-    NEW_OPT2=""
-    BRIDGE_SLAVES=()
-    IS_BRIDGE_LAN=0
-
-    # Step 2: Check for Standard Multi-Port Router Topology
-    # First physical NIC is WAN; remaining physical ports bundled into switch bridge br0
-    if [ "${#available_nics[@]}" -ge 2 ]; then
-        echo -e "${CYAN}--- Standard Multi-Port Router Configuration Detected ---${NC}"
-        echo -e "Physical Interfaces Found: ${BOLD}${available_nics[*]}${NC}"
-        echo -e "  • First Physical NIC (WAN):  ${BOLD}${available_nics[0]}${NC}"
-        remaining=("${available_nics[@]:1}")
-        echo -e "  • Switch Ports (LAN Bridge): ${BOLD}br0${NC} containing [${remaining[*]}]"
-        echo ""
-        read -r -p "Apply standard router setup (WAN=${available_nics[0]}, LAN=br0 Switch) [Y/n]? " STD_ROUTER_CHOICE
-        if [ "$STD_ROUTER_CHOICE" != "n" ] && [ "$STD_ROUTER_CHOICE" != "N" ]; then
-            IS_BRIDGE_LAN=1
-            NEW_WAN="${available_nics[0]}"
-            NEW_LAN="br0"
-            BRIDGE_SLAVES=("${remaining[@]}")
+    # Discover physical NICs only; VLANs are not physical-port defaults.
+    available_nics=()
+    for ifpath in /sys/class/net/*; do
+        [ -d "$ifpath" ] || continue
+        dev=$(basename "$ifpath")
+        [[ "$dev" =~ ^(lo|virbr|docker|veth|wg|tun|br|bond) ]] && continue
+        if [ -e "$ifpath/device" ]; then
+            available_nics+=("$dev")
         fi
+    done
+
+    if [ "${#available_nics[@]}" -lt 2 ]; then
+        echo -e "${RED}[ERROR] At least two physical interfaces are required for WAN and LAN assignment.${NC}"
+        pause
+        return 1
     fi
 
-    if [ "$IS_BRIDGE_LAN" -eq 0 ]; then
-        # Step 2b: Manual WAN Assignment
-        echo ""
-        echo "Enter the WAN interface name or 'a' for auto-detection:"
-        read -r -p "(or press Enter to keep '${WAN_IF}'): " NEW_WAN
-        if [ "$NEW_WAN" = "a" ] || [ "$NEW_WAN" = "A" ]; then
-            NEW_WAN="${available_nics[0]:-eth0}"
-            echo "Auto-detected WAN: $NEW_WAN"
-        else
-            NEW_WAN=${NEW_WAN:-$WAN_IF}
-        fi
-
-        # Step 3: Manual LAN Assignment
-        echo ""
-        remaining_after_wan=()
-        for cand in "${available_nics[@]}"; do
-            [ "$cand" != "$NEW_WAN" ] && remaining_after_wan+=("$cand")
+    has_nic() {
+        local candidate
+        for candidate in "${available_nics[@]}"; do
+            [ "$candidate" = "$1" ] && return 0
         done
+        return 1
+    }
 
-        if [ "${#remaining_after_wan[@]}" -ge 2 ]; then
-            echo "Multiple physical interfaces remain: [${remaining_after_wan[*]}]"
-            read -r -p "Bundle all remaining interfaces into a switch bridge (br0) for LAN [Y/n]? " BUNDLE_REMAINING
-            if [ "$BUNDLE_REMAINING" != "n" ] && [ "$BUNDLE_REMAINING" != "N" ]; then
-                IS_BRIDGE_LAN=1
-                NEW_LAN="br0"
-                BRIDGE_SLAVES=("${remaining_after_wan[@]}")
-            fi
-        fi
-
-        if [ "$IS_BRIDGE_LAN" -eq 0 ]; then
-            echo "Enter the LAN interface name or 'a' for auto-detection:"
-            read -r -p "(or press Enter to keep '${LAN_IF}', or type 'none'): " NEW_LAN
-            if [ "$NEW_LAN" = "a" ] || [ "$NEW_LAN" = "A" ]; then
-                for cand in "${available_nics[@]}"; do
-                    if [ "$cand" != "$NEW_WAN" ]; then
-                        NEW_LAN="$cand"
-                        break
-                    fi
-                done
-                [ -n "$NEW_LAN" ] || NEW_LAN="$NEW_WAN"
-                echo "Auto-detected LAN: $NEW_LAN"
-            else
-                NEW_LAN=${NEW_LAN:-$LAN_IF}
-            fi
-
-            # Check if user explicitly typed br0
-            if [ "$NEW_LAN" = "br0" ]; then
-                IS_BRIDGE_LAN=1
-                read -r -p "Enter member switch ports for br0 (e.g. eth1 eth2): " SLAVES_IN
-                BRIDGE_SLAVES=($SLAVES_IN)
-            fi
-        fi
-
-        # Step 4: Optional OPT Interfaces
-        if [ "$IS_BRIDGE_LAN" -eq 0 ]; then
-            echo ""
-            read -r -p "Enter the Optional 1 (OPT1) interface name (or press Enter if none): " NEW_OPT1
-            NEW_OPT2=""
-            if [ -n "$NEW_OPT1" ] && [ "$NEW_OPT1" != "none" ]; then
-                read -r -p "Enter the Optional 2 (OPT2) interface name (or press Enter if none): " NEW_OPT2
-            fi
-        fi
+    local menu_db="/usr/local/micron/writable/micron_config.db"
+    [ -f "$menu_db" ] || menu_db="$app_root/writable/micron_config.db"
+    CURRENT_DB_WAN=""
+    CURRENT_DB_LAN=""
+    if [ -f "$menu_db" ] && command -v sqlite3 >/dev/null 2>&1; then
+        CURRENT_DB_WAN=$(run_root sqlite3 "$menu_db" "SELECT physical_device FROM interfaces WHERE id='wan' AND enabled=1;" 2>/dev/null || true)
+        CURRENT_DB_LAN=$(run_root sqlite3 "$menu_db" "SELECT physical_device FROM interfaces WHERE id='lan' AND enabled=1;" 2>/dev/null || true)
     fi
+
+    DEFAULT_WAN=""
+    if [ -n "$CURRENT_DB_WAN" ] && has_nic "$CURRENT_DB_WAN"; then
+        DEFAULT_WAN="$CURRENT_DB_WAN"
+    else
+        DEFAULT_WAN="${available_nics[0]}"
+    fi
+
+    DEFAULT_LAN="${available_nics[1]}"
+    if [ -n "$CURRENT_DB_LAN" ] && has_nic "$CURRENT_DB_LAN" && [ "$CURRENT_DB_LAN" != "$DEFAULT_WAN" ]; then
+        DEFAULT_LAN="$CURRENT_DB_LAN"
+    else
+        for cand in "${available_nics[@]}"; do
+            if [ "$cand" != "$DEFAULT_WAN" ]; then
+                DEFAULT_LAN="$cand"
+                break
+            fi
+        done
+        [ -n "$DEFAULT_LAN" ] || DEFAULT_LAN="${available_nics[1]}"
+    fi
+
+    echo -e "${CYAN}--- Independent Physical Interface Assignment ---${NC}"
+    echo -e "Physical interfaces found: ${BOLD}${available_nics[*]}${NC}"
+    echo "Current / Default: WAN=${DEFAULT_WAN}, LAN=${DEFAULT_LAN}; remaining ports configured as separate interfaces."
+    read -r -p "WAN interface [${DEFAULT_WAN}]: " NEW_WAN
+    NEW_WAN=${NEW_WAN:-$DEFAULT_WAN}
+    read -r -p "LAN interface [${DEFAULT_LAN}]: " NEW_LAN
+    NEW_LAN=${NEW_LAN:-$DEFAULT_LAN}
+    valid_assignment=1
+    has_nic "$NEW_WAN" || valid_assignment=0
+    [ "$NEW_WAN" != "$NEW_LAN" ] || valid_assignment=0
+    has_nic "$NEW_LAN" || valid_assignment=0
+    if [ "$valid_assignment" -ne 1 ]; then
+        echo -e "${RED}[ERROR] WAN and LAN must be different detected interfaces.${NC}"
+        pause
+        return 1
+    fi
+
+    OPT_ASSIGNMENTS=()
+    opt_index=1
+    for cand in "${available_nics[@]}"; do
+        [ "$cand" = "$NEW_WAN" ] && continue
+        [ "$cand" = "$NEW_LAN" ] && continue
+        OPT_ASSIGNMENTS+=("opt${opt_index}=${cand}")
+        opt_index=$((opt_index + 1))
+    done
 
     # Step 5: Summary & Confirmation
     echo -e "\n${BOLD}The interfaces will be assigned as follows:${NC}"
     echo "  WAN  -> ${NEW_WAN} (DHCP)"
-    if [ "$IS_BRIDGE_LAN" -eq 1 ]; then
-        echo "  LAN  -> ${NEW_LAN} (10.10.10.10/24) [Layer 2 Switch Bridge]"
-        echo "          Member Switch Ports: [${BRIDGE_SLAVES[*]}]"
-        echo "          Spanning Tree (STP): Enabled (IEEE 802.1D)"
-    else
-        echo "  LAN  -> ${NEW_LAN:-none} (10.10.10.10/24)"
-    fi
-    [ -n "$NEW_OPT1" ] && [ "$NEW_OPT1" != "none" ] && echo "  OPT1 -> ${NEW_OPT1}"
-    [ -n "$NEW_OPT2" ] && [ "$NEW_OPT2" != "none" ] && echo "  OPT2 -> ${NEW_OPT2}"
+    echo "  LAN  -> ${NEW_LAN} (10.10.10.10/24)"
+    for assignment in "${OPT_ASSIGNMENTS[@]}"; do
+        echo "  ${assignment%%=*} -> ${assignment#*=} (separate interface)"
+    done
     echo ""
     read -r -p "Do you want to proceed [Y/n]? " CONFIRM_ASSIGN
     if [ "$CONFIRM_ASSIGN" = "n" ] || [ "$CONFIRM_ASSIGN" = "N" ]; then
@@ -502,126 +571,29 @@ assign_interfaces_pfsense() {
 
     echo -e "\n${YELLOW}Applying interface assignment...${NC}"
 
-    # Build bridge slaves JSON array
-    local slaves_json="[]"
-    if [ "$IS_BRIDGE_LAN" -eq 1 ] && [ "${#BRIDGE_SLAVES[@]}" -gt 0 ]; then
-        slaves_json=$(printf '["%s"]' "$(IFS='","'; echo "${BRIDGE_SLAVES[*]}")")
+    # Apply the selected roles and their generated firewall/DHCP configuration
+    # through the same transaction used by the Web UI and boot-time networking.
+    if ! network_command assign "$NEW_WAN" "$NEW_LAN" "${OPT_ASSIGNMENTS[@]}"; then
+        echo -e "${RED}[ERROR] Network assignment could not be applied; the configuration was not committed.${NC}"
+        pause
+        return 1
     fi
 
-    # Write /etc/micron/network_init.json
+    for assignment in "${OPT_ASSIGNMENTS[@]}"; do
+        opt_dev="${assignment#*=}"
+        if [ -n "$opt_dev" ] && [ "$opt_dev" != "$NEW_LAN" ] && [ "$opt_dev" != "$NEW_WAN" ]; then
+            run_root ip -4 addr flush dev "$opt_dev" 2>/dev/null || true
+        fi
+    done
+
     run_root mkdir -p /etc/micron
     run_root bash -c "cat << EOF > /etc/micron/network_init.json
 {
   \"wan_interface\": \"$NEW_WAN\",
   \"lan_interface\": \"$NEW_LAN\",
-  \"lan_is_bridge\": $([ "$IS_BRIDGE_LAN" -eq 1 ] && echo "true" || echo "false"),
-  \"bridge_slaves\": $slaves_json,
-  \"opt1_interface\": \"$NEW_OPT1\",
-  \"opt2_interface\": \"$NEW_OPT2\",
   \"configured\": true
 }
 EOF"
-
-    # Write /etc/network/interfaces
-    run_root bash -c "cat << EOF > /etc/network/interfaces
-# Micron OS Network Interface Configuration
-auto lo
-iface lo inet loopback
-
-allow-hotplug $NEW_WAN
-iface $NEW_WAN inet dhcp
-EOF"
-
-    if [ -n "$NEW_LAN" ] && [ "$NEW_LAN" != "none" ]; then
-        if [ "$IS_BRIDGE_LAN" -eq 1 ]; then
-            run_root bash -c "cat << EOF >> /etc/network/interfaces
-
-auto $NEW_LAN
-allow-hotplug $NEW_LAN
-iface $NEW_LAN inet static
-    address 10.10.10.10
-    netmask 255.255.255.0
-    bridge_ports ${BRIDGE_SLAVES[*]}
-    bridge_stp on
-    bridge_fd 2
-EOF"
-            for slave in "${BRIDGE_SLAVES[@]}"; do
-                run_root bash -c "cat << EOF >> /etc/network/interfaces
-
-allow-hotplug $slave
-iface $slave inet manual
-EOF"
-            done
-        else
-            run_root bash -c "cat << EOF >> /etc/network/interfaces
-
-auto $NEW_LAN
-allow-hotplug $NEW_LAN
-iface $NEW_LAN inet static
-    address 10.10.10.10
-    netmask 255.255.255.0
-EOF"
-        fi
-    fi
-
-    if [ -n "$NEW_OPT1" ] && [ "$NEW_OPT1" != "none" ]; then
-        run_root bash -c "cat << EOF >> /etc/network/interfaces
-
-allow-hotplug $NEW_OPT1
-iface $NEW_OPT1 inet manual
-EOF"
-    fi
-
-    if [ -n "$NEW_OPT2" ] && [ "$NEW_OPT2" != "none" ]; then
-        run_root bash -c "cat << EOF >> /etc/network/interfaces
-
-allow-hotplug $NEW_OPT2
-iface $NEW_OPT2 inet manual
-EOF"
-    fi
-
-    # Update SQLite database if present
-    for dbpath in /usr/local/micron/writable/micron_config.db "$app_root/writable/micron_config.db"; do
-        if [ -f "$dbpath" ] && command -v sqlite3 >/dev/null 2>&1; then
-            run_root sqlite3 "$dbpath" "UPDATE interfaces SET physical_device='$NEW_WAN' WHERE id='wan';" 2>/dev/null || true
-            if [ -n "$NEW_LAN" ] && [ "$NEW_LAN" != "none" ]; then
-                run_root sqlite3 "$dbpath" "UPDATE interfaces SET physical_device='$NEW_LAN' WHERE id='lan';" 2>/dev/null || true
-            fi
-            if [ "$IS_BRIDGE_LAN" -eq 1 ]; then
-                run_root sqlite3 "$dbpath" "INSERT OR REPLACE INTO interface_bridges (id, name, slaves, stp, forward_delay, mtu, description, created_at, updated_at) VALUES ('$NEW_LAN', 'LAN Switch Bridge', '$slaves_json', 1, 2, 1500, 'Standard Router Multi-Port LAN Bridge', datetime('now'), datetime('now'));" 2>/dev/null || true
-            fi
-        fi
-    done
-
-    # Bring interfaces up and configure runtime kernel networking
-    run_root ip link set dev "$NEW_WAN" up 2>/dev/null || true
-
-    if [ "$IS_BRIDGE_LAN" -eq 1 ]; then
-        # Create kernel bridge
-        run_root ip link add name "$NEW_LAN" type bridge 2>/dev/null || true
-        run_root ip link set dev "$NEW_LAN" type bridge stp_state 1 forward_delay 200 2>/dev/null || true
-        run_root ip link set dev "$NEW_LAN" mtu 1500 2>/dev/null || true
-        
-        # Enslave physical member ports and flush any IP from slaves
-        for slave in "${BRIDGE_SLAVES[@]}"; do
-            run_root ip addr flush dev "$slave" 2>/dev/null || true
-            run_root ip link set dev "$slave" master "$NEW_LAN" 2>/dev/null || true
-            run_root ip link set dev "$slave" up 2>/dev/null || true
-        done
-        run_root ip link set dev "$NEW_LAN" up 2>/dev/null || true
-        run_root ip addr replace 10.10.10.10/24 dev "$NEW_LAN" 2>/dev/null || true
-    elif [ -n "$NEW_LAN" ] && [ "$NEW_LAN" != "none" ]; then
-        run_root ip link set dev "$NEW_LAN" up 2>/dev/null || true
-        if [ "$NEW_LAN" != "$NEW_WAN" ]; then
-            LL_ADDR=$(ip -4 addr show dev "$NEW_LAN" 2>/dev/null | awk '/inet 169\.254/ {print $2}' | head -n1 || true)
-            [ -n "$LL_ADDR" ] && run_root ip addr del "$LL_ADDR" dev "$NEW_LAN" 2>/dev/null || true
-            run_root ip addr replace 10.10.10.10/24 dev "$NEW_LAN" 2>/dev/null || true
-        fi
-    fi
-
-    # Trigger DHCP on WAN asynchronously so menu does not stall
-    run_root dhclient -r "$NEW_WAN" 2>/dev/null || true
-    run_root dhclient -nw "$NEW_WAN" 2>/dev/null || true
 
     # Refresh banner
     if [ -x /usr/local/bin/micron-banner ]; then
@@ -631,11 +603,12 @@ EOF"
     ensure_numlock
     echo -e "${GREEN}[OK] Interface assignment applied successfully!${NC}"
     echo -e "WAN -> ${NEW_WAN} (DHCP requested)"
-    if [ "$IS_BRIDGE_LAN" -eq 1 ]; then
-        echo -e "LAN -> ${NEW_LAN} (10.10.10.10/24) [Switch Bridge over ${BRIDGE_SLAVES[*]}]"
-    elif [ -n "$NEW_LAN" ] && [ "$NEW_LAN" != "none" ]; then
+    if [ -n "$NEW_LAN" ] && [ "$NEW_LAN" != "none" ]; then
         echo -e "LAN -> ${NEW_LAN} (10.10.10.10/24)"
     fi
+    for assignment in "${OPT_ASSIGNMENTS[@]}"; do
+        echo -e "${assignment%%=*} -> ${assignment#*=} (independent port)"
+    done
     pause
 }
 
@@ -1081,120 +1054,66 @@ while true; do
 
         2)
             echo -e "\n${BOLD}=== 2) Set Interface IP Address ===${NC}"
-            read -r -p "Configure (1) LAN or (2) WAN? [1]: " IF_CHOICE
-            IF_CHOICE=${IF_CHOICE:-1}
-
-            if [ "$IF_CHOICE" = "1" ]; then
-                read -r -p "Configure LAN as (D)HCP or (S)tatic? [S]: " LAN_TYPE
-                LAN_TYPE=${LAN_TYPE:-S}
-
-                if [ "$LAN_TYPE" = "D" ] || [ "$LAN_TYPE" = "d" ]; then
-                    for dbpath in /usr/local/micron/writable/micron_config.db "$app_root/writable/micron_config.db"; do
-                        if [ -f "$dbpath" ] && command -v sqlite3 >/dev/null 2>&1; then
-                            run_root sqlite3 "$dbpath" "UPDATE interfaces SET physical_device='$LAN_IF', ip_assignment_type='dhcp' WHERE id='lan';" 2>/dev/null || true
-                            run_root sqlite3 "$dbpath" "UPDATE dhcp_server_settings SET enabled=0, updated_at=datetime('now') WHERE interface_id='lan';" 2>/dev/null || true
-                        fi
-                    done
-
-                    # Stop and disable Kea DHCP server to prevent rogue DHCP leases on local subnet
-                    run_root systemctl stop kea-dhcp4-server 2>/dev/null || true
-                    run_root systemctl disable kea-dhcp4-server 2>/dev/null || true
-
-                    # Flush current static IP and trigger DHCP client on LAN interface
-                    run_root ip addr flush dev "$LAN_IF" 2>/dev/null || true
-                    run_root ip link set dev "$LAN_IF" up 2>/dev/null || true
-                    run_root dhclient -r "$LAN_IF" 2>/dev/null || true
-                    run_root dhclient -4 -nw -pf "/run/dhclient.${LAN_IF}.pid" "$LAN_IF" 2>/dev/null || true
-
-                    if [ -x /usr/local/bin/micron-network ]; then
-                        run_root /usr/local/bin/micron-network || true
-                    fi
-
-                    echo -e "${GREEN}[OK] DHCP requested on ${LAN_IF} (LAN).${NC}"
-                    echo -e "${YELLOW}[i] Local DHCP server (Kea) automatically stopped on ${LAN_IF} to prevent network conflicts.${NC}"
-                else
-                    read -r -p "Enter new LAN IPv4 address with CIDR mask [10.10.10.10/24]: " NEW_LAN_CIDR
-                    NEW_LAN_CIDR=${NEW_LAN_CIDR:-10.10.10.10/24}
-
-                    LAN_ONLY_IP=$(echo "$NEW_LAN_CIDR" | cut -d/ -f1)
-                    LAN_MASK=$(echo "$NEW_LAN_CIDR" | cut -d/ -f2)
-                    LAN_MASK=${LAN_MASK:-24}
-
-                    if [ -x /usr/local/bin/microctl ]; then
-                        run_root /usr/local/bin/microctl interface set-lan "$NEW_LAN_CIDR" || true
-                    fi
-
-                    # Update SQLite database with current active interfaces
-                    for dbpath in /usr/local/micron/writable/micron_config.db "$app_root/writable/micron_config.db"; do
-                        if [ -f "$dbpath" ] && command -v sqlite3 >/dev/null 2>&1; then
-                            run_root sqlite3 "$dbpath" "UPDATE interfaces SET physical_device='$LAN_IF', ip_assignment_type='static', ipv4_address='$LAN_ONLY_IP', ipv4_netmask=$LAN_MASK WHERE id='lan';" 2>/dev/null || true
-                            run_root sqlite3 "$dbpath" "UPDATE interfaces SET physical_device='$WAN_IF' WHERE id='wan';" 2>/dev/null || true
-                        fi
-                    done
-
-                    # Enable kernel packet forwarding
-                    run_root sysctl -w net.ipv4.ip_forward=1 net.ipv4.conf.all.forwarding=1 net.ipv6.conf.all.forwarding=1 >/dev/null 2>&1 || true
-
-                    # Apply IP to interface immediately
-                    run_root ip addr flush dev "$LAN_IF" 2>/dev/null || true
-                    run_root ip addr add "$NEW_LAN_CIDR" dev "$LAN_IF" 2>/dev/null || true
-                    run_root ip link set dev "$LAN_IF" up 2>/dev/null || true
-
-                    # Synchronize daemon, DHCP server, DNS resolver and nftables
-                    if [ -x /usr/local/bin/micron-network ]; then
-                        run_root /usr/local/bin/micron-network || true
-                    fi
-
-                    # Check for WAN/LAN subnet overlap
-                    if [ -n "$WAN_IP" ] && [[ "$WAN_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
-                        wan_sub=$(echo "$WAN_IP" | cut -d. -f1-3)
-                        lan_sub=$(echo "$LAN_ONLY_IP" | cut -d. -f1-3)
-                        if [ "$wan_sub" = "$lan_sub" ] && [ "$WAN_IF" != "$LAN_IF" ]; then
-                            echo -e "\n${RED}[!] ATTENTION: WAN subnet ($wan_sub.0/24) and LAN subnet ($lan_sub.0/24) overlap!${NC}"
-                            echo -e "${YELLOW}To avoid routing conflicts, ensure WAN and LAN are on separate subnets.${NC}"
-                        fi
-                    fi
-
-                    echo -e "${GREEN}[OK] LAN interface configured to $NEW_LAN_CIDR${NC}"
-                    echo -e "${GREEN}[OK] Plug-and-play DHCP server and DNS active on $LAN_IF.${NC}"
-                fi
-            else
-                read -r -p "Configure WAN as (D)HCP or (S)tatic? [D]: " WAN_TYPE
-                WAN_TYPE=${WAN_TYPE:-D}
-                if [ "$WAN_TYPE" = "S" ] || [ "$WAN_TYPE" = "s" ]; then
-                    read -r -p "Enter static WAN IPv4/mask (e.g. 192.168.5.100/24): " STATIC_WAN
-                    read -r -p "Enter Default Gateway IPv4: " GW_WAN
-                    WAN_ONLY_IP=$(echo "$STATIC_WAN" | cut -d/ -f1)
-                    WAN_MASK=$(echo "$STATIC_WAN" | cut -d/ -f2)
-                    WAN_MASK=${WAN_MASK:-24}
-
-                    for dbpath in /usr/local/micron/writable/micron_config.db "$app_root/writable/micron_config.db"; do
-                        if [ -f "$dbpath" ] && command -v sqlite3 >/dev/null 2>&1; then
-                            run_root sqlite3 "$dbpath" "UPDATE interfaces SET physical_device='$WAN_IF', ip_assignment_type='static', ipv4_address='$WAN_ONLY_IP', ipv4_netmask=$WAN_MASK, ipv4_gateway='$GW_WAN' WHERE id='wan';" 2>/dev/null || true
-                        fi
-                    done
-
-                    run_root ip addr flush dev "$WAN_IF" 2>/dev/null || true
-                    run_root ip addr add "$STATIC_WAN" dev "$WAN_IF" 2>/dev/null || true
-                    run_root ip link set dev "$WAN_IF" up 2>/dev/null || true
-                    [ -z "$GW_WAN" ] || run_root ip route replace default via "$GW_WAN" dev "$WAN_IF" 2>/dev/null || true
-                    echo -e "${GREEN}[OK] WAN configured statically.${NC}"
-                else
-                    for dbpath in /usr/local/micron/writable/micron_config.db "$app_root/writable/micron_config.db"; do
-                        if [ -f "$dbpath" ] && command -v sqlite3 >/dev/null 2>&1; then
-                            run_root sqlite3 "$dbpath" "UPDATE interfaces SET physical_device='$WAN_IF', ip_assignment_type='dhcp' WHERE id='wan';" 2>/dev/null || true
-                        fi
-                    done
-
-                    run_root dhclient -r "$WAN_IF" 2>/dev/null || true
-                    run_root dhclient -4 -nw -pf "/run/dhclient.${WAN_IF}.pid" "$WAN_IF" 2>/dev/null || true
-                    echo -e "${GREEN}[OK] DHCP requested on $WAN_IF.${NC}"
-                fi
-
-                if [ -x /usr/local/bin/micron-network ]; then
-                    run_root /usr/local/bin/micron-network || true
-                fi
+            NETWORK_DB="/usr/local/micron/writable/micron_config.db"
+            [ -f "$NETWORK_DB" ] || NETWORK_DB="$app_root/writable/micron_config.db"
+            if [ ! -f "$NETWORK_DB" ] || ! command -v sqlite3 >/dev/null 2>&1; then
+                echo -e "${RED}[ERROR] Network configuration database is unavailable.${NC}"
+                pause
+                continue
             fi
+
+            echo "Configured interfaces:"
+            while IFS='|' read -r row_id row_name row_device row_mode row_address; do
+                [ -n "$row_id" ] || continue
+                printf "  %-8s %-12s %-10s %-8s %s\n" "$row_id" "$row_name" "$row_device" "$row_mode" "${row_address%/}"
+            done < <(run_root sqlite3 -separator '|' "$NETWORK_DB" "SELECT id, name, physical_device, ip_assignment_type, CASE WHEN ipv4_address IS NULL THEN '' ELSE ipv4_address || '/' || ipv4_netmask END FROM interfaces WHERE physical_device != '' AND enabled = 1 ORDER BY id;")
+
+            read -r -p "Interface ID to configure (wan, lan, opt1, ...): " IF_ID
+            IF_ID=${IF_ID,,}
+            if [[ ! "$IF_ID" =~ ^[a-z][a-z0-9_-]{0,31}$ ]] || ! run_root sqlite3 "$NETWORK_DB" "SELECT 1 FROM interfaces WHERE id='$IF_ID' AND physical_device != '' AND enabled=1;" | grep -q '^1$'; then
+                echo -e "${RED}[ERROR] That interface ID is not assigned to a physical device.${NC}"
+                pause
+                continue
+            fi
+
+            CURRENT_MODE=$(run_root sqlite3 "$NETWORK_DB" "SELECT ip_assignment_type FROM interfaces WHERE id='$IF_ID';")
+            CURRENT_CIDR=$(run_root sqlite3 "$NETWORK_DB" "SELECT CASE WHEN ipv4_address IS NULL THEN '' ELSE ipv4_address || '/' || ipv4_netmask END FROM interfaces WHERE id='$IF_ID';")
+            read -r -p "Address mode: (D)HCP, (S)tatic, (N)one [${CURRENT_MODE:-S}]: " ADDRESS_MODE
+            ADDRESS_MODE=${ADDRESS_MODE:-${CURRENT_MODE:-S}}
+            ADDRESS_MODE=${ADDRESS_MODE,,}
+
+            case "$ADDRESS_MODE" in
+                d|dhcp|n|none)
+                    [ "$ADDRESS_MODE" = "d" ] && ADDRESS_MODE="dhcp"
+                    [ "$ADDRESS_MODE" = "n" ] && ADDRESS_MODE="none"
+                    if network_command set-mode "$IF_ID" "$ADDRESS_MODE"; then
+                        echo -e "${GREEN}[OK] $IF_ID address mode set to $ADDRESS_MODE.${NC}"
+                        [ "$IF_ID" != "lan" ] || [ "$ADDRESS_MODE" != "dhcp" ] || echo -e "${YELLOW}[i] The local DHCP server is disabled on LAN in DHCP-client mode.${NC}"
+                    else
+                        echo -e "${RED}[ERROR] Interface mode was not applied.${NC}"
+                    fi
+                    ;;
+                s|static)
+                    DEFAULT_CIDR="$CURRENT_CIDR"
+                    [ "$IF_ID" != "lan" ] || [ -n "$DEFAULT_CIDR" ] || DEFAULT_CIDR="10.10.10.10/24"
+                    read -r -p "IPv4 address/prefix [${DEFAULT_CIDR}]: " NEW_CIDR
+                    NEW_CIDR=${NEW_CIDR:-$DEFAULT_CIDR}
+                    if [ -z "$NEW_CIDR" ]; then
+                        echo -e "${RED}[ERROR] An IPv4 address/prefix is required for static mode.${NC}"
+                        pause
+                        continue
+                    fi
+                    read -r -p "IPv4 gateway (blank to keep/clear): " NEW_GATEWAY
+                    if network_command set-address "$IF_ID" "$NEW_CIDR" "$NEW_GATEWAY"; then
+                        echo -e "${GREEN}[OK] $IF_ID configured as $NEW_CIDR.${NC}"
+                    else
+                        echo -e "${RED}[ERROR] Static address was not applied.${NC}"
+                    fi
+                    ;;
+                *)
+                    echo -e "${RED}[ERROR] Choose DHCP, static, or none.${NC}"
+                    ;;
+            esac
 
             if [ -x /usr/local/bin/micron-banner ]; then
                 run_root /usr/local/bin/micron-banner || true
@@ -1205,10 +1124,37 @@ while true; do
 
         3)
             echo -e "\n${BOLD}=== 3) Reset Web GUI Password ===${NC}"
-            read -r -p "Enter new password for Ministrator [M1Cr0N]: " NEW_PW || true
-            NEW_PW=${NEW_PW:-M1Cr0N}
+            # No default: the published factory password is refused.
+            NEW_PW=""
+            while true; do
+                if ! read -r -s -p "Enter new password for Ministrator (min 8 characters): " NEW_PW; then
+                    NEW_PW=""
+                    break
+                fi
+                echo ""
+                if [ "${#NEW_PW}" -lt 8 ]; then
+                    echo -e "${RED}[!] The password must be at least 8 characters.${NC}"
+                elif [ "$NEW_PW" = "M1Cr0N" ]; then
+                    echo -e "${RED}[!] The published factory password cannot be used.${NC}"
+                elif [[ "$NEW_PW" == *:* ]]; then
+                    echo -e "${RED}[!] The password must not contain ':'.${NC}"
+                else
+                    read -r -s -p "Confirm new password: " NEW_PW_CONFIRM || NEW_PW_CONFIRM=""
+                    echo ""
+                    if [ "$NEW_PW" = "$NEW_PW_CONFIRM" ]; then
+                        break
+                    fi
+                    echo -e "${RED}[!] The passwords do not match.${NC}"
+                fi
+            done
+            unset NEW_PW_CONFIRM
+            if [ -z "$NEW_PW" ]; then
+                echo -e "${YELLOW}No password entered; nothing was changed.${NC}"
+                pause
+                continue
+            fi
             if [ -x /usr/local/bin/microctl ]; then
-                if ! run_root /usr/local/bin/microctl admin reset-password "$NEW_PW"; then
+                if ! printf '%s\n' "$NEW_PW" | run_root /usr/local/bin/microctl admin reset-password --stdin; then
                     echo -e "${RED}[ERROR] microctl could not reset the application password.${NC}"
                     echo -e "${YELLOW}The OS account password was still updated below.${NC}"
                 fi
@@ -1231,6 +1177,36 @@ while true; do
                     cd "$app_root"
                     run_root php spark db:seed InitialApplianceSeeder || true
                     run_root php spark db:seed RolesPermissionsSeeder || true
+                fi
+                reset_nics=()
+                for ifpath in /sys/class/net/*; do
+                    [ -e "$ifpath/device" ] || continue
+                    dev=$(basename "$ifpath")
+                    [[ "$dev" =~ ^(lo|virbr|docker|veth|wg|tun|br|bond) ]] && continue
+                    reset_nics+=("$dev")
+                done
+                if [ "${#reset_nics[@]}" -ge 2 ]; then
+                    reset_opt_args=()
+                    opt_index=1
+                    for dev in "${reset_nics[@]:2}"; do
+                        reset_opt_args+=("opt${opt_index}=${dev}")
+                        opt_index=$((opt_index + 1))
+                    done
+                    if network_command assign "${reset_nics[0]}" "${reset_nics[1]}" "${reset_opt_args[@]}" --factory-reset; then
+                                                run_root mkdir -p /etc/micron
+                                                run_root bash -c "cat << EOF > /etc/micron/network_init.json
+{
+    \"wan_interface\": \"${reset_nics[0]}\",
+    \"lan_interface\": \"${reset_nics[1]}\",
+    \"configured\": true
+}
+EOF"
+                        echo -e "${GREEN}[OK] Network reset: WAN=${reset_nics[0]}, LAN=${reset_nics[1]}, remaining ports separate.${NC}"
+                    else
+                        echo -e "${RED}[ERROR] Factory network defaults could not be applied.${NC}"
+                    fi
+                else
+                    echo -e "${YELLOW}[i] Fewer than two physical NICs detected; network role defaults were left unchanged.${NC}"
                 fi
                 if [ -x /usr/local/bin/microctl ]; then
                     run_root /usr/local/bin/microctl firewall reset || true

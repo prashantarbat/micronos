@@ -285,15 +285,13 @@ class Ids extends BaseController
      */
     public function apply(): RedirectResponse
     {
-        $files = $this->compiler->compileAll();
+        [$key, $message] = $this->ipcFlash(
+            $this->applier()->ids(),
+            'Suricata configuration, IP rules and GeoIP filters compiled, validated (suricata -T) and applied.',
+            'The Suricata apply'
+        );
 
-        // Dispatch IPC sync call to daemon
-        $result = $this->ipc->call('ids.apply', [
-            'config_files' => array_keys($files),
-            'timestamp'    => time(),
-        ]);
-
-        return redirect()->to(base_url('ids'))->with('success', 'Suricata configuration, IP rules, and GeoIP filters compiled and applied successfully.');
+        return redirect()->to(base_url('ids'))->with($key, $message);
     }
 
     /**

@@ -527,7 +527,7 @@ class Pppoe extends BaseController
                 'radius_servers' => $radiusFiles,
                 'radius_conf'    => $radiusConf ?? '',
                 'radius_dirs'    => PppoeCompiler::RADIUS_DIRS,
-                'safe_mode'      => true,
+                'safe_mode'      => false,
             ]);
 
             if (! empty($resp['error'])) {

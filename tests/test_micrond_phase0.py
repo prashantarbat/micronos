@@ -135,6 +135,35 @@ check("restart issues systemctl for the resolved unit",
 check("reports post-action state", res.get("state") == "running", str(res))
 
 reset()
+res = loop.run_until_complete(handler.rpc_system_service({"service": "wireguard", "action": "start"}))
+check("WireGuard service resolves to the aggregate systemd unit", res.get("unit") == "wireguard", str(res))
+check("WireGuard start targets the aggregate unit", ["systemctl", "start", "wireguard"] in calls, str(calls))
+
+aggregate_calls = []
+original_wireguard_sync = handler.rpc_vpn_wireguard_sync
+async def fake_wireguard_sync(params):
+    aggregate_calls.append(dict(params))
+    return {"success": True, "status": "up" if params["enabled"] else "down", "message": "ok"}
+
+handler.rpc_vpn_wireguard_sync = fake_wireguard_sync
+aggregate_tunnels = [
+    {"interface": "wg23", "enabled": True, "config": "[Interface]\nAddress = 10.23.0.1/24\n"},
+    {"interface": "wg-branch", "enabled": True, "config": "[Interface]\nAddress = 10.24.0.1/24\n"},
+    {"interface": "wg-disabled", "enabled": False, "config": "[Interface]\nAddress = 10.25.0.1/24\n"},
+]
+res = loop.run_until_complete(handler.rpc_vpn_wireguard_service({"action": "start", "tunnels": aggregate_tunnels}))
+check("aggregate starts arbitrary enabled tunnel names",
+    res.get("success") and {"wg23", "wg-branch"} == {c["interface"] for c in aggregate_calls if c["enabled"]}, str(aggregate_calls))
+check("aggregate keeps disabled tunnels down",
+    not any(c["interface"] == "wg-disabled" and c["enabled"] for c in aggregate_calls), str(aggregate_calls))
+
+aggregate_calls.clear()
+res = loop.run_until_complete(handler.rpc_vpn_wireguard_service({"action": "restart", "tunnels": aggregate_tunnels}))
+check("aggregate restart downs and starts each enabled tunnel",
+    res.get("success") and [c["enabled"] for c in aggregate_calls if c["interface"] == "wg23"] == [False, True], str(aggregate_calls))
+handler.rpc_vpn_wireguard_sync = original_wireguard_sync
+
+reset()
 res = loop.run_until_complete(handler.rpc_system_service({"service": "evil-unit", "action": "restart"}))
 check("unknown service refused", res.get("success") is False and "unknown service" in str(res.get("message")), str(res))
 check("no command run for an unknown service", calls == [], str(calls))
@@ -161,6 +190,32 @@ behaviour[("systemctl", "restart", "squid")] = (1, "", "Job for squid.service fa
 res = loop.run_until_complete(handler.rpc_system_service({"service": "squid", "action": "restart"}))
 check("failed systemctl reports failure", res.get("success") is False and res.get("status") == "error", str(res))
 check("failed systemctl surfaces stderr", any("failed" in w for w in res.get("warnings", [])), str(res))
+check("failed systemctl returns actionable error text", res.get("message") == "Job for squid.service failed", str(res))
+
+ospf_calls = []
+original_bounded = handler._run_bounded
+def fake_ospf_bounded(argv, timeout=20.0, input_text=None, cap=65536):
+    ospf_calls.append(list(argv))
+    output = "2.5 1.0 10240 4321\n" if argv[0] == "ps" else "live FRR OSPF output\n"
+    return {"rc": 0, "output": output, "timed_out": False, "truncated": False, "missing": False}
+handler._run_bounded = fake_ospf_bounded
+try:
+    ospf = loop.run_until_complete(handler.rpc_ospf_status({}))
+finally:
+    handler._run_bounded = original_bounded
+ospf_commands = {command[2] for command in ospf_calls if command[:2] == ["vtysh", "-c"]}
+check("OSPF status returns all six read-only status sections",
+      ospf.get("success") is True and set(ospf.get("sections", {})) == {
+          "general", "neighbors", "routes", "database", "router_database", "interfaces"}, str(ospf))
+check("OSPF status invokes only the fixed FRR show commands", ospf_commands == {
+    "show ip ospf", "show ip ospf neighbor detail", "show ip ospf route",
+    "show ip ospf database", "show ip ospf database router", "show ip ospf interface",
+}, str(ospf_calls))
+check("OSPF status returns ospfd CPU and memory metrics",
+      ospf.get("resources", {}).get("cpu_percent") == 2.5
+      and ospf.get("resources", {}).get("memory_bytes") == 10240 * 1024
+      and ospf.get("resources", {}).get("pids") == [4321], str(ospf.get("resources")))
+check("OSPF status is classified read-only", micrond.rpc_method_class("ospf.status") == "read")
 
 # =========================================================================
 # dnsbl.update — staging-dir compile

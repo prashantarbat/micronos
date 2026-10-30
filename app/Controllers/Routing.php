@@ -26,512 +26,40 @@ class Routing extends BaseController
     // INDEX — Static Routes + FIB + all dynamic routing data (tabbed)
     // ================================================================
 
-    public function index(): string
+    public function index()
     {
+        if ($this->request->getGet('tab') === 'static') {
+            return redirect()->to(base_url('routing/static'));
+        }
+
         $db = \Config\Database::connect();
 
-        // ── Kernel FIB (mock until IPC live) ──
-        $kernelRoutes = [
-            ['destination' => 'default',         'gateway' => '192.168.1.254', 'interface' => 'eth0', 'flags' => 'UG',  'metric' => 100, 'proto' => 'static'],
-            ['destination' => '192.168.1.0/24',  'gateway' => '0.0.0.0',       'interface' => 'eth1', 'flags' => 'U',   'metric' => 0,   'proto' => 'kernel'],
-            ['destination' => '10.8.0.0/24',     'gateway' => '0.0.0.0',       'interface' => 'tun0', 'flags' => 'U',   'metric' => 0,   'proto' => 'static'],
-            ['destination' => '10.9.0.0/24',     'gateway' => '0.0.0.0',       'interface' => 'wg0',  'flags' => 'U',   'metric' => 0,   'proto' => 'static'],
-            ['destination' => '10.0.0.0/8',      'gateway' => '10.0.0.1',      'interface' => 'eth0', 'flags' => 'UG',  'metric' => 20,  'proto' => 'bgp'],
-            ['destination' => '172.16.0.0/12',   'gateway' => '192.168.1.1',   'interface' => 'eth0', 'flags' => 'UG',  'metric' => 110, 'proto' => 'ospf'],
-        ];
-
-        // ── Seed static route if empty ──
-        if ($db->table('static_routes')->countAllResults() === 0) {
-            $db->table('static_routes')->insert([
-                'id'          => 'rt_' . bin2hex(random_bytes(6)),
-                'destination' => '10.200.0.0/16',
-                'gateway'     => '192.168.1.254',
-                'interface'   => 'eth0',
-                'metric'      => 10,
-                'enabled'     => 1,
-                'description' => 'Branch Office Datacenter VPN Subnet',
-                'created_at'  => date('Y-m-d H:i:s'),
-                'updated_at'  => date('Y-m-d H:i:s'),
-            ]);
-        }
-
-        // ── Seed OSPF default settings if missing ──
-        if ($db->table('frr_ospf_settings')->countAllResults() === 0) {
-            $db->table('frr_ospf_settings')->insert([
-                'id'                     => 'default',
-                'enabled'                => 1,
-                'router_id'              => '192.168.1.1',
-                'log_adj_changes'        => 1,
-                'spf_hold_time'          => 1000,
-                'spf_delay'              => 200,
-                'default_area'           => '0.0.0.0',
-                'reference_bandwidth'    => 1000,
-                'max_paths'              => 4,
-                'passive_default'        => 0,
-                'redistribute_connected' => 1,
-                'redistribute_static'    => 1,
-                'redistribute_metric_type'=> 2,
-                'updated_at'             => date('Y-m-d H:i:s'),
-            ]);
+        // Read the live kernel FIB through the daemon. Only development mock
+        // mode may substitute simulated rows when the daemon has no response.
+        $routeResponse = $this->ipc->call('diag.routing_table');
+        $routeResult   = $routeResponse['result'] ?? null;
+        if (is_array($routeResult) && isset($routeResult['routes']) && is_array($routeResult['routes'])) {
+            $rawKernelRoutes = $routeResult['routes'];
+        } elseif ($this->ipc->isMock()) {
+            $rawKernelRoutes = [
+                ['destination' => '0.0.0.0/0', 'gateway' => '192.168.1.1', 'interface' => 'eth0 (WAN)', 'metric' => 100, 'protocol' => 'dhcp', 'flags' => 'UG'],
+                ['destination' => '10.8.0.0/24', 'gateway' => '10.8.0.2', 'interface' => 'tun0 (VPN)', 'metric' => 50, 'protocol' => 'static', 'flags' => 'UG'],
+                ['destination' => '10.100.0.0/24', 'gateway' => 'direct', 'interface' => 'wg0 (WG)', 'metric' => 0, 'protocol' => 'kernel', 'flags' => 'U'],
+                ['destination' => '192.168.1.0/24', 'gateway' => 'direct', 'interface' => 'eth1 (LAN)', 'metric' => 0, 'protocol' => 'kernel', 'flags' => 'U'],
+                ['destination' => '192.168.20.0/24', 'gateway' => 'direct', 'interface' => 'eth2 (DMZ)', 'metric' => 0, 'protocol' => 'kernel', 'flags' => 'U'],
+                ['destination' => '127.0.0.0/8', 'gateway' => 'direct', 'interface' => 'lo', 'metric' => 0, 'protocol' => 'kernel', 'flags' => 'U'],
+            ];
         } else {
-            $currOspf = $db->table('frr_ospf_settings')->where('id', 'default')->get()->getRowArray();
-            if ($currOspf && empty($currOspf['router_id'])) {
-                $db->table('frr_ospf_settings')->where('id', 'default')->update([
-                    'router_id'              => '192.168.1.1',
-                    'log_adj_changes'        => 1,
-                    'spf_hold_time'          => 1000,
-                    'spf_delay'              => 200,
-                    'default_area'           => '0.0.0.0',
-                    'reference_bandwidth'    => 1000,
-                    'max_paths'              => 4,
-                    'redistribute_connected' => 1,
-                    'redistribute_static'    => 1,
-                    'redistribute_metric_type'=> 2,
-                ]);
-            }
+            $rawKernelRoutes = [];
         }
-
-        // ── Seed OSPF Areas if empty ──
-        if ($db->table('frr_ospf_areas')->countAllResults() === 0) {
-            $now = date('Y-m-d H:i:s');
-            $db->table('frr_ospf_areas')->insertBatch([
-                [
-                    'id'             => 'oa_backbone_000',
-                    'area_id'        => '0.0.0.0',
-                    'description'    => 'Backbone Area (Area 0)',
-                    'area_type'      => 'normal',
-                    'default_cost'   => null,
-                    'abr_shortcut'   => 'default',
-                    'auth_type'      => 'none',
-                    'no_summary'     => 0,
-                    'summary_ranges' => json_encode([
-                        ['prefix' => '10.0.0.0/8', 'not_advertise' => false, 'cost' => null, 'substitute' => null],
-                        ['prefix' => '192.168.0.0/16', 'not_advertise' => false, 'cost' => null, 'substitute' => null],
-                    ]),
-                    'created_at'     => $now,
-                    'updated_at'     => $now,
-                ],
-                [
-                    'id'             => 'oa_branch_001',
-                    'area_id'        => '0.0.0.1',
-                    'description'    => 'Branch Offices & Remote Aggregation',
-                    'area_type'      => 'stub',
-                    'default_cost'   => 10,
-                    'abr_shortcut'   => 'default',
-                    'auth_type'      => 'none',
-                    'no_summary'     => 0,
-                    'summary_ranges' => json_encode([
-                        ['prefix' => '172.16.0.0/16', 'not_advertise' => false, 'cost' => null, 'substitute' => null],
-                    ]),
-                    'created_at'     => $now,
-                    'updated_at'     => $now,
-                ],
-            ]);
-        }
-
-        // ── Seed OSPF Interfaces if empty ──
-        if ($db->table('frr_ospf_ifaces')->countAllResults() === 0) {
-            $now = date('Y-m-d H:i:s');
-            $db->table('frr_ospf_ifaces')->insertBatch([
-                [
-                    'id'                  => 'oif_lan_001',
-                    'interface'           => 'eth1',
-                    'description'         => 'Corporate LAN Core (LAN)',
-                    'network_type'        => 'broadcast',
-                    'area'                => '0.0.0.0',
-                    'metric'              => 10,
-                    'passive'             => 0,
-                    'ignore_mtu'          => 0,
-                    'accept_filter'       => 0,
-                    'auth_type'           => 'none',
-                    'auth_password'       => null,
-                    'router_priority'     => 100,
-                    'retransmit_interval' => 5,
-                    'hello_interval'      => 10,
-                    'dead_interval'       => 40,
-                    'minimal_hello'       => null,
-                    'transmit_delay'      => 1,
-                    'bfd_enabled'         => 1,
-                    'created_at'          => $now,
-                    'updated_at'          => $now,
-                ],
-                [
-                    'id'                  => 'oif_wan_001',
-                    'interface'           => 'eth0',
-                    'description'         => 'Inter-Router Enterprise WAN Link',
-                    'network_type'        => 'point-to-point',
-                    'area'                => '0.0.0.0',
-                    'metric'              => 20,
-                    'passive'             => 0,
-                    'ignore_mtu'          => 0,
-                    'accept_filter'       => 0,
-                    'auth_type'           => 'none',
-                    'auth_password'       => null,
-                    'router_priority'     => 1,
-                    'retransmit_interval' => 5,
-                    'hello_interval'      => 10,
-                    'dead_interval'       => 40,
-                    'minimal_hello'       => null,
-                    'transmit_delay'      => 1,
-                    'bfd_enabled'         => 1,
-                    'created_at'          => $now,
-                    'updated_at'          => $now,
-                ],
-            ]);
-        }
-
-        // ── Seed OSPF Networks if empty ──
-        if ($db->table('frr_ospf_networks')->countAllResults() === 0) {
-            $now = date('Y-m-d H:i:s');
-            $db->table('frr_ospf_networks')->insertBatch([
-                [
-                    'id'          => 'ospf_net_lan',
-                    'network'     => '192.168.1.0/24',
-                    'area'        => '0.0.0.0',
-                    'area_type'   => 'normal',
-                    'cost'        => 10,
-                    'description' => 'Corporate Office LAN Subnet',
-                    'enabled'     => 1,
-                    'created_at'  => $now,
-                    'updated_at'  => $now,
-                ],
-                [
-                    'id'          => 'ospf_net_bb',
-                    'network'     => '10.100.0.0/24',
-                    'area'        => '0.0.0.0',
-                    'area_type'   => 'normal',
-                    'cost'        => 20,
-                    'description' => 'Core Switch & Firewall Transit Link',
-                    'enabled'     => 1,
-                    'created_at'  => $now,
-                    'updated_at'  => $now,
-                ],
-                [
-                    'id'          => 'ospf_net_branch',
-                    'network'     => '172.16.10.0/24',
-                    'area'        => '0.0.0.1',
-                    'area_type'   => 'stub',
-                    'cost'        => 50,
-                    'description' => 'Branch Office Edge Transit Subnet',
-                    'enabled'     => 1,
-                    'created_at'  => $now,
-                    'updated_at'  => $now,
-                ],
-            ]);
-        }
-
-        // ── Seed OSPF Neighbors if empty ──
-        if ($db->table('frr_ospf_neighbors')->countAllResults() === 0) {
-            $now = date('Y-m-d H:i:s');
-            $db->table('frr_ospf_neighbors')->insertBatch([
-                [
-                    'id'           => 'on_core_01',
-                    'neighbor_ip'  => '10.100.0.2',
-                    'area'         => '0.0.0.0',
-                    'priority'     => 1,
-                    'poll_interval'=> 120,
-                    'description'  => 'Core L3 Backbone Switch',
-                    'enabled'      => 1,
-                    'created_at'   => $now,
-                    'updated_at'   => $now,
-                ],
-                [
-                    'id'           => 'on_branch_01',
-                    'neighbor_ip'  => '172.16.10.254',
-                    'area'         => '0.0.0.1',
-                    'priority'     => 0,
-                    'poll_interval'=> 120,
-                    'description'  => 'Branch Edge Gateway',
-                    'enabled'      => 1,
-                    'created_at'   => $now,
-                    'updated_at'   => $now,
-                ],
-            ]);
-        }
-
-        // ── Seed OSPF policy (prefix-lists & route-maps) if empty ──
-        if ($db->table('frr_prefix_lists')->countAllResults() === 0) {
-            $now = date('Y-m-d H:i:s');
-            $db->table('frr_prefix_lists')->insertBatch([
-                [
-                    'id'          => 'pl_banking_0001',
-                    'name'        => 'Banking_Applications',
-                    'description' => 'Banking application host prefixes redistributed into OSPF',
-                    'rules'       => json_encode([
-                        ['seq' => 10,  'action' => 'permit', 'prefix' => '10.11.83.0/24',   'ge' => null, 'le' => null, 'description' => ''],
-                        ['seq' => 20,  'action' => 'permit', 'prefix' => '10.29.1.171/32',  'ge' => null, 'le' => null, 'description' => ''],
-                        ['seq' => 30,  'action' => 'permit', 'prefix' => '10.29.3.51/32',   'ge' => null, 'le' => null, 'description' => ''],
-                        ['seq' => 40,  'action' => 'permit', 'prefix' => '10.28.3.51/32',   'ge' => null, 'le' => null, 'description' => ''],
-                        ['seq' => 50,  'action' => 'permit', 'prefix' => '10.28.1.171/32',  'ge' => null, 'le' => null, 'description' => ''],
-                        ['seq' => 60,  'action' => 'permit', 'prefix' => '10.100.22.82/32', 'ge' => null, 'le' => null, 'description' => ''],
-                        ['seq' => 70,  'action' => 'permit', 'prefix' => '10.100.21.65/32', 'ge' => null, 'le' => null, 'description' => ''],
-                        ['seq' => 80,  'action' => 'permit', 'prefix' => '10.120.22.100/32','ge' => null, 'le' => null, 'description' => ''],
-                        ['seq' => 90,  'action' => 'permit', 'prefix' => '10.120.21.68/32', 'ge' => null, 'le' => null, 'description' => ''],
-                        ['seq' => 100, 'action' => 'permit', 'prefix' => '10.100.22.229/32','ge' => null, 'le' => null, 'description' => ''],
-                        ['seq' => 110, 'action' => 'permit', 'prefix' => '10.120.22.221/32','ge' => null, 'le' => null, 'description' => ''],
-                    ]),
-                    'enabled'    => 1,
-                    'created_at' => $now,
-                    'updated_at' => $now,
-                ],
-                [
-                    'id'          => 'pl_banking_dr_0001',
-                    'name'        => 'Banking_DR_Applications',
-                    'description' => 'Disaster-recovery subnet',
-                    'rules'       => json_encode([
-                        ['seq' => 100, 'action' => 'permit', 'prefix' => '10.9.99.96/27', 'ge' => null, 'le' => null, 'description' => ''],
-                    ]),
-                    'enabled'    => 1,
-                    'created_at' => $now,
-                    'updated_at' => $now,
-                ],
-                [
-                    'id'          => 'pl_iftas_ekuber_0001',
-                    'name'        => 'IFTAS_EKUBER',
-                    'description' => 'IFTAS / EKUBER application hosts',
-                    'rules'       => json_encode([
-                        ['seq' => 10, 'action' => 'permit', 'prefix' => '10.29.1.197/32', 'ge' => null, 'le' => null, 'description' => ''],
-                        ['seq' => 20, 'action' => 'permit', 'prefix' => '10.29.1.143/32', 'ge' => null, 'le' => null, 'description' => ''],
-                        ['seq' => 30, 'action' => 'permit', 'prefix' => '10.28.1.170/32', 'ge' => null, 'le' => null, 'description' => ''],
-                        ['seq' => 40, 'action' => 'permit', 'prefix' => '10.28.1.143/32', 'ge' => null, 'le' => null, 'description' => ''],
-                        ['seq' => 50, 'action' => 'permit', 'prefix' => '10.35.1.28/32',  'ge' => null, 'le' => null, 'description' => ''],
-                        ['seq' => 60, 'action' => 'permit', 'prefix' => '10.35.2.143/32', 'ge' => null, 'le' => null, 'description' => ''],
-                    ]),
-                    'enabled'    => 1,
-                    'created_at' => $now,
-                    'updated_at' => $now,
-                ],
-            ]);
-        }
-
-        if ($db->table('frr_route_maps')->countAllResults() === 0) {
-            $now = date('Y-m-d H:i:s');
-            $db->table('frr_route_maps')->insert([
-                'id'          => 'rm_banking_0001',
-                'name'        => 'Banking_Applications',
-                'description' => 'Permit the Banking_Applications prefix-list into OSPF',
-                'rules'       => json_encode([
-                    ['seq' => 10, 'action' => 'permit', 'match_prefix_list' => 'Banking_Applications', 'set_metric' => null, 'set_metric_type' => null, 'set_tag' => null, 'description' => ''],
-                ]),
-                'enabled'    => 1,
-                'created_at' => $now,
-                'updated_at' => $now,
-            ]);
-        }
-
-        // ── Seed OSPF route filters if empty ──
-        if ($db->table('frr_ospf_distribute_lists')->countAllResults() === 0) {
-            $now = date('Y-m-d H:i:s');
-            $db->table('frr_ospf_distribute_lists')->insert([
-                'id'          => 'odl_banking_0001',
-                'prefix_list' => 'Banking_Applications',
-                'direction'   => 'in',
-                'interface'   => null,
-                'description' => 'Accept only banking prefixes from OSPF neighbors',
-                'enabled'     => 1,
-                'created_at'  => $now,
-                'updated_at'  => $now,
-            ]);
-        }
-
-        if ($db->table('frr_ospf_area_filters')->countAllResults() === 0) {
-            $now = date('Y-m-d H:i:s');
-            $db->table('frr_ospf_area_filters')->insert([
-                'id'          => 'oaf_branch_0001',
-                'area_id'     => '0.0.0.1',
-                'prefix_list' => 'IFTAS_EKUBER',
-                'direction'   => 'in',
-                'description' => 'Limit inter-area LSAs advertised into the branch area',
-                'enabled'     => 1,
-                'created_at'  => $now,
-                'updated_at'  => $now,
-            ]);
-        }
-
-        // ── Seed RIP settings if missing ──
-        if ($db->table('frr_rip_settings')->countAllResults() === 0) {
-            $db->table('frr_rip_settings')->insert([
-                'id'                     => 'default',
-                'enabled'                => 1,
-                'version'                => 2,
-                'redistribute_connected' => 1,
-                'redistribute_static'    => 1,
-                'redistribute_bgp'       => 0,
-                'redistribute_ospf'      => 0,
-                'default_information'    => 0,
-                'distance'               => null,
-                'maximum_paths'          => 4,
-                'timers_update'          => 30,
-                'timers_timeout'         => 180,
-                'timers_garbage'         => 120,
-                'passive_default'        => 0,
-                'auth_mode'              => 'none',
-                'auth_password'          => null,
-                'updated_at'             => date('Y-m-d H:i:s'),
-            ]);
-        }
-
-        // ── Seed RIP networks if empty ──
-        if ($db->table('frr_rip_networks')->countAllResults() === 0) {
-            $now = date('Y-m-d H:i:s');
-            $db->table('frr_rip_networks')->insertBatch([
-                [
-                    'id'          => 'rn_lan_0001',
-                    'network'     => '192.168.1.0/24',
-                    'description' => 'Corporate Office LAN Subnet',
-                    'enabled'     => 1,
-                    'created_at'  => $now,
-                    'updated_at'  => $now,
-                ],
-                [
-                    'id'          => 'rn_bb_0001',
-                    'network'     => '10.100.0.0/24',
-                    'description' => 'Core Switch & Firewall Transit Link',
-                    'enabled'     => 1,
-                    'created_at'  => $now,
-                    'updated_at'  => $now,
-                ],
-            ]);
-        }
-
-        // ── Seed RIP neighbors if empty ──
-        if ($db->table('frr_rip_neighbors')->countAllResults() === 0) {
-            $now = date('Y-m-d H:i:s');
-            $db->table('frr_rip_neighbors')->insert([
-                'id'          => 'rb_core_0001',
-                'neighbor_ip' => '10.100.0.2',
-                'description' => 'Core L3 Backbone Switch (unicast RIPv2)',
-                'enabled'     => 1,
-                'created_at'  => $now,
-                'updated_at'  => $now,
-            ]);
-        }
-
-        // ── Seed RIP passive interfaces if empty ──
-        if ($db->table('frr_rip_passive_interfaces')->countAllResults() === 0) {
-            $now = date('Y-m-d H:i:s');
-            $db->table('frr_rip_passive_interfaces')->insert([
-                'id'          => 'rp_lan_0001',
-                'interface'   => 'eth1',
-                'description' => 'Suppress RIP updates toward the LAN (listen only)',
-                'enabled'     => 1,
-                'created_at'  => $now,
-                'updated_at'  => $now,
-            ]);
-        }
-
-        // ── Seed IS-IS settings if missing ──
-        if ($db->table('frr_isis_settings')->countAllResults() === 0) {
-            $db->table('frr_isis_settings')->insert([
-                'id'                     => 'default',
-                'enabled'                => 1,
-                'area_tag'               => 'DEFAULT',
-                'net'                    => '49.0001.1921.6800.1001.00',
-                'is_type'                => 'level-1-2',
-                'metric_style'           => 'wide',
-                'log_adjacency'          => 1,
-                'lsp_gen_interval'       => 33,
-                'spf_interval_l1'        => 50,
-                'spf_interval_l2'        => 50,
-                'max_lsp_lifetime'       => 1200,
-                'redistribute_connected' => 1,
-                'redistribute_static'    => 1,
-                'redistribute_bgp'       => 0,
-                'redistribute_ospf'      => 0,
-                'auth_mode'              => 'none',
-                'auth_password'          => null,
-                'passive_default'        => 0,
-                'updated_at'             => date('Y-m-d H:i:s'),
-            ]);
-        }
-
-        // ── Seed IS-IS interfaces if empty ──
-        if ($db->table('frr_isis_interfaces')->countAllResults() === 0) {
-            $now = date('Y-m-d H:i:s');
-            $db->table('frr_isis_interfaces')->insertBatch([
-                [
-                    'id'               => 'ii_lan_0001',
-                    'interface'        => 'eth1',
-                    'description'      => 'Corporate LAN Core (broadcast)',
-                    'circuit_type'     => 'level-1-2',
-                    'network_type'     => 'broadcast',
-                    'metric_l1'        => 10,
-                    'metric_l2'        => 10,
-                    'hello_interval'   => 10,
-                    'hello_multiplier' => 3,
-                    'csnp_interval'    => null,
-                    'psnp_interval'    => null,
-                    'password'         => null,
-                    'bfd_enabled'      => 1,
-                    'enabled'          => 1,
-                    'created_at'       => $now,
-                    'updated_at'       => $now,
-                ],
-                [
-                    'id'               => 'ii_wan_0001',
-                    'interface'        => 'eth0',
-                    'description'      => 'Inter-Router Enterprise WAN Link (p2p)',
-                    'circuit_type'     => 'level-2-only',
-                    'network_type'     => 'point-to-point',
-                    'metric_l1'        => null,
-                    'metric_l2'        => 20,
-                    'hello_interval'   => 3,
-                    'hello_multiplier' => 3,
-                    'csnp_interval'    => null,
-                    'psnp_interval'    => null,
-                    'password'         => null,
-                    'bfd_enabled'      => 1,
-                    'enabled'          => 1,
-                    'created_at'       => $now,
-                    'updated_at'       => $now,
-                ],
-            ]);
-        }
-
-        // ── Seed BGP default settings if missing ──
-        if ($db->table('frr_bgp_settings')->countAllResults() === 0) {
-            $db->table('frr_bgp_settings')->insert([
-                'id'         => 'default',
-                'enabled'    => 1,
-                'local_as'   => 65001,
-                'updated_at' => date('Y-m-d H:i:s'),
-            ]);
-        }
-
-        // ── Seed BFD Peers if empty ──
-        if ($db->table('frr_bfd_peers')->countAllResults() === 0) {
-            $now = date('Y-m-d H:i:s');
-            $db->table('frr_bfd_peers')->insertBatch([
-                [
-                    'id'               => 'bfd_peer_core',
-                    'peer_ip'          => '10.100.0.2',
-                    'local_ip'         => '10.100.0.1',
-                    'interface'        => 'eth0',
-                    'receive_interval' => 300,
-                    'transmit_interval'=> 300,
-                    'detect_multiplier'=> 3,
-                    'echo_mode'        => 1,
-                    'description'      => 'Core Switch OSPF/BGP Fast-Detection Session',
-                    'enabled'          => 1,
-                    'created_at'       => $now,
-                    'updated_at'       => $now,
-                ],
-                [
-                    'id'               => 'bfd_peer_gw',
-                    'peer_ip'          => '192.168.1.254',
-                    'local_ip'         => '192.168.1.1',
-                    'interface'        => 'eth1',
-                    'receive_interval' => 200,
-                    'transmit_interval'=> 200,
-                    'detect_multiplier'=> 3,
-                    'echo_mode'        => 0,
-                    'description'      => 'Upstream Gateway Health Probe',
-                    'enabled'          => 1,
-                    'created_at'       => $now,
-                    'updated_at'       => $now,
-                ],
-            ]);
-        }
+        $kernelRoutes = array_values(array_map(static fn (array $route): array => [
+            'destination' => (string) ($route['destination'] ?? $route['dst'] ?? '—'),
+            'gateway'     => (string) ($route['gateway'] ?? 'direct'),
+            'interface'   => (string) ($route['interface'] ?? $route['dev'] ?? '—'),
+            'flags'       => (string) ($route['flags'] ?? ''),
+            'metric'      => (int) ($route['metric'] ?? 0),
+            'proto'       => strtolower((string) ($route['proto'] ?? $route['protocol'] ?? 'unknown')),
+        ], array_filter($rawKernelRoutes, 'is_array')));
 
         $staticRoutes   = $db->table('static_routes')->orderBy('destination', 'ASC')->get()->getResultArray();
         $interfaces     = $db->table('interfaces')->orderBy('name', 'ASC')->get()->getResultArray();
@@ -544,15 +72,17 @@ class Routing extends BaseController
         $ospfNeighbors  = $db->table('frr_ospf_neighbors')->orderBy('neighbor_ip', 'ASC')->get()->getResultArray();
         $prefixLists    = $db->table('frr_prefix_lists')->orderBy('name', 'ASC')->get()->getResultArray();
         $routeMaps      = $db->table('frr_route_maps')->orderBy('name', 'ASC')->get()->getResultArray();
+        $accessLists    = $db->table('frr_access_lists')->orderBy('name', 'ASC')->get()->getResultArray();
 
-        // Where each prefix-list / route-map is referenced, so the Policy tab can
+        // Where each prefix-list / route-map / access-list is referenced, so the Policy tab can
         // show usage and refuse to delete something still in use.
         $policyRefs     = $this->buildPolicyReferences();
         $prefixListRefs = $policyRefs['prefixLists'];
         $routeMapRefs   = $policyRefs['routeMaps'];
+        $accessListRefs = $policyRefs['accessLists'] ?? [];
         $ospfDistributeLists = $db->table('frr_ospf_distribute_lists')->orderBy('prefix_list', 'ASC')->get()->getResultArray();
         $ospfAreaFilters     = $db->table('frr_ospf_area_filters')->orderBy('area_id', 'ASC')->get()->getResultArray();
-        $ospfPolicyPreview   = self::compileOspfPolicy($prefixLists, $routeMaps, $ospfDistributeLists, $ospfAreaFilters);
+        $ospfPolicyPreview   = self::compileOspfPolicy($prefixLists, $routeMaps, $ospfDistributeLists, $ospfAreaFilters, $accessLists);
         $ospfStaleRefs       = self::staleOspfReferences($prefixLists, $routeMaps, $ospfDistributeLists, $ospfAreaFilters, $ospfSettings);
         $ripSettings         = $db->table('frr_rip_settings')->where('id', 'default')->get()->getRowArray() ?? [];
         $ripNetworks         = $db->table('frr_rip_networks')->orderBy('network', 'ASC')->get()->getResultArray();
@@ -568,96 +98,52 @@ class Routing extends BaseController
         // the pickers ask `routing/objects/search` for one page at a time, so
         // this screen does not pull every object into the response.
 
-        // ── Seed Multi-WAN Gateways if empty ──
-        if ($db->table('wan_gateways')->countAllResults() === 0) {
-            $now = date('Y-m-d H:i:s');
-            $db->table('wan_gateways')->insertBatch([
-                [
-                    'id'           => 'gw_wan1_fiber',
-                    'name'         => 'WAN1_Fiber_Primary',
-                    'interface'    => 'eth0',
-                    'gateway_ip'   => '192.168.1.254',
-                    'monitor_ip'   => '1.1.1.1',
-                    'weight'       => 1,
-                    'priority'     => 1,
-                    'latency_warn' => 150,
-                    'latency_down' => 500,
-                    'loss_warn'    => 5,
-                    'loss_down'    => 20,
-                    'probe_iface'  => 'eth0',
-                    'description'  => 'Gigabit Fiber ISP Upstream Gateway (Primary)',
-                    'enabled'      => 1,
-                    'created_at'   => $now,
-                    'updated_at'   => $now,
-                ],
-                [
-                    'id'           => 'gw_wan2_cable',
-                    'name'         => 'WAN2_Broadband_Backup',
-                    'interface'    => 'eth1',
-                    'gateway_ip'   => '10.0.0.1',
-                    'monitor_ip'   => '8.8.8.8',
-                    'weight'       => 2,
-                    'priority'     => 2,
-                    'latency_warn' => 200,
-                    'latency_down' => 600,
-                    'loss_warn'    => 10,
-                    'loss_down'    => 25,
-                    'probe_iface'  => 'eth1',
-                    'description'  => 'Secondary Coaxial / LTE Backup Gateway',
-                    'enabled'      => 1,
-                    'created_at'   => $now,
-                    'updated_at'   => $now,
-                ],
-            ]);
-
-            $db->table('wan_gateway_groups')->insert([
-                'id'          => 'gwg_failover_highavail',
-                'name'        => 'Failover_Tier1_Tier2',
-                'strategy'    => 'failover',
-                'members'     => json_encode([
-                    ['id' => 'gw_wan1_fiber', 'tier' => 1, 'weight' => 1],
-                    ['id' => 'gw_wan2_cable', 'tier' => 2, 'weight' => 1],
-                ]),
-                'trigger'     => 'packetloss',
-                'description' => 'Automated failover: routes out WAN1 until loss > 5% then switches to WAN2',
-            ]);
-        }
-
         $wanGateways    = $db->table('wan_gateways')->orderBy('priority', 'ASC')->get()->getResultArray();
         $wanGroups      = $db->table('wan_gateway_groups')->orderBy('name', 'ASC')->get()->getResultArray();
 
         // Attach gateway latency telemetry
+        $isMock = $this->ipc->isMock();
         foreach ($wanGateways as &$gw) {
-            $isPri = str_contains($gw['name'], 'Fiber') || $gw['priority'] === 1;
-            $gw['telemetry'] = [
-                'rtt'     => $isPri ? 11.4 : 28.6,
-                'stddev'  => $isPri ? 1.2 : 3.4,
-                'loss'    => 0.0,
-                'status'  => 'online',
-            ];
+            if ($isMock) {
+                $isPri = str_contains($gw['name'], 'Fiber') || ($gw['priority'] ?? 0) === 1;
+                $gw['telemetry'] = [
+                    'rtt'     => $isPri ? 11.4 : 28.6,
+                    'stddev'  => $isPri ? 1.2 : 3.4,
+                    'loss'    => 0.0,
+                    'status'  => 'online',
+                ];
+            } else {
+                $gw['telemetry'] = [
+                    'rtt'     => null,
+                    'stddev'  => null,
+                    'loss'    => null,
+                    'status'  => 'unknown',
+                ];
+            }
         }
         unset($gw);
 
-        // OSPF live status mock (would come from IPC in production)
-        $ospfLiveNeighbors = [
-            ['neighbor_id' => '10.10.10.10', 'priority' => 1, 'state' => 'Full/DR',     'dead_time' => '34.90s', 'address' => '172.16.100.1', 'interface' => 're0:172.16.100.4', 'rxmtl' => 0, 'rqstl' => 0, 'dbsml' => 0],
-            ['neighbor_id' => '9.9.9.9',     'priority' => 1, 'state' => 'Full/Backup', 'dead_time' => '32.76s', 'address' => '172.16.100.3', 'interface' => 're0:172.16.100.4', 'rxmtl' => 0, 'rqstl' => 0, 'dbsml' => 0],
-        ];
+        // Live OSPF status from micrond IPC (with Linux vtysh fallback)
+        $ospfStatus        = $this->getOspfStatus();
+        $ospfLiveNeighbors = $this->extractLiveNeighbors($ospfStatus, $isMock);
 
-        $frrStatus = [
-            'running'   => true,
-            'version'   => 'FRRouting 9.1',
-            'uptime'    => '3d 14h 22m',
-            'bgp_as'    => $bgpSettings['local_as'] ?? 65001,
-            'router_id' => $bgpSettings['router_id'] ?? ($ospfSettings['router_id'] ?? '192.168.1.1'),
-        ];
+        $frrStatus = $this->getFrrStatus();
+        $frrSvc = $db->table('system_services')->where('id', 'frr')->get()->getRowArray();
+        $frrBootEnabled = !empty($frrSvc['enabled_at_boot']);
+
+        $vpnInterfaces = \App\Libraries\VpnInterfaceProvider::getVpnInterfaces($db);
+        $allInterfaces = \App\Libraries\VpnInterfaceProvider::getUnifiedInterfaces($db);
+        $frrConf       = (new \App\Libraries\FrrCompiler($db))->compile();
 
         return view('routing/index', [
-            'title'             => 'Dynamic Routing & Multi-WAN — MicronOS',
+            'title'             => 'Dynamic Routing & Multi-WAN — Micron OS',
             'breadcrumb'        => 'Routing',
             'kernelRoutes'      => $kernelRoutes,
             'staticRoutes'      => $staticRoutes,
             'interfaces'        => $interfaces,
+            'vpnInterfaces'     => $vpnInterfaces,
+            'allInterfaces'     => $allInterfaces,
+            'frrConf'           => $frrConf,
             'bgpNeighbors'      => $bgpNeighbors,
             'bgpSettings'       => $bgpSettings,
             'ospfSettings'      => $ospfSettings,
@@ -666,10 +152,13 @@ class Routing extends BaseController
             'ospfNetworks'      => $ospfNetworks,
             'ospfNeighbors'     => $ospfNeighbors,
             'ospfLiveNeighbors' => $ospfLiveNeighbors,
+            'ospfStatus'        => $ospfStatus,
             'prefixLists'       => $prefixLists,
             'routeMaps'         => $routeMaps,
+            'accessLists'       => $accessLists,
             'prefixListRefs'    => $prefixListRefs,
             'routeMapRefs'      => $routeMapRefs,
+            'accessListRefs'    => $accessListRefs,
             'ospfDistributeLists' => $ospfDistributeLists,
             'ospfAreaFilters'     => $ospfAreaFilters,
             'ospfPolicyPreview'   => $ospfPolicyPreview,
@@ -686,42 +175,258 @@ class Routing extends BaseController
             'wanGateways'       => $wanGateways,
             'wanGroups'         => $wanGroups,
             'frrStatus'         => $frrStatus,
+            'frrBootEnabled'    => $frrBootEnabled,
             'isMock'            => $this->ipc->isMock(),
         ]);
     }
 
     // ================================================================
-    // STATIC ROUTES (existing)
+    // STATIC ROUTES (Dedicated Page & Operations)
     // ================================================================
+
+    public function staticPage(): string
+    {
+        $db = \Config\Database::connect();
+        $staticRoutes  = $db->table('static_routes')->orderBy('destination', 'ASC')->get()->getResultArray();
+        $interfaces    = $db->table('interfaces')->orderBy('name', 'ASC')->get()->getResultArray();
+        $vrfs          = $db->table('routing_vrfs')->orderBy('name', 'ASC')->get()->getResultArray();
+        $allInterfaces = \App\Libraries\VpnInterfaceProvider::getUnifiedInterfaces($db);
+
+        return view('routing/static', [
+            'title'         => 'Static Routes — micronOS',
+            'staticRoutes'  => $staticRoutes,
+            'interfaces'    => $interfaces,
+            'allInterfaces' => $allInterfaces,
+            'vrfs'          => $vrfs,
+        ]);
+    }
+
+    /**
+     * Check reachability of static route gateways (online/offline, RTT latency).
+     *
+     * Probes all unique gateway IPs found in static_routes or a single requested IP.
+     * Non-blocking JSON endpoint called automatically by /routing/static view.
+     */
+    public function checkStaticGateways(): \CodeIgniter\HTTP\ResponseInterface
+    {
+        $db = \Config\Database::connect();
+        $targetGw = trim((string) ($this->request->getGetPost('gw') ?? ''));
+
+        if ($targetGw !== '') {
+            $gateways = [$targetGw];
+        } else {
+            $routes = $db->table('static_routes')
+                ->select('gateway, type')
+                ->where('type', 'gateway')
+                ->get()
+                ->getResultArray();
+
+            $gateways = [];
+            foreach ($routes as $r) {
+                $gw = trim((string) ($r['gateway'] ?? ''));
+                if ($gw !== '' && filter_var($gw, FILTER_VALIDATE_IP)) {
+                    $gateways[] = $gw;
+                }
+            }
+            $gateways = array_values(array_unique($gateways));
+        }
+
+        $results = [];
+        foreach ($gateways as $gw) {
+            $results[$gw] = $this->probeGatewayHost($gw);
+        }
+
+        return $this->response->setJSON([
+            'success'    => true,
+            'timestamp'  => date('Y-m-d H:i:s'),
+            'time_human' => date('H:i:s'),
+            'count'      => count($results),
+            'gateways'   => $results,
+        ]);
+    }
+
+    /**
+     * Probes a single gateway host via IPC diag.ping or ICMP echo / ARP table.
+     */
+    private function probeGatewayHost(string $ip): array
+    {
+        if (! filter_var($ip, FILTER_VALIDATE_IP)) {
+            return [
+                'status'  => 'unknown',
+                'online'  => false,
+                'rtt'     => null,
+                'message' => 'Invalid IP address',
+            ];
+        }
+
+        // 1. If running on appliance with active IPC daemon, attempt diag.ping
+        if (! $this->ipc->isMock()) {
+            try {
+                $response = $this->ipc->call('diag.ping', [
+                    'host'  => $ip,
+                    'count' => 1,
+                    'wait'  => 1,
+                ]);
+                $result = $response['result'] ?? null;
+                if (is_array($result) && isset($result['output'])) {
+                    $output = (string) $result['output'];
+                    $code   = (int) ($result['returncode'] ?? 0);
+                    $online = ($code === 0) || str_contains($output, '1 received') || str_contains($output, 'bytes from');
+                    $rtt    = $this->extractPingRtt($output);
+
+                    return [
+                        'status'  => $online ? 'online' : 'offline',
+                        'online'  => $online,
+                        'rtt'     => $rtt,
+                        'message' => $online ? ($rtt ? "Online ({$rtt})" : 'Online') : 'Unreachable',
+                    ];
+                }
+            } catch (\Throwable $e) {
+                // Fall back to direct system execution
+            }
+        }
+
+        // 2. Direct fast probe via ICMP ping
+        $isWindows = PHP_OS_FAMILY === 'Windows';
+        $cmd = $isWindows
+            ? 'ping -n 1 -w 400 ' . escapeshellarg($ip)
+            : 'ping -c 1 -W 1 ' . escapeshellarg($ip);
+
+        $output = [];
+        $returnCode = 1;
+        @exec($cmd, $output, $returnCode);
+        $outputStr = implode("\n", $output);
+
+        $online = false;
+        $rtt = null;
+
+        if ($returnCode === 0) {
+            if ($isWindows) {
+                if (str_contains($outputStr, 'Reply from ' . $ip) || str_contains($outputStr, 'bytes=')) {
+                    $online = true;
+                }
+            } else {
+                if (str_contains($outputStr, '1 received') || str_contains($outputStr, 'bytes from ' . $ip)) {
+                    $online = true;
+                }
+            }
+            if ($online) {
+                $rtt = $this->extractPingRtt($outputStr);
+            }
+        }
+
+        // 3. If ping timed out, check ARP cache as fallback (gateway might drop ICMP but be online at L2)
+        if (! $online) {
+            $online = $this->checkArpReachability($ip);
+            if ($online) {
+                $rtt = '< 1 ms (ARP)';
+            }
+        }
+
+        return [
+            'status'  => $online ? 'online' : 'offline',
+            'online'  => $online,
+            'rtt'     => $rtt,
+            'message' => $online ? ($rtt ? "Online ({$rtt})" : 'Online') : 'Unreachable / Timeout',
+        ];
+    }
+
+    private function extractPingRtt(string $text): ?string
+    {
+        // Windows: time=12ms or time<1ms
+        if (preg_match('/time[=<]([0-9.]+\s*m?s)/i', $text, $m)) {
+            return trim($m[1]);
+        }
+        if (preg_match('/Average\s*=\s*([0-9]+)\s*ms/i', $text, $m)) {
+            return $m[1] . ' ms';
+        }
+        // Linux: time=0.456 ms or min/avg/max = .../1.234/...
+        if (preg_match('/rtt min\/avg\/max\/mdev\s*=\s*[0-9.]+\/([0-9.]+)/i', $text, $m)) {
+            return round((float) $m[1], 1) . ' ms';
+        }
+        if (preg_match('/time=([0-9.]+)\s*ms/i', $text, $m)) {
+            return round((float) $m[1], 1) . ' ms';
+        }
+
+        return null;
+    }
+
+    private function checkArpReachability(string $ip): bool
+    {
+        if (PHP_OS_FAMILY === 'Windows') {
+            $arpOut = @shell_exec('arp -a ' . escapeshellarg($ip));
+            if ($arpOut && str_contains($arpOut, $ip)) {
+                if (preg_match('/([0-9a-f]{2}[:-]){5}[0-9a-f]{2}/i', $arpOut)) {
+                    return true;
+                }
+            }
+        } elseif (file_exists('/proc/net/arp')) {
+            $lines = @file('/proc/net/arp') ?: [];
+            foreach (array_slice($lines, 1) as $line) {
+                $parts = preg_split('/\s+/', trim($line));
+                if (isset($parts[0], $parts[3]) && $parts[0] === $ip) {
+                    $mac = strtolower($parts[3]);
+                    if ($mac !== '00:00:00:00:00:00' && preg_match('/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/', $mac)) {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
+    public function policyPage(): string|\CodeIgniter\HTTP\ResponseInterface
+    {
+        $_GET['tab'] = 'policy';
+        if ($sub = $this->request->getGet('sub')) {
+            $_GET['sub'] = $sub;
+        }
+        return $this->index();
+    }
 
     public function storeStatic(): \CodeIgniter\HTTP\RedirectResponse
     {
         $db   = \Config\Database::connect();
         $dest = trim($this->request->getPost('destination') ?? '');
+        $type = trim($this->request->getPost('type') ?? 'gateway');
         $gw   = trim($this->request->getPost('gateway') ?? '');
-        $iface  = trim($this->request->getPost('interface') ?? 'eth0');
+        $iface  = trim($this->request->getPost('interface') ?? '');
         $metric = (int)($this->request->getPost('metric') ?: 10);
+        $tableId= ($this->request->getPost('table_id') !== null && $this->request->getPost('table_id') !== '') ? (int)$this->request->getPost('table_id') : null;
         $desc   = trim($this->request->getPost('description') ?? '');
 
-        if (empty($dest) || empty($gw)) {
-            return redirect()->to(base_url('routing'))->with('error', 'Destination network and gateway IP are required.');
+        if (empty($dest)) {
+            return redirect()->to(base_url('routing/static'))->with('error', 'Destination network CIDR is required.');
+        }
+
+        if ($type === 'gateway' && empty($gw)) {
+            return redirect()->to(base_url('routing/static'))->with('error', 'Gateway IP is required for gateway routes.');
+        }
+        if ($type === 'interface' && empty($iface)) {
+            return redirect()->to(base_url('routing/static'))->with('error', 'Interface is required for directly connected routes.');
+        }
+        if (in_array($type, ['blackhole', 'reject'], true)) {
+            $gw = $type;
         }
 
         $now = date('Y-m-d H:i:s');
         $db->table('static_routes')->insert([
             'id'          => 'rt_' . bin2hex(random_bytes(6)),
             'destination' => $dest,
+            'type'        => $type,
             'gateway'     => $gw,
-            'interface'   => $iface,
+            'interface'   => $iface ?: '',
             'metric'      => $metric,
+            'table_id'    => $tableId,
             'enabled'     => 1,
             'description' => $desc,
             'created_at'  => $now,
             'updated_at'  => $now,
         ]);
 
-        $this->ipc->call('network.route.add', ['destination' => $dest, 'gateway' => $gw]);
-        return redirect()->to(base_url('routing'))->with('success', "Static route to {$dest} via {$gw} added.");
+        $this->ipc->call('network.route.add', ['destination' => $dest, 'gateway' => $gw, 'interface' => $iface, 'type' => $type]);
+        return redirect()->to(base_url('routing/static'))->with('success', "Static route to {$dest} added.");
     }
 
     public function updateStatic(string $id): \CodeIgniter\HTTP\RedirectResponse
@@ -729,20 +434,29 @@ class Routing extends BaseController
         $db    = \Config\Database::connect();
         $route = $db->table('static_routes')->where('id', $id)->get()->getRowArray();
         if (! $route) {
-            return redirect()->to(base_url('routing'))->with('error', 'Route not found.');
+            return redirect()->to(base_url('routing/static'))->with('error', 'Route not found.');
+        }
+
+        $type = trim($this->request->getPost('type') ?: ($route['type'] ?? 'gateway'));
+        $gw   = trim($this->request->getPost('gateway') ?: $route['gateway']);
+        $iface= trim($this->request->getPost('interface') ?? ($route['interface'] ?? ''));
+        if (in_array($type, ['blackhole', 'reject'], true)) {
+            $gw = $type;
         }
 
         $db->table('static_routes')->where('id', $id)->update([
             'destination' => trim($this->request->getPost('destination') ?: $route['destination']),
-            'gateway'     => trim($this->request->getPost('gateway') ?: $route['gateway']),
-            'interface'   => trim($this->request->getPost('interface') ?: $route['interface']),
+            'type'        => $type,
+            'gateway'     => $gw,
+            'interface'   => $iface ?: '',
             'metric'      => (int)($this->request->getPost('metric') ?: 10),
+            'table_id'    => ($this->request->getPost('table_id') !== null && $this->request->getPost('table_id') !== '') ? (int)$this->request->getPost('table_id') : null,
             'description' => trim($this->request->getPost('description') ?? ''),
             'enabled'     => $this->request->getPost('enabled') !== null ? (int)$this->request->getPost('enabled') : 1,
             'updated_at'  => date('Y-m-d H:i:s'),
         ]);
 
-        return redirect()->to(base_url('routing'))->with('success', 'Static route updated.');
+        return redirect()->to(base_url('routing/static'))->with('success', 'Static route updated.');
     }
 
     public function toggleStatic(string $id): \CodeIgniter\HTTP\RedirectResponse
@@ -752,16 +466,16 @@ class Routing extends BaseController
         if ($route) {
             $new = ((int)$route['enabled'] === 1) ? 0 : 1;
             $db->table('static_routes')->where('id', $id)->update(['enabled' => $new, 'updated_at' => date('Y-m-d H:i:s')]);
-            return redirect()->to(base_url('routing'))->with('success', 'Static route ' . ($new ? 'enabled' : 'disabled') . '.');
+            return redirect()->to(base_url('routing/static'))->with('success', 'Static route ' . ($new ? 'enabled' : 'disabled') . '.');
         }
-        return redirect()->to(base_url('routing'))->with('error', 'Route not found.');
+        return redirect()->to(base_url('routing/static'))->with('error', 'Route not found.');
     }
 
     public function deleteStatic(string $id): \CodeIgniter\HTTP\RedirectResponse
     {
         $db = \Config\Database::connect();
         $db->table('static_routes')->where('id', $id)->delete();
-        return redirect()->to(base_url('routing'))->with('success', 'Static route removed.');
+        return redirect()->to(base_url('routing/static'))->with('success', 'Static route removed.');
     }
 
     // ================================================================
@@ -791,14 +505,18 @@ class Routing extends BaseController
             'soft_reconfigure' => 1,
             'route_map_in'     => trim($this->request->getPost('route_map_in') ?? '') ?: null,
             'route_map_out'    => trim($this->request->getPost('route_map_out') ?? '') ?: null,
+            'prefix_list_in'   => trim($this->request->getPost('prefix_list_in') ?? '') ?: null,
+            'prefix_list_out'  => trim($this->request->getPost('prefix_list_out') ?? '') ?: null,
+            'filter_list_in'   => trim($this->request->getPost('filter_list_in') ?? '') ?: null,
+            'filter_list_out'  => trim($this->request->getPost('filter_list_out') ?? '') ?: null,
             'bfd_enabled'      => (int)(bool)$this->request->getPost('bfd_enabled'),
             'enabled'          => 1,
             'created_at'       => $now,
             'updated_at'       => $now,
         ]);
 
-        $this->ipc->call('frr.bgp.reload');
-        return redirect()->to(base_url('routing') . '?tab=bgp&sub=neighbors')->with('success', "BGP neighbor {$ip} (AS{$as}) added.");
+        [$key, $message] = $this->ipcFlash($this->applier()->frr('bgp'), "BGP neighbor {$ip} (AS{$as}) added.", 'Saved, but the BGP apply');
+        return redirect()->to(base_url('routing') . '?tab=bgp&sub=neighbors')->with($key, $message);
     }
 
     public function updateBgp(string $id): \CodeIgniter\HTTP\RedirectResponse
@@ -810,29 +528,33 @@ class Routing extends BaseController
         }
 
         $db->table('frr_bgp_neighbors')->where('id', $id)->update([
-            'neighbor_ip'   => trim($this->request->getPost('neighbor_ip') ?: $row['neighbor_ip']),
-            'remote_as'     => (int)($this->request->getPost('remote_as') ?: $row['remote_as']),
-            'description'   => trim($this->request->getPost('description') ?? ''),
-            'password'      => trim($this->request->getPost('password') ?? '') ?: null,
-            'update_source' => trim($this->request->getPost('update_source') ?? '') ?: null,
-            'next_hop_self' => (int)(bool)$this->request->getPost('next_hop_self'),
-            'route_map_in'  => trim($this->request->getPost('route_map_in') ?? '') ?: null,
-            'route_map_out' => trim($this->request->getPost('route_map_out') ?? '') ?: null,
-            'bfd_enabled'   => (int)(bool)$this->request->getPost('bfd_enabled'),
-            'enabled'       => (int)(bool)$this->request->getPost('enabled'),
-            'updated_at'    => date('Y-m-d H:i:s'),
+            'neighbor_ip'     => trim($this->request->getPost('neighbor_ip') ?: $row['neighbor_ip']),
+            'remote_as'       => (int)($this->request->getPost('remote_as') ?: $row['remote_as']),
+            'description'     => trim($this->request->getPost('description') ?? ''),
+            'password'        => trim($this->request->getPost('password') ?? '') ?: null,
+            'update_source'   => trim($this->request->getPost('update_source') ?? '') ?: null,
+            'next_hop_self'   => (int)(bool)$this->request->getPost('next_hop_self'),
+            'route_map_in'    => trim($this->request->getPost('route_map_in') ?? '') ?: null,
+            'route_map_out'   => trim($this->request->getPost('route_map_out') ?? '') ?: null,
+            'prefix_list_in'  => trim($this->request->getPost('prefix_list_in') ?? '') ?: null,
+            'prefix_list_out' => trim($this->request->getPost('prefix_list_out') ?? '') ?: null,
+            'filter_list_in'  => trim($this->request->getPost('filter_list_in') ?? '') ?: null,
+            'filter_list_out' => trim($this->request->getPost('filter_list_out') ?? '') ?: null,
+            'bfd_enabled'     => (int)(bool)$this->request->getPost('bfd_enabled'),
+            'enabled'         => (int)(bool)$this->request->getPost('enabled'),
+            'updated_at'      => date('Y-m-d H:i:s'),
         ]);
 
-        $this->ipc->call('frr.bgp.reload');
-        return redirect()->to(base_url('routing') . '?tab=bgp&sub=neighbors')->with('success', 'BGP neighbor updated.');
+        [$key, $message] = $this->ipcFlash($this->applier()->frr('bgp'), 'BGP neighbor updated.', 'Saved, but the BGP apply');
+        return redirect()->to(base_url('routing') . '?tab=bgp&sub=neighbors')->with($key, $message);
     }
 
     public function deleteBgp(string $id): \CodeIgniter\HTTP\RedirectResponse
     {
         $db = \Config\Database::connect();
         $db->table('frr_bgp_neighbors')->where('id', $id)->delete();
-        $this->ipc->call('frr.bgp.reload');
-        return redirect()->to(base_url('routing') . '?tab=bgp&sub=neighbors')->with('success', 'BGP neighbor removed.');
+        [$key, $message] = $this->ipcFlash($this->applier()->frr('bgp'), 'BGP neighbor removed.', 'Saved, but the BGP apply');
+        return redirect()->to(base_url('routing') . '?tab=bgp&sub=neighbors')->with($key, $message);
     }
 
     // ================================================================
@@ -860,16 +582,16 @@ class Routing extends BaseController
             'updated_at'  => $now,
         ]);
 
-        $this->ipc->call('frr.ospf.reload');
-        return redirect()->to(base_url('routing') . '?tab=ospf')->with('success', "OSPF network {$net} added.");
+        [$key, $message] = $this->ipcFlash($this->applier()->frr('ospf'), "OSPF network {$net} added.", 'Saved, but the OSPF apply');
+        return redirect()->to(base_url('routing') . '?tab=ospf')->with($key, $message);
     }
 
     public function deleteOspf(string $id): \CodeIgniter\HTTP\RedirectResponse
     {
         $db = \Config\Database::connect();
         $db->table('frr_ospf_networks')->where('id', $id)->delete();
-        $this->ipc->call('frr.ospf.reload');
-        return redirect()->to(base_url('routing') . '?tab=ospf&sub=networks')->with('success', 'OSPF network removed.');
+        [$key, $message] = $this->ipcFlash($this->applier()->frr('ospf'), 'OSPF network removed.', 'Saved, but the OSPF apply');
+        return redirect()->to(base_url('routing') . '?tab=ospf&sub=networks')->with($key, $message);
     }
 
     // ================================================================
@@ -898,14 +620,14 @@ class Routing extends BaseController
             'redistribute_static_rm'  => $this->knownRouteMap($this->request->getPost('redistribute_static_rm')),
             'redistribute_bgp_rm'     => $this->knownRouteMap($this->request->getPost('redistribute_bgp_rm')),
             'redistribute_rip_rm'     => $this->knownRouteMap($this->request->getPost('redistribute_rip_rm')),
-            'redistribute_metric'     => ($this->request->getPost('redistribute_metric') ?: null),
-            'redistribute_metric_type'=> (int)($this->request->getPost('redistribute_metric_type') ?: 2),
-            'reference_bandwidth'     => (int)($this->request->getPost('reference_bandwidth') ?: 100),
-            'distance_external'       => ($this->request->getPost('distance_external') ?: null),
-            'distance_inter'          => ($this->request->getPost('distance_inter') ?: null),
-            'distance_intra'          => ($this->request->getPost('distance_intra') ?: null),
-            'max_paths'               => (int)($this->request->getPost('max_paths') ?: 4),
-            'updated_at'              => date('Y-m-d H:i:s'),
+            'redistribute_metric'      => ($this->request->getPost('redistribute_metric') ?: null),
+            'redistribute_metric_type' => (int)($this->request->getPost('redistribute_metric_type') ?: 2),
+            'reference_bandwidth'      => ($this->request->getPost('reference_bandwidth') !== null && trim((string)$this->request->getPost('reference_bandwidth')) !== '') ? (int)$this->request->getPost('reference_bandwidth') : 100,
+            'distance_external'        => ($this->request->getPost('distance_external') ?: null),
+            'distance_inter'           => ($this->request->getPost('distance_inter') ?: null),
+            'distance_intra'           => ($this->request->getPost('distance_intra') ?: null),
+            'max_paths'                => ($this->request->getPost('max_paths') !== null && trim((string)$this->request->getPost('max_paths')) !== '') ? (int)$this->request->getPost('max_paths') : 4,
+            'updated_at'               => date('Y-m-d H:i:s'),
         ];
 
         if ($db->table('frr_ospf_settings')->where('id', 'default')->countAllResults()) {
@@ -914,8 +636,8 @@ class Routing extends BaseController
             $db->table('frr_ospf_settings')->insert(array_merge(['id' => 'default'], $data));
         }
 
-        $this->ipc->call('frr.ospf.reload');
-        return redirect()->to(base_url('routing') . '?tab=ospf&sub=general')->with('success', 'OSPF general settings saved.');
+        [$key, $message] = $this->ipcFlash($this->applier()->frr('ospf'), 'OSPF general settings saved.', 'Saved, but the OSPF apply');
+        return redirect()->to(base_url('routing') . '?tab=ospf&sub=general')->with($key, $message);
     }
 
     // ================================================================
@@ -946,8 +668,8 @@ class Routing extends BaseController
             'updated_at'   => $now,
         ]);
 
-        $this->ipc->call('frr.ospf.reload');
-        return redirect()->to(base_url('routing') . '?tab=ospf&sub=areas')->with('success', "OSPF area {$areaId} added.");
+        [$key, $message] = $this->ipcFlash($this->applier()->frr('ospf'), "OSPF area {$areaId} added.", 'Saved, but the OSPF apply');
+        return redirect()->to(base_url('routing') . '?tab=ospf&sub=areas')->with($key, $message);
     }
 
     public function updateOspfArea(string $id): \CodeIgniter\HTTP\RedirectResponse
@@ -970,16 +692,16 @@ class Routing extends BaseController
             'updated_at'    => date('Y-m-d H:i:s'),
         ]);
 
-        $this->ipc->call('frr.ospf.reload');
-        return redirect()->to(base_url('routing') . '?tab=ospf&sub=areas')->with('success', 'OSPF area updated.');
+        [$key, $message] = $this->ipcFlash($this->applier()->frr('ospf'), 'OSPF area updated.', 'Saved, but the OSPF apply');
+        return redirect()->to(base_url('routing') . '?tab=ospf&sub=areas')->with($key, $message);
     }
 
     public function deleteOspfArea(string $id): \CodeIgniter\HTTP\RedirectResponse
     {
         $db = \Config\Database::connect();
         $db->table('frr_ospf_areas')->where('id', $id)->delete();
-        $this->ipc->call('frr.ospf.reload');
-        return redirect()->to(base_url('routing') . '?tab=ospf&sub=areas')->with('success', 'OSPF area removed.');
+        [$key, $message] = $this->ipcFlash($this->applier()->frr('ospf'), 'OSPF area removed.', 'Saved, but the OSPF apply');
+        return redirect()->to(base_url('routing') . '?tab=ospf&sub=areas')->with($key, $message);
     }
 
     /** Build summary ranges array from POST sr_prefix[], sr_no_adv[], sr_cost[], sr_substitute[] */
@@ -1011,6 +733,9 @@ class Routing extends BaseController
     {
         $db    = \Config\Database::connect();
         $iface = trim($this->request->getPost('interface') ?? '');
+        if ($iface === '__custom__' || empty($iface)) {
+            $iface = trim($this->request->getPost('interface_custom') ?? '');
+        }
         if (empty($iface)) {
             return redirect()->back()->with('error', 'Interface is required.');
         }
@@ -1028,7 +753,7 @@ class Routing extends BaseController
             'accept_filter'       => (int)(bool)$this->request->getPost('accept_filter'),
             'auth_type'           => $this->request->getPost('auth_type') ?: 'none',
             'auth_password'       => trim($this->request->getPost('auth_password') ?? '') ?: null,
-            'router_priority'     => (int)($this->request->getPost('router_priority') ?: 1),
+            'router_priority'     => ($this->request->getPost('router_priority') !== null && trim((string)$this->request->getPost('router_priority')) !== '') ? (int)$this->request->getPost('router_priority') : 1,
             'retransmit_interval' => (int)($this->request->getPost('retransmit_interval') ?: 5),
             'hello_interval'      => (int)($this->request->getPost('hello_interval') ?: 10),
             'dead_interval'       => (int)($this->request->getPost('dead_interval') ?: 40),
@@ -1039,8 +764,8 @@ class Routing extends BaseController
             'updated_at'          => $now,
         ]);
 
-        $this->ipc->call('frr.ospf.reload');
-        return redirect()->to(base_url('routing') . '?tab=ospf&sub=interfaces')->with('success', "OSPF interface {$iface} configured.");
+        [$key, $message] = $this->ipcFlash($this->applier()->frr('ospf'), "OSPF interface {$iface} configured.", 'Saved, but the OSPF apply');
+        return redirect()->to(base_url('routing') . '?tab=ospf&sub=interfaces')->with($key, $message);
     }
 
     public function updateOspfIface(string $id): \CodeIgniter\HTTP\RedirectResponse
@@ -1051,8 +776,13 @@ class Routing extends BaseController
             return redirect()->back()->with('error', 'Interface not found.');
         }
 
+        $iface = trim($this->request->getPost('interface') ?: $row['interface']);
+        if ($iface === '__custom__') {
+            $iface = trim($this->request->getPost('interface_custom') ?: $row['interface']);
+        }
+
         $db->table('frr_ospf_ifaces')->where('id', $id)->update([
-            'interface'           => trim($this->request->getPost('interface') ?: $row['interface']),
+            'interface'           => $iface,
             'description'         => trim($this->request->getPost('description') ?? ''),
             'network_type'        => $this->request->getPost('network_type') ?: 'broadcast',
             'area'                => trim($this->request->getPost('area') ?? '') ?: null,
@@ -1062,7 +792,7 @@ class Routing extends BaseController
             'accept_filter'       => (int)(bool)$this->request->getPost('accept_filter'),
             'auth_type'           => $this->request->getPost('auth_type') ?: 'none',
             'auth_password'       => trim($this->request->getPost('auth_password') ?? '') ?: null,
-            'router_priority'     => (int)($this->request->getPost('router_priority') ?: 1),
+            'router_priority'     => ($this->request->getPost('router_priority') !== null && trim((string)$this->request->getPost('router_priority')) !== '') ? (int)$this->request->getPost('router_priority') : 1,
             'retransmit_interval' => (int)($this->request->getPost('retransmit_interval') ?: 5),
             'hello_interval'      => (int)($this->request->getPost('hello_interval') ?: 10),
             'dead_interval'       => (int)($this->request->getPost('dead_interval') ?: 40),
@@ -1072,16 +802,16 @@ class Routing extends BaseController
             'updated_at'          => date('Y-m-d H:i:s'),
         ]);
 
-        $this->ipc->call('frr.ospf.reload');
-        return redirect()->to(base_url('routing') . '?tab=ospf&sub=interfaces')->with('success', 'OSPF interface updated.');
+        [$key, $message] = $this->ipcFlash($this->applier()->frr('ospf'), 'OSPF interface updated.', 'Saved, but the OSPF apply');
+        return redirect()->to(base_url('routing') . '?tab=ospf&sub=interfaces')->with($key, $message);
     }
 
     public function deleteOspfIface(string $id): \CodeIgniter\HTTP\RedirectResponse
     {
         $db = \Config\Database::connect();
         $db->table('frr_ospf_ifaces')->where('id', $id)->delete();
-        $this->ipc->call('frr.ospf.reload');
-        return redirect()->to(base_url('routing') . '?tab=ospf&sub=interfaces')->with('success', 'OSPF interface config removed.');
+        [$key, $message] = $this->ipcFlash($this->applier()->frr('ospf'), 'OSPF interface config removed.', 'Saved, but the OSPF apply');
+        return redirect()->to(base_url('routing') . '?tab=ospf&sub=interfaces')->with($key, $message);
     }
 
     // ================================================================
@@ -1109,16 +839,16 @@ class Routing extends BaseController
             'updated_at'   => $now,
         ]);
 
-        $this->ipc->call('frr.ospf.reload');
-        return redirect()->to(base_url('routing') . '?tab=ospf&sub=neighbors')->with('success', "OSPF neighbor {$ip} added.");
+        [$key, $message] = $this->ipcFlash($this->applier()->frr('ospf'), "OSPF neighbor {$ip} added.", 'Saved, but the OSPF apply');
+        return redirect()->to(base_url('routing') . '?tab=ospf&sub=neighbors')->with($key, $message);
     }
 
     public function deleteOspfNeighbor(string $id): \CodeIgniter\HTTP\RedirectResponse
     {
         $db = \Config\Database::connect();
         $db->table('frr_ospf_neighbors')->where('id', $id)->delete();
-        $this->ipc->call('frr.ospf.reload');
-        return redirect()->to(base_url('routing') . '?tab=ospf&sub=neighbors')->with('success', 'OSPF neighbor removed.');
+        [$key, $message] = $this->ipcFlash($this->applier()->frr('ospf'), 'OSPF neighbor removed.', 'Saved, but the OSPF apply');
+        return redirect()->to(base_url('routing') . '?tab=ospf&sub=neighbors')->with($key, $message);
     }
 
     // ================================================================
@@ -1165,8 +895,8 @@ class Routing extends BaseController
             'updated_at'  => $now,
         ]);
 
-        $this->ipc->call('frr.ospf.reload');
-        return redirect()->to(base_url('routing') . '?tab=ospf&sub=policy')->with('success', "Prefix-list '{$name}' created.");
+        [$key, $message] = $this->ipcFlash($this->applier()->frr('ospf'), "Prefix-list '{$name}' created.", 'Saved, but the OSPF apply');
+        return redirect()->to(base_url('routing') . '?tab=ospf&sub=policy')->with($key, $message);
     }
 
     public function updatePrefixList(string $id): \CodeIgniter\HTTP\RedirectResponse
@@ -1199,8 +929,8 @@ class Routing extends BaseController
             'updated_at'  => date('Y-m-d H:i:s'),
         ]);
 
-        $this->ipc->call('frr.ospf.reload');
-        return redirect()->to(base_url('routing') . '?tab=ospf&sub=policy')->with('success', 'Prefix-list updated.');
+        [$key, $message] = $this->ipcFlash($this->applier()->frr('ospf'), 'Prefix-list updated.', 'Saved, but the OSPF apply');
+        return redirect()->to(base_url('routing') . '?tab=ospf&sub=policy')->with($key, $message);
     }
 
     public function deletePrefixList(string $id): \CodeIgniter\HTTP\RedirectResponse
@@ -1219,8 +949,8 @@ class Routing extends BaseController
         }
 
         $db->table('frr_prefix_lists')->where('id', $id)->delete();
-        $this->ipc->call('frr.ospf.reload');
-        return redirect()->to(base_url('routing') . '?tab=ospf&sub=policy')->with('success', 'Prefix-list removed.');
+        [$key, $message] = $this->ipcFlash($this->applier()->frr('ospf'), 'Prefix-list removed.', 'Saved, but the OSPF apply');
+        return redirect()->to(base_url('routing') . '?tab=ospf&sub=policy')->with($key, $message);
     }
 
     /**
@@ -1244,7 +974,7 @@ class Routing extends BaseController
                 continue;
             }
             if (! \App\Libraries\Cidr::isValid($prefix)) {
-                return "'{$prefix}' is not a valid prefix (use address/prefix-length, e.g. 10.11.83.0/24).";
+                return "'{$prefix}' is not a valid prefix (use address/prefix-length, e.g. 192.168.1.0/24).";
             }
             $ge = (string) ($ges[$i] ?? '');
             $le = (string) ($les[$i] ?? '');
@@ -1299,8 +1029,8 @@ class Routing extends BaseController
             'updated_at'  => $now,
         ]);
 
-        $this->ipc->call('frr.ospf.reload');
-        return redirect()->to(base_url('routing') . '?tab=ospf&sub=policy')->with('success', "Route-map '{$name}' created.");
+        [$key, $message] = $this->ipcFlash($this->applier()->frr('ospf'), "Route-map '{$name}' created.", 'Saved, but the OSPF apply');
+        return redirect()->to(base_url('routing') . '?tab=ospf&sub=policy')->with($key, $message);
     }
 
     public function updateRouteMap(string $id): \CodeIgniter\HTTP\RedirectResponse
@@ -1333,8 +1063,8 @@ class Routing extends BaseController
             'updated_at'  => date('Y-m-d H:i:s'),
         ]);
 
-        $this->ipc->call('frr.ospf.reload');
-        return redirect()->to(base_url('routing') . '?tab=ospf&sub=policy')->with('success', 'Route-map updated.');
+        [$key, $message] = $this->ipcFlash($this->applier()->frr('ospf'), 'Route-map updated.', 'Saved, but the OSPF apply');
+        return redirect()->to(base_url('routing') . '?tab=ospf&sub=policy')->with($key, $message);
     }
 
     public function deleteRouteMap(string $id): \CodeIgniter\HTTP\RedirectResponse
@@ -1353,8 +1083,8 @@ class Routing extends BaseController
         }
 
         $db->table('frr_route_maps')->where('id', $id)->delete();
-        $this->ipc->call('frr.ospf.reload');
-        return redirect()->to(base_url('routing') . '?tab=ospf&sub=policy')->with('success', 'Route-map removed.');
+        [$key, $message] = $this->ipcFlash($this->applier()->frr('ospf'), 'Route-map removed.', 'Saved, but the OSPF apply');
+        return redirect()->to(base_url('routing') . '?tab=ospf&sub=policy')->with($key, $message);
     }
 
     /**
@@ -1367,6 +1097,7 @@ class Routing extends BaseController
         $seqs    = (array)($this->request->getPost('rm_seq') ?? []);
         $actions = (array)($this->request->getPost('rm_action') ?? []);
         $matches = (array)($this->request->getPost('rm_match_pl') ?? []);
+        $acls    = (array)($this->request->getPost('rm_match_acl') ?? []);
         $metrics = (array)($this->request->getPost('rm_set_metric') ?? []);
         $types   = (array)($this->request->getPost('rm_set_metric_type') ?? []);
         $tags    = (array)($this->request->getPost('rm_set_tag') ?? []);
@@ -1375,19 +1106,21 @@ class Routing extends BaseController
         $rules = [];
         foreach ($seqs as $i => $seq) {
             $match = trim((string) ($matches[$i] ?? ''));
+            $acl   = trim((string) ($acls[$i] ?? ''));
             $metric = (string) ($metrics[$i] ?? '');
             $type   = (string) ($types[$i] ?? '');
             $tag    = (string) ($tags[$i] ?? '');
 
             // A rule that neither matches nor sets anything is a no-op; skip it.
-            if ($match === '' && $metric === '' && $type === '' && $tag === '') {
+            if ($match === '' && $acl === '' && $metric === '' && $type === '' && $tag === '') {
                 continue;
             }
 
             $rules[] = [
                 'seq'              => (int) $seq ?: ($i + 1) * 10,
                 'action'           => (($actions[$i] ?? 'permit') === 'deny') ? 'deny' : 'permit',
-                'match_prefix_list'=> $match,
+                'match_prefix_list'=> $match ?: null,
+                'match_access_list'=> $acl ?: null,
                 'set_metric'       => ($metric !== '' && ctype_digit($metric)) ? (int) $metric : null,
                 'set_metric_type'  => in_array($type, ['type-1', 'type-2'], true) ? $type : null,
                 'set_tag'          => ($tag !== '' && ctype_digit($tag)) ? (int) $tag : null,
@@ -1424,6 +1157,134 @@ class Routing extends BaseController
     }
 
     // ================================================================
+    // Policy — Access Lists
+    // ================================================================
+
+    public function storeAccessList(): \CodeIgniter\HTTP\RedirectResponse
+    {
+        $db   = \Config\Database::connect();
+        $name = trim($this->request->getPost('name') ?? '');
+        if ($name === '' || ! preg_match('/^[A-Za-z0-9_.-]+$/', $name)) {
+            return $this->policyError('Access-list name is required and may only contain letters, digits, dot, dash and underscore.');
+        }
+
+        $rules = $this->buildAccessListRules();
+        if (is_string($rules)) {
+            return $this->policyError($rules);
+        }
+
+        if ($db->table('frr_access_lists')->where('name', $name)->countAllResults()) {
+            return $this->policyError("An access-list named '{$name}' already exists.");
+        }
+
+        $now = date('Y-m-d H:i:s');
+        $db->table('frr_access_lists')->insert([
+            'id'          => 'acl_' . bin2hex(random_bytes(6)),
+            'name'        => $name,
+            'type'        => trim($this->request->getPost('type') ?? 'standard'),
+            'description' => trim($this->request->getPost('description') ?? ''),
+            'rules'       => json_encode($rules),
+            'enabled'     => 1,
+            'created_at'  => $now,
+            'updated_at'  => $now,
+        ]);
+
+        [$key, $message] = $this->ipcFlash($this->applier()->frr('ospf'), "Access-list '{$name}' created.", 'Saved, but daemon apply');
+        $tab = $this->request->getPost('return_tab') === 'ospf' ? 'ospf&sub=policy' : 'policy&sub=acls';
+        return redirect()->to(base_url('routing') . '?tab=' . $tab)->with($key, $message);
+    }
+
+    public function updateAccessList(string $id): \CodeIgniter\HTTP\RedirectResponse
+    {
+        $db  = \Config\Database::connect();
+        $row = $db->table('frr_access_lists')->where('id', $id)->get()->getRowArray();
+        if (! $row) {
+            return $this->policyError('Access-list not found.');
+        }
+
+        $name = trim($this->request->getPost('name') ?: $row['name']);
+        if (! preg_match('/^[A-Za-z0-9_.-]+$/', $name)) {
+            return $this->policyError('Access-list name may only contain letters, digits, dot, dash and underscore.');
+        }
+
+        $rules = $this->buildAccessListRules();
+        if (is_string($rules)) {
+            return $this->policyError($rules);
+        }
+
+        $dupe = $db->table('frr_access_lists')->where('name', $name)->where('id !=', $id)->countAllResults();
+        if ($dupe) {
+            return $this->policyError("An access-list named '{$name}' already exists.");
+        }
+
+        $db->table('frr_access_lists')->where('id', $id)->update([
+            'name'        => $name,
+            'type'        => trim($this->request->getPost('type') ?: ($row['type'] ?? 'standard')),
+            'description' => trim($this->request->getPost('description') ?? ''),
+            'rules'       => json_encode($rules),
+            'updated_at'  => date('Y-m-d H:i:s'),
+        ]);
+
+        [$key, $message] = $this->ipcFlash($this->applier()->frr('ospf'), 'Access-list updated.', 'Saved, but daemon apply');
+        $tab = $this->request->getPost('return_tab') === 'ospf' ? 'ospf&sub=policy' : 'policy&sub=acls';
+        return redirect()->to(base_url('routing') . '?tab=' . $tab)->with($key, $message);
+    }
+
+    public function deleteAccessList(string $id): \CodeIgniter\HTTP\RedirectResponse
+    {
+        $db  = \Config\Database::connect();
+        $row = $db->table('frr_access_lists')->where('id', $id)->get()->getRowArray();
+        if (! $row) {
+            return $this->policyError('Access-list not found.');
+        }
+
+        $uses = $this->policyUsage($row['name'], 'acl');
+        if ($uses !== []) {
+            return $this->policyError(
+                "Access-list '{$row['name']}' is still in use and cannot be deleted: " . implode('; ', $uses) . '. Remove those references first.'
+            );
+        }
+
+        $db->table('frr_access_lists')->where('id', $id)->delete();
+        [$key, $message] = $this->ipcFlash($this->applier()->frr('ospf'), 'Access-list removed.', 'Saved, but daemon apply');
+        $tab = $this->request->getGet('return_tab') === 'ospf' ? 'ospf&sub=policy' : 'policy&sub=acls';
+        return redirect()->to(base_url('routing') . '?tab=' . $tab)->with($key, $message);
+    }
+
+    private function buildAccessListRules()
+    {
+        $seqs     = (array)($this->request->getPost('acl_seq') ?? []);
+        $actions  = (array)($this->request->getPost('acl_action') ?? []);
+        $prefixes = (array)($this->request->getPost('acl_prefix') ?? []);
+        $descs    = (array)($this->request->getPost('acl_desc') ?? []);
+
+        $rules = [];
+        foreach ($prefixes as $i => $prefix) {
+            $prefix = trim((string) $prefix);
+            if ($prefix === '') {
+                continue;
+            }
+            if ($prefix !== 'any' && ! \App\Libraries\Cidr::isValid($prefix)) {
+                return "'{$prefix}' is not a valid prefix or 'any' (use address/prefix-length, e.g. 192.168.1.0/24).";
+            }
+            $rules[] = [
+                'seq'         => (int) ($seqs[$i] ?? 0) ?: ($i + 1) * 10,
+                'action'      => (($actions[$i] ?? 'permit') === 'deny') ? 'deny' : 'permit',
+                'prefix'      => $prefix,
+                'description' => trim((string) ($descs[$i] ?? '')),
+            ];
+        }
+
+        if ($rules === []) {
+            return 'Add at least one rule with a prefix.';
+        }
+
+        usort($rules, static fn ($a, $b) => $a['seq'] <=> $b['seq']);
+
+        return $rules;
+    }
+
+    // ================================================================
     // OSPF Policy — Distribute Lists (process-level)
     // ================================================================
 
@@ -1443,8 +1304,8 @@ class Routing extends BaseController
             'updated_at' => $now,
         ]);
 
-        $this->ipc->call('frr.ospf.reload');
-        return redirect()->to(base_url('routing') . '?tab=ospf&sub=policy')->with('success', 'OSPF distribute-list added.');
+        [$key, $message] = $this->ipcFlash($this->applier()->frr('ospf'), 'OSPF distribute-list added.', 'Saved, but the OSPF apply');
+        return redirect()->to(base_url('routing') . '?tab=ospf&sub=policy')->with($key, $message);
     }
 
     public function updateDistributeList(string $id): \CodeIgniter\HTTP\RedirectResponse
@@ -1464,16 +1325,16 @@ class Routing extends BaseController
             'updated_at' => date('Y-m-d H:i:s'),
         ]);
 
-        $this->ipc->call('frr.ospf.reload');
-        return redirect()->to(base_url('routing') . '?tab=ospf&sub=policy')->with('success', 'OSPF distribute-list updated.');
+        [$key, $message] = $this->ipcFlash($this->applier()->frr('ospf'), 'OSPF distribute-list updated.', 'Saved, but the OSPF apply');
+        return redirect()->to(base_url('routing') . '?tab=ospf&sub=policy')->with($key, $message);
     }
 
     public function deleteDistributeList(string $id): \CodeIgniter\HTTP\RedirectResponse
     {
         $db = \Config\Database::connect();
         $db->table('frr_ospf_distribute_lists')->where('id', $id)->delete();
-        $this->ipc->call('frr.ospf.reload');
-        return redirect()->to(base_url('routing') . '?tab=ospf&sub=policy')->with('success', 'OSPF distribute-list removed.');
+        [$key, $message] = $this->ipcFlash($this->applier()->frr('ospf'), 'OSPF distribute-list removed.', 'Saved, but the OSPF apply');
+        return redirect()->to(base_url('routing') . '?tab=ospf&sub=policy')->with($key, $message);
     }
 
     /**
@@ -1529,8 +1390,8 @@ class Routing extends BaseController
             'updated_at' => $now,
         ]);
 
-        $this->ipc->call('frr.ospf.reload');
-        return redirect()->to(base_url('routing') . '?tab=ospf&sub=policy')->with('success', 'OSPF area filter-list added.');
+        [$key, $message] = $this->ipcFlash($this->applier()->frr('ospf'), 'OSPF area filter-list added.', 'Saved, but the OSPF apply');
+        return redirect()->to(base_url('routing') . '?tab=ospf&sub=policy')->with($key, $message);
     }
 
     public function updateAreaFilter(string $id): \CodeIgniter\HTTP\RedirectResponse
@@ -1550,16 +1411,16 @@ class Routing extends BaseController
             'updated_at' => date('Y-m-d H:i:s'),
         ]);
 
-        $this->ipc->call('frr.ospf.reload');
-        return redirect()->to(base_url('routing') . '?tab=ospf&sub=policy')->with('success', 'OSPF area filter-list updated.');
+        [$key, $message] = $this->ipcFlash($this->applier()->frr('ospf'), 'OSPF area filter-list updated.', 'Saved, but the OSPF apply');
+        return redirect()->to(base_url('routing') . '?tab=ospf&sub=policy')->with($key, $message);
     }
 
     public function deleteAreaFilter(string $id): \CodeIgniter\HTTP\RedirectResponse
     {
         $db = \Config\Database::connect();
         $db->table('frr_ospf_area_filters')->where('id', $id)->delete();
-        $this->ipc->call('frr.ospf.reload');
-        return redirect()->to(base_url('routing') . '?tab=ospf&sub=policy')->with('success', 'OSPF area filter-list removed.');
+        [$key, $message] = $this->ipcFlash($this->applier()->frr('ospf'), 'OSPF area filter-list removed.', 'Saved, but the OSPF apply');
+        return redirect()->to(base_url('routing') . '?tab=ospf&sub=policy')->with($key, $message);
     }
 
     /**
@@ -1619,9 +1480,10 @@ class Routing extends BaseController
      */
     private function buildPolicyReferences(): array
     {
-        $db       = \Config\Database::connect();
-        $prefixes = [];
-        $maps     = [];
+        $db          = \Config\Database::connect();
+        $prefixes    = [];
+        $maps        = [];
+        $accessLists = [];
 
         $add = static function (array &$bucket, ?string $name, string $label): void {
             $name = trim((string) $name);
@@ -1630,10 +1492,11 @@ class Routing extends BaseController
             }
         };
 
-        // Prefix-lists matched inside route-map rules.
+        // Prefix-lists and Access-lists matched inside route-map rules.
         foreach ($db->table('frr_route_maps')->get()->getResultArray() as $rm) {
             foreach (json_decode($rm['rules'] ?? '[]', true) ?: [] as $rule) {
                 $add($prefixes, $rule['match_prefix_list'] ?? '', 'Route-map ' . $rm['name']);
+                $add($accessLists, $rule['match_access_list'] ?? '', 'Route-map ' . $rm['name']);
             }
         }
 
@@ -1649,14 +1512,23 @@ class Routing extends BaseController
             $add($prefixes, $af['prefix_list'] ?? '', 'OSPF area ' . $af['area_id'] . ' filter-list ' . ($af['direction'] === 'out' ? 'out' : 'in'));
         }
 
-        // Route-maps applied to BGP neighbors.
+        // Route-maps, prefix-lists, and filter-lists applied to BGP neighbors.
         foreach ($db->table('frr_bgp_neighbors')->get()->getResultArray() as $nb) {
             $add($maps, $nb['route_map_in'] ?? '', 'BGP neighbor ' . $nb['neighbor_ip'] . ' (route-map in)');
             $add($maps, $nb['route_map_out'] ?? '', 'BGP neighbor ' . $nb['neighbor_ip'] . ' (route-map out)');
+            $add($prefixes, $nb['prefix_list_in'] ?? '', 'BGP neighbor ' . $nb['neighbor_ip'] . ' (prefix-list in)');
+            $add($prefixes, $nb['prefix_list_out'] ?? '', 'BGP neighbor ' . $nb['neighbor_ip'] . ' (prefix-list out)');
+            $add($accessLists, $nb['filter_list_in'] ?? '', 'BGP neighbor ' . $nb['neighbor_ip'] . ' (filter-list in)');
+            $add($accessLists, $nb['filter_list_out'] ?? '', 'BGP neighbor ' . $nb['neighbor_ip'] . ' (filter-list out)');
         }
 
         // Route-maps attached to redistribution, per protocol.
         $redistColumns = [
+            'frr_bgp_settings' => [
+                'redistribute_connected_rm' => 'BGP redistribute connected',
+                'redistribute_static_rm'    => 'BGP redistribute static',
+                'redistribute_ospf_rm'      => 'BGP redistribute ospf',
+            ],
             'frr_ospf_settings' => [
                 'redistribute_connected_rm' => 'OSPF redistribute connected',
                 'redistribute_static_rm'    => 'OSPF redistribute static',
@@ -1692,36 +1564,40 @@ class Routing extends BaseController
             $add($maps, $rip['default_information_rm'] ?? '', 'RIP default-information');
         }
 
-        return ['prefixLists' => $prefixes, 'routeMaps' => $maps];
+        return ['prefixLists' => $prefixes, 'routeMaps' => $maps, 'accessLists' => $accessLists];
     }
 
     /**
-     * Human-readable list of the places a prefix-list / route-map is referenced.
+     * Human-readable list of the places a prefix-list / route-map / access-list is referenced.
      *
      * @return list<string>
      */
     private function policyUsage(string $name, string $kind): array
     {
         $refs = $this->buildPolicyReferences();
-        $key  = $kind === 'map' ? 'routeMaps' : 'prefixLists';
+        $key  = match($kind) {
+            'map' => 'routeMaps',
+            'acl' => 'accessLists',
+            default => 'prefixLists',
+        };
 
         return array_values(array_unique($refs[$key][$name] ?? []));
     }
 
     /**
-     * Compiles the OSPF policy objects into the FRR configuration block they
-     * would produce, for read-only review before the daemon applies it.
+     * Compiles policy objects into the FRR configuration block they produce.
      *
-     * Prefix-lists and route-maps are global objects; distribute-lists and area
-     * filter-lists render inside the `router ospf` block. Disabled objects are
+     * Prefix-lists, access-lists, and route-maps are global objects; distribute-lists
+     * and area filter-lists render inside the `router ospf` block. Disabled objects are
      * omitted and summarised in a trailing comment.
      *
      * @param array<int,array<string,mixed>> $prefixLists
      * @param array<int,array<string,mixed>> $routeMaps
      * @param array<int,array<string,mixed>> $distributeLists
      * @param array<int,array<string,mixed>> $areaFilters
+     * @param array<int,array<string,mixed>> $accessLists
      */
-    public static function compileOspfPolicy(array $prefixLists, array $routeMaps, array $distributeLists, array $areaFilters): string
+    public static function compileOspfPolicy(array $prefixLists, array $routeMaps, array $distributeLists, array $areaFilters, array $accessLists = []): string
     {
         // Address family of each prefix-list drives the route-map match keyword.
         $family = [];
@@ -1737,14 +1613,51 @@ class Routing extends BaseController
             $family[$pl['name']] = $allV6 ? 'ipv6' : 'ip';
         }
 
-        // Names of prefix-lists that actually exist, so a reference to a
-        // missing one is annotated rather than silently emitted.
-        $plExists = array_flip(array_column($prefixLists, 'name'));
+        // Names of prefix-lists and access-lists that actually exist
+        $plExists  = array_flip(array_column($prefixLists, 'name'));
+        $aclExists = array_flip(array_column($accessLists, 'name'));
 
         $lines   = [];
         $skipped = [];
 
+        // ── Access lists ──────────────────────────────────────────────
+        $lines[] = '! ── Access lists ──────────────────────────────';
+        if ($accessLists === []) {
+            $lines[] = '! (none)';
+        }
+        foreach ($accessLists as $acl) {
+            if (empty($acl['enabled'])) {
+                $skipped[] = 'access-list ' . $acl['name'];
+                continue;
+            }
+            if (! empty($acl['description'])) {
+                $lines[] = '! ' . $acl['name'] . ' — ' . $acl['description'];
+            }
+            $rules = json_decode($acl['rules'] ?? '[]', true) ?: [];
+            if ($rules === []) {
+                $lines[] = '! ' . $acl['name'] . ' (no rules)';
+                continue;
+            }
+            foreach ($rules as $rule) {
+                $prefix = (string) ($rule['prefix'] ?? '');
+                if ($prefix === '') {
+                    continue;
+                }
+                $isV6 = \App\Libraries\Cidr::family($prefix) === 'ipv6';
+                $line = sprintf(
+                    '%s access-list %s seq %d %s %s',
+                    $isV6 ? 'ipv6' : 'ip',
+                    $acl['name'],
+                    (int) ($rule['seq'] ?? 0),
+                    (($rule['action'] ?? 'permit') === 'deny') ? 'deny' : 'permit',
+                    $prefix
+                );
+                $lines[] = $line;
+            }
+        }
+
         // ── Prefix lists ──────────────────────────────────────────────
+        $lines[] = '!';
         $lines[] = '! ── Prefix lists ──────────────────────────────';
         if ($prefixLists === []) {
             $lines[] = '! (none)';
@@ -1817,6 +1730,13 @@ class Routing extends BaseController
                     $lines[] = sprintf(' match %s address prefix-list %s', $family[$plName] ?? 'ip', $plName);
                     if (! isset($plExists[$plName])) {
                         $lines[] = '! WARNING: prefix-list ' . $plName . ' does not exist';
+                    }
+                }
+                if (! empty($rule['match_access_list'])) {
+                    $aclName = (string) $rule['match_access_list'];
+                    $lines[] = sprintf(' match ip address %s', $aclName);
+                    if (! isset($aclExists[$aclName])) {
+                        $lines[] = '! WARNING: access-list ' . $aclName . ' does not exist';
                     }
                 }
                 if (isset($rule['set_metric']) && $rule['set_metric'] !== null) {
@@ -2006,8 +1926,8 @@ class Routing extends BaseController
             $db->table('frr_rip_settings')->insert(array_merge(['id' => 'default'], $data));
         }
 
-        $this->ipc->call('frr.rip.reload');
-        return redirect()->to(base_url('routing') . '?tab=rip&sub=general')->with('success', 'RIP general settings saved.');
+        [$key, $message] = $this->ipcFlash($this->applier()->frr('rip'), 'RIP general settings saved.', 'Saved, but the RIP apply');
+        return redirect()->to(base_url('routing') . '?tab=rip&sub=general')->with($key, $message);
     }
 
     public function storeRipNetwork(): \CodeIgniter\HTTP\RedirectResponse
@@ -2032,15 +1952,15 @@ class Routing extends BaseController
             'updated_at'  => $now,
         ]);
 
-        $this->ipc->call('frr.rip.reload');
-        return redirect()->to(base_url('routing') . '?tab=rip&sub=networks')->with('success', "RIP network {$network} added.");
+        [$key, $message] = $this->ipcFlash($this->applier()->frr('rip'), "RIP network {$network} added.", 'Saved, but the RIP apply');
+        return redirect()->to(base_url('routing') . '?tab=rip&sub=networks')->with($key, $message);
     }
 
     public function deleteRipNetwork(string $id): \CodeIgniter\HTTP\RedirectResponse
     {
         \Config\Database::connect()->table('frr_rip_networks')->where('id', $id)->delete();
-        $this->ipc->call('frr.rip.reload');
-        return redirect()->to(base_url('routing') . '?tab=rip&sub=networks')->with('success', 'RIP network removed.');
+        [$key, $message] = $this->ipcFlash($this->applier()->frr('rip'), 'RIP network removed.', 'Saved, but the RIP apply');
+        return redirect()->to(base_url('routing') . '?tab=rip&sub=networks')->with($key, $message);
     }
 
     public function storeRipNeighbor(): \CodeIgniter\HTTP\RedirectResponse
@@ -2065,15 +1985,15 @@ class Routing extends BaseController
             'updated_at'  => $now,
         ]);
 
-        $this->ipc->call('frr.rip.reload');
-        return redirect()->to(base_url('routing') . '?tab=rip&sub=neighbors')->with('success', "RIP neighbor {$ip} added.");
+        [$key, $message] = $this->ipcFlash($this->applier()->frr('rip'), "RIP neighbor {$ip} added.", 'Saved, but the RIP apply');
+        return redirect()->to(base_url('routing') . '?tab=rip&sub=neighbors')->with($key, $message);
     }
 
     public function deleteRipNeighbor(string $id): \CodeIgniter\HTTP\RedirectResponse
     {
         \Config\Database::connect()->table('frr_rip_neighbors')->where('id', $id)->delete();
-        $this->ipc->call('frr.rip.reload');
-        return redirect()->to(base_url('routing') . '?tab=rip&sub=neighbors')->with('success', 'RIP neighbor removed.');
+        [$key, $message] = $this->ipcFlash($this->applier()->frr('rip'), 'RIP neighbor removed.', 'Saved, but the RIP apply');
+        return redirect()->to(base_url('routing') . '?tab=rip&sub=neighbors')->with($key, $message);
     }
 
     public function storeRipPassiveInterface(): \CodeIgniter\HTTP\RedirectResponse
@@ -2098,15 +2018,15 @@ class Routing extends BaseController
             'updated_at'  => $now,
         ]);
 
-        $this->ipc->call('frr.rip.reload');
-        return redirect()->to(base_url('routing') . '?tab=rip&sub=passive')->with('success', "Interface {$iface} marked passive for RIP.");
+        [$key, $message] = $this->ipcFlash($this->applier()->frr('rip'), "Interface {$iface} marked passive for RIP.", 'Saved, but the RIP apply');
+        return redirect()->to(base_url('routing') . '?tab=rip&sub=passive')->with($key, $message);
     }
 
     public function deleteRipPassiveInterface(string $id): \CodeIgniter\HTTP\RedirectResponse
     {
         \Config\Database::connect()->table('frr_rip_passive_interfaces')->where('id', $id)->delete();
-        $this->ipc->call('frr.rip.reload');
-        return redirect()->to(base_url('routing') . '?tab=rip&sub=passive')->with('success', 'RIP passive interface removed.');
+        [$key, $message] = $this->ipcFlash($this->applier()->frr('rip'), 'RIP passive interface removed.', 'Saved, but the RIP apply');
+        return redirect()->to(base_url('routing') . '?tab=rip&sub=passive')->with($key, $message);
     }
 
     // ================================================================
@@ -2181,8 +2101,8 @@ class Routing extends BaseController
             $db->table('frr_isis_settings')->insert(array_merge(['id' => 'default'], $data));
         }
 
-        $this->ipc->call('frr.isis.reload');
-        return redirect()->to(base_url('routing') . '?tab=isis&sub=general')->with('success', 'IS-IS general settings saved.');
+        [$key, $message] = $this->ipcFlash($this->applier()->frr('isis'), 'IS-IS general settings saved.', 'Saved, but the IS-IS apply');
+        return redirect()->to(base_url('routing') . '?tab=isis&sub=general')->with($key, $message);
     }
 
     public function storeIsisInterface(): \CodeIgniter\HTTP\RedirectResponse
@@ -2205,8 +2125,8 @@ class Routing extends BaseController
             'updated_at' => $now,
         ]);
 
-        $this->ipc->call('frr.isis.reload');
-        return redirect()->to(base_url('routing') . '?tab=isis&sub=interfaces')->with('success', "IS-IS interface {$fields['interface']} configured.");
+        [$key, $message] = $this->ipcFlash($this->applier()->frr('isis'), "IS-IS interface {$fields['interface']} configured.", 'Saved, but the IS-IS apply');
+        return redirect()->to(base_url('routing') . '?tab=isis&sub=interfaces')->with($key, $message);
     }
 
     public function updateIsisInterface(string $id): \CodeIgniter\HTTP\RedirectResponse
@@ -2230,15 +2150,15 @@ class Routing extends BaseController
             'updated_at' => date('Y-m-d H:i:s'),
         ]);
 
-        $this->ipc->call('frr.isis.reload');
-        return redirect()->to(base_url('routing') . '?tab=isis&sub=interfaces')->with('success', 'IS-IS interface updated.');
+        [$key, $message] = $this->ipcFlash($this->applier()->frr('isis'), 'IS-IS interface updated.', 'Saved, but the IS-IS apply');
+        return redirect()->to(base_url('routing') . '?tab=isis&sub=interfaces')->with($key, $message);
     }
 
     public function deleteIsisInterface(string $id): \CodeIgniter\HTTP\RedirectResponse
     {
         \Config\Database::connect()->table('frr_isis_interfaces')->where('id', $id)->delete();
-        $this->ipc->call('frr.isis.reload');
-        return redirect()->to(base_url('routing') . '?tab=isis&sub=interfaces')->with('success', 'IS-IS interface removed.');
+        [$key, $message] = $this->ipcFlash($this->applier()->frr('isis'), 'IS-IS interface removed.', 'Saved, but the IS-IS apply');
+        return redirect()->to(base_url('routing') . '?tab=isis&sub=interfaces')->with($key, $message);
     }
 
     /**
@@ -2306,13 +2226,16 @@ class Routing extends BaseController
             'deterministic_med'        => (int)(bool)$this->request->getPost('deterministic_med'),
             'always_compare_med'       => (int)(bool)$this->request->getPost('always_compare_med'),
             'bestpath_as_path_ignore'  => (int)(bool)$this->request->getPost('bestpath_as_path_ignore'),
-            'redistribute_connected'   => (int)(bool)$this->request->getPost('redistribute_connected'),
-            'redistribute_static'      => (int)(bool)$this->request->getPost('redistribute_static'),
-            'redistribute_ospf'        => (int)(bool)$this->request->getPost('redistribute_ospf'),
-            'networks'                 => json_encode($networks),
-            'max_paths_ebgp'           => (int)($this->request->getPost('max_paths_ebgp') ?: 1),
-            'max_paths_ibgp'           => (int)($this->request->getPost('max_paths_ibgp') ?: 1),
-            'updated_at'               => date('Y-m-d H:i:s'),
+            'redistribute_connected'    => (int)(bool)$this->request->getPost('redistribute_connected'),
+            'redistribute_connected_rm' => trim($this->request->getPost('redistribute_connected_rm') ?? '') ?: null,
+            'redistribute_static'       => (int)(bool)$this->request->getPost('redistribute_static'),
+            'redistribute_static_rm'    => trim($this->request->getPost('redistribute_static_rm') ?? '') ?: null,
+            'redistribute_ospf'         => (int)(bool)$this->request->getPost('redistribute_ospf'),
+            'redistribute_ospf_rm'      => trim($this->request->getPost('redistribute_ospf_rm') ?? '') ?: null,
+            'networks'                  => json_encode($networks),
+            'max_paths_ebgp'            => (int)($this->request->getPost('max_paths_ebgp') ?: 1),
+            'max_paths_ibgp'            => (int)($this->request->getPost('max_paths_ibgp') ?: 1),
+            'updated_at'                => date('Y-m-d H:i:s'),
         ];
 
         if ($db->table('frr_bgp_settings')->where('id', 'default')->countAllResults()) {
@@ -2321,8 +2244,8 @@ class Routing extends BaseController
             $db->table('frr_bgp_settings')->insert(array_merge(['id' => 'default'], $data));
         }
 
-        $this->ipc->call('frr.bgp.reload');
-        return redirect()->to(base_url('routing') . '?tab=bgp&sub=general')->with('success', 'BGP global settings saved.');
+        [$key, $message] = $this->ipcFlash($this->applier()->frr('bgp'), 'BGP global settings saved.', 'Saved, but the BGP apply');
+        return redirect()->to(base_url('routing') . '?tab=bgp&sub=general')->with($key, $message);
     }
 
 
@@ -2352,16 +2275,16 @@ class Routing extends BaseController
             'updated_at'        => $now,
         ]);
 
-        $this->ipc->call('frr.bfd.reload');
-        return redirect()->to(base_url('routing') . '?tab=bfd')->with('success', "BFD peer {$ip} added.");
+        [$key, $message] = $this->ipcFlash($this->applier()->frr('bfd'), "BFD peer {$ip} added.", 'Saved, but the BFD apply');
+        return redirect()->to(base_url('routing') . '?tab=bfd')->with($key, $message);
     }
 
     public function deleteBfd(string $id): \CodeIgniter\HTTP\RedirectResponse
     {
         $db = \Config\Database::connect();
         $db->table('frr_bfd_peers')->where('id', $id)->delete();
-        $this->ipc->call('frr.bfd.reload');
-        return redirect()->to(base_url('routing') . '?tab=bfd')->with('success', 'BFD peer removed.');
+        [$key, $message] = $this->ipcFlash($this->applier()->frr('bfd'), 'BFD peer removed.', 'Saved, but the BFD apply');
+        return redirect()->to(base_url('routing') . '?tab=bfd')->with($key, $message);
     }
 
     // ================================================================
@@ -2376,7 +2299,12 @@ class Routing extends BaseController
             return redirect()->back()->with('error', 'VRF name is required.');
         }
 
-        $ifaces = (array)($this->request->getPost('interfaces') ?? []);
+        $rawIfaces = $this->request->getPost('interfaces');
+        if (is_string($rawIfaces)) {
+            $ifaces = array_values(array_filter(array_map('trim', explode(',', $rawIfaces))));
+        } else {
+            $ifaces = (array)($rawIfaces ?? []);
+        }
         $now = date('Y-m-d H:i:s');
         $db->table('routing_vrfs')->insert([
             'id'          => 'vrf_' . bin2hex(random_bytes(6)),
@@ -2389,16 +2317,16 @@ class Routing extends BaseController
             'updated_at'  => $now,
         ]);
 
-        $this->ipc->call('network.vrf.sync');
-        return redirect()->to(base_url('routing') . '?tab=vrf')->with('success', "VRF '{$name}' created.");
+        [$key, $message] = $this->ipcFlash($this->applier()->vrfs(), "VRF '{$name}' created.", 'Saved, but the VRF sync');
+        return redirect()->to(base_url('routing') . '?tab=vrf')->with($key, $message);
     }
 
     public function deleteVrf(string $id): \CodeIgniter\HTTP\RedirectResponse
     {
         $db = \Config\Database::connect();
         $db->table('routing_vrfs')->where('id', $id)->delete();
-        $this->ipc->call('network.vrf.sync');
-        return redirect()->to(base_url('routing') . '?tab=vrf')->with('success', 'VRF removed.');
+        [$key, $message] = $this->ipcFlash($this->applier()->vrfs(), 'VRF removed.', 'Saved, but the VRF sync');
+        return redirect()->to(base_url('routing') . '?tab=vrf')->with($key, $message);
     }
 
     // ================================================================
@@ -2422,8 +2350,8 @@ class Routing extends BaseController
             'updated_at' => $now,
         ]);
 
-        $this->ipc->call('network.pbr.sync');
-        return redirect()->to(base_url('routing') . '?tab=pbr')->with('success', 'PBR rule added.');
+        [$key, $message] = $this->ipcFlash($this->applier()->routingPolicy('network.pbr.sync'), 'PBR rule added.', 'Saved, but the policy-routing apply');
+        return redirect()->to(base_url('routing') . '?tab=pbr')->with($key, $message);
     }
 
     public function updatePbr(string $id): \CodeIgniter\HTTP\RedirectResponse
@@ -2450,8 +2378,8 @@ class Routing extends BaseController
             'updated_at' => date('Y-m-d H:i:s'),
         ]);
 
-        $this->ipc->call('network.pbr.sync');
-        return redirect()->to(base_url('routing') . '?tab=pbr')->with('success', 'PBR rule updated.');
+        [$key, $message] = $this->ipcFlash($this->applier()->routingPolicy('network.pbr.sync'), 'PBR rule updated.', 'Saved, but the policy-routing apply');
+        return redirect()->to(base_url('routing') . '?tab=pbr')->with($key, $message);
     }
 
     /**
@@ -2568,8 +2496,8 @@ class Routing extends BaseController
     {
         $db = \Config\Database::connect();
         $db->table('routing_pbr_rules')->where('id', $id)->delete();
-        $this->ipc->call('network.pbr.sync');
-        return redirect()->to(base_url('routing') . '?tab=pbr')->with('success', 'PBR rule removed.');
+        [$key, $message] = $this->ipcFlash($this->applier()->routingPolicy('network.pbr.sync'), 'PBR rule removed.', 'Saved, but the policy-routing apply');
+        return redirect()->to(base_url('routing') . '?tab=pbr')->with($key, $message);
     }
 
     public function togglePbr(string $id): \CodeIgniter\HTTP\RedirectResponse
@@ -2586,10 +2514,13 @@ class Routing extends BaseController
             'updated_at' => date('Y-m-d H:i:s'),
         ]);
 
-        $this->ipc->call('network.pbr.sync');
+        [$key, $message] = $this->ipcFlash(
+            $this->applier()->routingPolicy('network.pbr.sync'),
+            "PBR rule '{$row['description']}' is now " . ($newVal ? 'enabled' : 'disabled') . '.',
+            'Saved, but the policy-routing apply'
+        );
 
-        return redirect()->to(base_url('routing') . '?tab=pbr')
-            ->with('success', "PBR rule '{$row['description']}' is now " . ($newVal ? 'enabled' : 'disabled') . '.');
+        return redirect()->to(base_url('routing') . '?tab=pbr')->with($key, $message);
     }
 
     public function reorderPbr(): \CodeIgniter\HTTP\ResponseInterface
@@ -2605,8 +2536,11 @@ class Routing extends BaseController
             $db->table('routing_pbr_rules')->where('id', $id)->update(['priority' => $index + 1]);
         }
 
-        $this->ipc->call('network.pbr.sync');
-        return $this->response->setJSON(['ok' => true]);
+        $outcome = $this->ipcOutcome($this->applier()->routingPolicy('network.pbr.sync'));
+
+        return $this->response->setJSON($outcome['ok']
+            ? ['ok' => true]
+            : ['ok' => false, 'error' => 'Order saved, but the policy-routing apply failed: ' . $outcome['reason']]);
     }
 
     /**
@@ -2631,8 +2565,9 @@ class Routing extends BaseController
                 'ruleset'   => $ruleset,
                 'rules'     => $policy['rules'],
                 'routes'    => $policy['routes'],
-                'safe_mode' => true,
+                'safe_mode' => false,
             ]);
+            $this->ipc->call('firewall.confirm');
 
             if (! empty($resp['error'])) {
                 return redirect()->to(base_url('routing') . '?tab=pbr')
@@ -2694,8 +2629,8 @@ class Routing extends BaseController
             'updated_at'   => $now,
         ]);
 
-        $this->ipc->call('network.multiwan.sync');
-        return redirect()->to(base_url('routing') . '?tab=multiwan')->with('success', "Gateway '{$name}' added.");
+        [$key, $message] = $this->ipcFlash($this->applier()->routingPolicy('network.multiwan.sync'), "Gateway '{$name}' added.", 'Saved, but the gateway policy apply');
+        return redirect()->to(base_url('routing') . '?tab=multiwan')->with($key, $message);
     }
 
     public function updateGateway(string $id): \CodeIgniter\HTTP\RedirectResponse
@@ -2722,16 +2657,16 @@ class Routing extends BaseController
             'updated_at'   => date('Y-m-d H:i:s'),
         ]);
 
-        $this->ipc->call('network.multiwan.sync');
-        return redirect()->to(base_url('routing') . '?tab=multiwan')->with('success', 'Gateway updated.');
+        [$key, $message] = $this->ipcFlash($this->applier()->routingPolicy('network.multiwan.sync'), 'Gateway updated.', 'Saved, but the gateway policy apply');
+        return redirect()->to(base_url('routing') . '?tab=multiwan')->with($key, $message);
     }
 
     public function deleteGateway(string $id): \CodeIgniter\HTTP\RedirectResponse
     {
         $db = \Config\Database::connect();
         $db->table('wan_gateways')->where('id', $id)->delete();
-        $this->ipc->call('network.multiwan.sync');
-        return redirect()->to(base_url('routing') . '?tab=multiwan')->with('success', 'Gateway removed.');
+        [$key, $message] = $this->ipcFlash($this->applier()->routingPolicy('network.multiwan.sync'), 'Gateway removed.', 'Saved, but the gateway policy apply');
+        return redirect()->to(base_url('routing') . '?tab=multiwan')->with($key, $message);
     }
 
     // ================================================================
@@ -2747,12 +2682,13 @@ class Routing extends BaseController
         }
 
         // Build members array [{id, tier, weight}]
-        $memberIds   = (array)($this->request->getPost('member_ids') ?? []);
+        $memberIds   = (array)($this->request->getPost('member_ids') ?? $this->request->getPost('members') ?? []);
         $memberTiers = (array)($this->request->getPost('member_tiers') ?? []);
         $members = [];
         foreach ($memberIds as $i => $mid) {
             if (!empty($mid)) {
-                $members[] = ['id' => $mid, 'tier' => (int)($memberTiers[$i] ?? 1)];
+                $tier = isset($memberTiers[$mid]) ? (int)$memberTiers[$mid] : (int)($memberTiers[$i] ?? 1);
+                $members[] = ['id' => $mid, 'tier' => $tier];
             }
         }
 
@@ -2771,8 +2707,8 @@ class Routing extends BaseController
             'updated_at'     => $now,
         ]);
 
-        $this->ipc->call('network.multiwan.sync');
-        return redirect()->to(base_url('routing') . '?tab=multiwan')->with('success', "Gateway group '{$name}' created.");
+        [$key, $message] = $this->ipcFlash($this->applier()->routingPolicy('network.multiwan.sync'), "Gateway group '{$name}' created.", 'Saved, but the gateway policy apply');
+        return redirect()->to(base_url('routing') . '?tab=multiwan')->with($key, $message);
     }
 
     public function updateGatewayGroup(string $id): \CodeIgniter\HTTP\RedirectResponse
@@ -2783,12 +2719,13 @@ class Routing extends BaseController
             return redirect()->back()->with('error', 'Gateway group not found.');
         }
 
-        $memberIds   = (array)($this->request->getPost('member_ids') ?? []);
+        $memberIds   = (array)($this->request->getPost('member_ids') ?? $this->request->getPost('members') ?? []);
         $memberTiers = (array)($this->request->getPost('member_tiers') ?? []);
         $members = [];
         foreach ($memberIds as $i => $mid) {
             if (!empty($mid)) {
-                $members[] = ['id' => $mid, 'tier' => (int)($memberTiers[$i] ?? 1)];
+                $tier = isset($memberTiers[$mid]) ? (int)$memberTiers[$mid] : (int)($memberTiers[$i] ?? 1);
+                $members[] = ['id' => $mid, 'tier' => $tier];
             }
         }
 
@@ -2804,16 +2741,16 @@ class Routing extends BaseController
             'updated_at'     => date('Y-m-d H:i:s'),
         ]);
 
-        $this->ipc->call('network.multiwan.sync');
-        return redirect()->to(base_url('routing') . '?tab=multiwan')->with('success', 'Gateway group updated.');
+        [$key, $message] = $this->ipcFlash($this->applier()->routingPolicy('network.multiwan.sync'), 'Gateway group updated.', 'Saved, but the gateway policy apply');
+        return redirect()->to(base_url('routing') . '?tab=multiwan')->with($key, $message);
     }
 
     public function deleteGatewayGroup(string $id): \CodeIgniter\HTTP\RedirectResponse
     {
         $db = \Config\Database::connect();
         $db->table('wan_gateway_groups')->where('id', $id)->delete();
-        $this->ipc->call('network.multiwan.sync');
-        return redirect()->to(base_url('routing') . '?tab=multiwan')->with('success', 'Gateway group removed.');
+        [$key, $message] = $this->ipcFlash($this->applier()->routingPolicy('network.multiwan.sync'), 'Gateway group removed.', 'Saved, but the gateway policy apply');
+        return redirect()->to(base_url('routing') . '?tab=multiwan')->with($key, $message);
     }
 
     /**
@@ -2840,8 +2777,9 @@ class Routing extends BaseController
                 'ruleset'   => $compiler->compile(),
                 'rules'     => $policy['rules'],
                 'routes'    => $policy['routes'],
-                'safe_mode' => true,
+                'safe_mode' => false,
             ]);
+            $this->ipc->call('firewall.confirm');
 
             if (! empty($resp['error'])) {
                 return redirect()->to(base_url('routing') . '?tab=multiwan')
@@ -2873,5 +2811,386 @@ class Routing extends BaseController
             return redirect()->to(base_url('routing') . '?tab=multiwan')
                 ->with('error', 'Failed to apply Multi-WAN: ' . $e->getMessage());
         }
+    }
+
+    /**
+     * Full Routing Table - Combined view of all routing sources.
+     * Shows static routes, kernel FIB, BGP, OSPF, RIP, IS-IS, BFD, VRF, PBR, and Multi-WAN.
+     */
+    public function fullRoutingTable(): string
+    {
+        // Fetch kernel FIB routes
+        $routeResponse = $this->ipc->call('diag.routing_table');
+        $routeResult   = $routeResponse['result'] ?? null;
+        if (is_array($routeResult) && isset($routeResult['routes']) && is_array($routeResult['routes'])) {
+            $rawKernelRoutes = $routeResult['routes'];
+        } elseif ($this->ipc->isMock()) {
+            $rawKernelRoutes = [
+                ['destination' => '0.0.0.0/0', 'gateway' => '192.168.1.1', 'interface' => 'eth0 (WAN)', 'metric' => 100, 'protocol' => 'dhcp', 'flags' => 'UG'],
+                ['destination' => '10.8.0.0/24', 'gateway' => '10.8.0.2', 'interface' => 'tun0 (VPN)', 'metric' => 50, 'protocol' => 'static', 'flags' => 'UG'],
+                ['destination' => '10.100.0.0/24', 'gateway' => 'direct', 'interface' => 'wg0 (WG)', 'metric' => 0, 'protocol' => 'kernel', 'flags' => 'U'],
+                ['destination' => '192.168.1.0/24', 'gateway' => 'direct', 'interface' => 'eth1 (LAN)', 'metric' => 0, 'protocol' => 'kernel', 'flags' => 'U'],
+                ['destination' => '192.168.20.0/24', 'gateway' => 'direct', 'interface' => 'eth2 (DMZ)', 'metric' => 0, 'protocol' => 'kernel', 'flags' => 'U'],
+                ['destination' => '127.0.0.0/8', 'gateway' => 'direct', 'interface' => 'lo', 'metric' => 0, 'protocol' => 'kernel', 'flags' => 'U'],
+            ];
+        } else {
+            $rawKernelRoutes = [];
+        }
+        $kernelRoutes = array_values(array_map(static fn (array $route): array => [
+            'destination' => (string) ($route['destination'] ?? $route['dst'] ?? '—'),
+            'gateway'     => (string) ($route['gateway'] ?? 'direct'),
+            'interface'   => (string) ($route['interface'] ?? $route['dev'] ?? '—'),
+            'flags'       => (string) ($route['flags'] ?? ''),
+            'metric'      => (int) ($route['metric'] ?? 0),
+            'proto'       => strtolower((string) ($route['proto'] ?? $route['protocol'] ?? 'unknown')),
+        ], array_filter($rawKernelRoutes, 'is_array')));
+
+        $db = \Config\Database::connect();
+
+        // Fetch configured static routes
+        $staticRoutes = $db->table('static_routes')->where('enabled', 1)->get()->getResultArray();
+
+        // Fetch BGP neighbors
+        $bgpNeighbors = $db->table('frr_bgp_neighbors')->get()->getResultArray();
+
+        // Fetch OSPF data
+        $ospfSettings = $db->table('frr_ospf_settings')->where('id', 'default')->get()->getRowArray();
+        $ospfAreas    = $db->table('frr_ospf_areas')->get()->getResultArray();
+        $ospfIfaces   = $db->table('frr_ospf_ifaces')->get()->getResultArray();
+        $ospfNetworks = $db->table('frr_ospf_networks')->get()->getResultArray();
+
+        // Fetch RIP data
+        $ripNetworks  = $db->table('frr_rip_networks')->get()->getResultArray();
+        $ripNeighbors = $db->table('frr_rip_neighbors')->get()->getResultArray();
+
+        // Fetch IS-IS data
+        $isisInterfaces = $db->table('frr_isis_interfaces')->get()->getResultArray();
+
+        // Fetch BFD peers
+        $bfdPeers = $db->table('frr_bfd_peers')->get()->getResultArray();
+
+        // Fetch VRFs
+        $vrfs = $db->table('routing_vrfs')->get()->getResultArray();
+
+        // Fetch PBR rules
+        $pbrRules = $db->table('routing_pbr_rules')->orderBy('priority', 'ASC')->get()->getResultArray();
+
+        // Fetch Multi-WAN gateways
+        $wanGateways = $db->table('wan_gateway_groups')->get()->getResultArray();
+
+        return view('routing/full_table', [
+            'kernelRoutes'  => $kernelRoutes,
+            'staticRoutes'  => $staticRoutes,
+            'bgpNeighbors'  => $bgpNeighbors,
+            'ospfSettings'  => $ospfSettings,
+            'ospfAreas'     => $ospfAreas,
+            'ospfIfaces'    => $ospfIfaces,
+            'ospfNetworks'  => $ospfNetworks,
+            'ripNetworks'   => $ripNetworks,
+            'ripNeighbors'  => $ripNeighbors,
+            'isisInterfaces' => $isisInterfaces,
+            'bfdPeers'      => $bfdPeers,
+            'vrfs'          => $vrfs,
+            'pbrRules'      => $pbrRules,
+            'wanGateways'   => $wanGateways,
+            'frrStatus'     => $this->getFrrStatus(),
+            'isMock'        => $this->ipc->isMock(),
+        ]);
+    }
+
+    /**
+     * Get FRR status helper.
+     */
+    private function getFrrStatus(): array
+    {
+        $db = \Config\Database::connect();
+        $frrSvc = $db->table('system_services')->where('id', 'frr')->get()->getRowArray();
+        $dbRunning = ($frrSvc['status'] ?? 'stopped') === 'running';
+        $bootEnabled = !empty($frrSvc['enabled_at_boot']);
+
+        $fallback = [
+            'running'   => $this->ipc->isMock() ? true : $dbRunning,
+            'enabled'   => $bootEnabled,
+            'version'   => $this->ipc->isMock() ? 'FRRouting 9.1' : ($dbRunning ? 'FRRouting' : '—'),
+            'uptime'    => $this->ipc->isMock() ? '3d 14h 22m' : ($dbRunning ? 'Active' : '—'),
+            'bgp_as'    => '',
+            'router_id' => '',
+        ];
+
+        try {
+            $res = $this->ipc->call('frr.status');
+            $result = $res['result'] ?? null;
+            if (is_array($result) && empty($result['_mock'])) {
+                return array_merge($fallback, $result, ['enabled' => $result['enabled'] ?? $bootEnabled]);
+            }
+            return $fallback;
+        } catch (\Throwable) {
+            return $fallback;
+        }
+    }
+
+    /**
+     * Get live OSPF status via micrond IPC with direct vtysh fallback on Linux.
+     *
+     * @return array{
+     *     success: bool,
+     *     status: string,
+     *     sections: array<string, array{command: string, available: bool, output: string}>,
+     *     resources: array<string, mixed>
+     * }
+     */
+    private function getOspfStatus(): array
+    {
+        try {
+            $resp = $this->ipc->call('ospf.status');
+            $result = $resp['result'] ?? null;
+            if (is_array($result) && !empty($result['sections'])) {
+                return $result;
+            }
+            if (!empty($resp['error'])) {
+                log_message('error', 'OSPF status IPC call failed: ' . ($resp['error']['message'] ?? 'unknown error'));
+            }
+        } catch (\Throwable $e) {
+            log_message('error', 'OSPF status IPC call failed: ' . $e->getMessage());
+        }
+
+        // Direct vtysh fallback on Linux appliance if IPC daemon is unavailable or returned empty
+        if (DIRECTORY_SEPARATOR === '/' && (is_executable('/usr/bin/vtysh') || is_executable('/bin/vtysh') || trim((string)@shell_exec('which vtysh 2>/dev/null')) !== '')) {
+            $commands = [
+                'general'         => 'show ip ospf',
+                'neighbors'       => 'show ip ospf neighbor detail',
+                'routes'          => 'show ip ospf route',
+                'database'        => 'show ip ospf database',
+                'router_database' => 'show ip ospf database router',
+                'interfaces'      => 'show ip ospf interface',
+            ];
+            $sections = [];
+            foreach ($commands as $key => $cmd) {
+                $out = @shell_exec('vtysh -c ' . escapeshellarg($cmd) . ' 2>&1');
+                $output = trim((string)$out);
+                // The web server user is not in the frrvty group, so vtysh run from
+                // here cannot read /etc/frr or reach the daemons. Show why instead
+                // of vtysh's raw complaint; micrond (root) is the supported path.
+                if (str_contains($output, 'Permission denied') || str_contains($output, 'failed to connect to any daemons')) {
+                    $sections[$key] = [
+                        'command'   => $cmd,
+                        'available' => false,
+                        'output'    => 'OSPF state could not be read: the micrond service did not answer, '
+                                     . 'and the web server is not allowed to query FRR directly. '
+                                     . 'Check that micrond is running (Services page or "systemctl status micrond").',
+                    ];
+                    continue;
+                }
+                $sections[$key] = [
+                    'command'   => $cmd,
+                    'available' => $output !== '' && !str_contains($output, 'command not found'),
+                    'output'    => $output !== '' ? $output : 'No OSPF data returned.',
+                ];
+            }
+            $cpu = trim((string)@shell_exec("ps -C ospfd -o %cpu=,%mem=,rss=,pid= 2>/dev/null"));
+            $cpuOutput = 'ospfd is not running; CPU usage is unavailable.';
+            $memOutput = 'ospfd is not running; memory usage is unavailable.';
+            $processAvailable = false;
+            if ($cpu !== '') {
+                $lines = explode("\n", $cpu);
+                $cpuTotal = 0.0;
+                $memTotal = 0.0;
+                $rssTotal = 0;
+                $pids = 0;
+                foreach ($lines as $line) {
+                    $f = preg_split('/\s+/', trim($line));
+                    if (count($f) >= 4) {
+                        $cpuTotal += (float)$f[0];
+                        $memTotal += (float)$f[1];
+                        $rssTotal += (int)$f[2];
+                        $pids++;
+                    }
+                }
+                if ($pids > 0) {
+                    $cpuOutput = sprintf("ospfd CPU average: %.1f%%\nProcesses: %d", $cpuTotal, $pids);
+                    $memOutput = sprintf("Resident memory: %.1f MiB\nProcess memory: %.1f%%", $rssTotal / 1024, $memTotal);
+                    $processAvailable = true;
+                }
+            }
+            return [
+                'success'   => true,
+                'status'    => 'ok',
+                'sections'  => $sections,
+                'resources' => [
+                    'available'     => $processAvailable,
+                    'cpu_output'    => $cpuOutput,
+                    'memory_output' => $memOutput,
+                ],
+            ];
+        }
+
+        return [
+            'success'   => false,
+            'status'    => 'unavailable',
+            'sections'  => [],
+            'resources' => [],
+        ];
+    }
+
+    /**
+     * Extract live OSPF neighbors list from live status or mock during dev.
+     */
+    private function extractLiveNeighbors(array $ospfStatus, bool $isMock): array
+    {
+        if ($isMock && empty($ospfStatus['sections'])) {
+            return [
+                ['neighbor_id' => '10.10.10.10', 'priority' => 1, 'state' => 'Full/DR',     'dead_time' => '34.90s', 'address' => '172.16.100.1', 'interface' => 're0:172.16.100.4', 'rxmtl' => 0, 'rqstl' => 0, 'dbsml' => 0],
+                ['neighbor_id' => '9.9.9.9',     'priority' => 1, 'state' => 'Full/Backup', 'dead_time' => '32.76s', 'address' => '172.16.100.3', 'interface' => 're0:172.16.100.4', 'rxmtl' => 0, 'rqstl' => 0, 'dbsml' => 0],
+            ];
+        }
+
+        $output = (string) ($ospfStatus['sections']['neighbors']['output'] ?? '');
+        if ($output === '' || str_contains($output, 'No OSPF data') || str_contains($output, 'unavailable')) {
+            return [];
+        }
+
+        $neighbors = [];
+        // Pattern 1: Table format "192.168.1.2 1 Full/DR ..."
+        if (preg_match_all('/^\s*([0-9]{1,3}(?:\.[0-9]{1,3}){3})\s+(\d+)\s+([A-Za-z0-9\/_-]+)\s+(\S+)\s+([0-9]{1,3}(?:\.[0-9]{1,3}){3})\s+(\S+)/m', $output, $matches, PREG_SET_ORDER)) {
+            foreach ($matches as $m) {
+                $neighbors[] = [
+                    'neighbor_id' => $m[1],
+                    'priority'    => (int)$m[2],
+                    'state'       => $m[3],
+                    'dead_time'   => $m[4],
+                    'address'     => $m[5],
+                    'interface'   => $m[6],
+                ];
+            }
+        } elseif (preg_match_all('/Neighbor\s+([0-9]{1,3}(?:\.[0-9]{1,3}){3})/i', $output, $matches)) {
+            // Pattern 2: Detail format "Neighbor 192.168.1.2, interface address ..."
+            foreach ($matches[1] as $nId) {
+                $neighbors[] = [
+                    'neighbor_id' => $nId,
+                    'priority'    => 1,
+                    'state'       => 'Full',
+                    'dead_time'   => '—',
+                    'address'     => $nId,
+                    'interface'   => '—',
+                ];
+            }
+        }
+
+        return $neighbors;
+    }
+
+    /**
+     * AJAX endpoint: return live OSPF status JSON.
+     */
+    public function ospfStatusJson(): \CodeIgniter\HTTP\ResponseInterface
+    {
+        $status = $this->getOspfStatus();
+        $liveNeighbors = $this->extractLiveNeighbors($status, $this->ipc->isMock());
+        $status['live_neighbors'] = $liveNeighbors;
+        return $this->response->setJSON($status);
+    }
+
+    /**
+     * BGP standalone page -> renders routing index with tab=bgp.
+     */
+    public function bgpPage(): string|\CodeIgniter\HTTP\ResponseInterface
+    {
+        $_GET['tab'] = 'bgp';
+        if ($sub = $this->request->getGet('sub')) {
+            $_GET['sub'] = $sub;
+        }
+        return $this->index();
+    }
+
+    /**
+     * OSPF standalone page -> renders routing index with tab=ospf.
+     */
+    public function ospfPage(): string|\CodeIgniter\HTTP\ResponseInterface
+    {
+        $_GET['tab'] = 'ospf';
+        if ($sub = $this->request->getGet('sub')) {
+            $_GET['sub'] = $sub;
+        }
+        return $this->index();
+    }
+
+    /**
+     * RIP standalone page -> renders routing index with tab=rip.
+     */
+    public function ripPage(): string|\CodeIgniter\HTTP\ResponseInterface
+    {
+        $_GET['tab'] = 'rip';
+        if ($sub = $this->request->getGet('sub')) {
+            $_GET['sub'] = $sub;
+        }
+        return $this->index();
+    }
+
+    /**
+     * IS-IS standalone page -> renders routing index with tab=isis.
+     */
+    public function isisPage(): string|\CodeIgniter\HTTP\ResponseInterface
+    {
+        $_GET['tab'] = 'isis';
+        if ($sub = $this->request->getGet('sub')) {
+            $_GET['sub'] = $sub;
+        }
+        return $this->index();
+    }
+
+    /**
+     * BFD standalone page -> renders routing index with tab=bfd.
+     */
+    public function bfdPage(): string|\CodeIgniter\HTTP\ResponseInterface
+    {
+        $_GET['tab'] = 'bfd';
+        return $this->index();
+    }
+
+    /**
+     * VRF/PBR standalone page -> renders routing index with tab=vrf.
+     */
+    public function vrfPage(): string|\CodeIgniter\HTTP\ResponseInterface
+    {
+        $_GET['tab'] = 'vrf';
+        if ($sub = $this->request->getGet('sub')) {
+            $_GET['sub'] = $sub;
+        }
+        return $this->index();
+    }
+
+    /**
+     * Multi-WAN standalone page -> renders routing index with tab=multiwan.
+     */
+    public function multiwanPage(): string|\CodeIgniter\HTTP\ResponseInterface
+    {
+        $_GET['tab'] = 'multiwan';
+        if ($sub = $this->request->getGet('sub')) {
+            $_GET['sub'] = $sub;
+        }
+        return $this->index();
+    }
+
+    /**
+     * Download compiled FRR configuration as frr.conf attachment.
+     */
+    public function downloadFrrConf(): \CodeIgniter\HTTP\ResponseInterface
+    {
+        $db   = \Config\Database::connect();
+        $conf = (new \App\Libraries\FrrCompiler($db))->compile();
+
+        return $this->response
+            ->setHeader('Content-Type', 'text/plain; charset=utf-8')
+            ->setHeader('Content-Disposition', 'attachment; filename="frr.conf"')
+            ->setBody($conf);
+    }
+
+    /**
+     * Reload FRR routing service and flash status.
+     */
+    public function reloadFrr(): \CodeIgniter\HTTP\RedirectResponse
+    {
+        [$key, $message] = $this->ipcFlash($this->applier()->frr('all'), 'FRRouting configuration applied and daemon reloaded.', 'FRR reload');
+        return redirect()->to(base_url('routing?tab=frr'))->with($key, $message);
     }
 }

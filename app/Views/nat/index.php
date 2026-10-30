@@ -313,9 +313,35 @@ $__schedTip = static function (string $n) use ($__schedMap): string {
         <div class="rt-field">
           <label>External Interface</label>
           <select name="interface_id" id="dnatIface" data-fw-iface>
-            <?php foreach ($interfaces as $iface): ?>
-              <option value="<?= esc($iface['id']) ?>"<?= \App\Libraries\ObjectTip::iface($iface) ?>><?= esc($iface['name']) ?> (<?= esc($iface['physical_device'] ?: $iface['name']) ?>)</option>
-            <?php endforeach; ?>
+            <option value="any">any (All Interfaces)</option>
+            <?php if (!empty($physicalInterfaces)): ?>
+              <optgroup label="Physical &amp; System Interfaces">
+                <?php foreach ($physicalInterfaces as $iface): ?>
+                  <option value="<?= esc($iface['id']) ?>"<?= \App\Libraries\ObjectTip::iface($iface) ?>><?= esc($iface['name']) ?> (<?= esc($iface['physical_device'] ?: $iface['name']) ?>)</option>
+                <?php endforeach; ?>
+              </optgroup>
+            <?php endif; ?>
+            <?php if (!empty($vpnInterfaces['wireguard'])): ?>
+              <optgroup label="WireGuard VPN Tunnels">
+                <?php foreach ($vpnInterfaces['wireguard'] as $wg): ?>
+                  <option value="<?= esc($wg['interface']) ?>"><?= esc($wg['name'] ?? $wg['interface']) ?> (<?= esc($wg['interface']) ?>) <?= !empty($wg['addresses']) ? '[' . esc($wg['addresses']) . ']' : '' ?></option>
+                <?php endforeach; ?>
+              </optgroup>
+            <?php endif; ?>
+            <?php if (!empty($vpnInterfaces['openvpn'])): ?>
+              <optgroup label="OpenVPN Tunnels">
+                <?php foreach ($vpnInterfaces['openvpn'] as $ovpn): ?>
+                  <option value="<?= esc($ovpn['interface']) ?>"><?= esc($ovpn['name'] ?? $ovpn['interface']) ?> (<?= esc($ovpn['interface']) ?>)</option>
+                <?php endforeach; ?>
+              </optgroup>
+            <?php endif; ?>
+            <?php if (!empty($vpnInterfaces['ipsec'])): ?>
+              <optgroup label="IPsec VTI Tunnels">
+                <?php foreach ($vpnInterfaces['ipsec'] as $ipsec): ?>
+                  <option value="<?= esc($ipsec['interface']) ?>"><?= esc($ipsec['name'] ?? $ipsec['interface']) ?> (<?= esc($ipsec['interface']) ?>)</option>
+                <?php endforeach; ?>
+              </optgroup>
+            <?php endif; ?>
           </select>
         </div>
         <div class="rt-grid-2">
@@ -376,9 +402,34 @@ $__schedTip = static function (string $n) use ($__schedMap): string {
         <div class="rt-field">
           <label>Egress Interface</label>
           <select name="interface_id" id="snatPoolIface" data-fw-iface>
-            <?php foreach ($interfaces as $iface): ?>
-              <option value="<?= esc($iface['id']) ?>"<?= \App\Libraries\ObjectTip::iface($iface) ?>><?= esc($iface['name']) ?> (<?= esc($iface['physical_device'] ?: $iface['name']) ?>)</option>
-            <?php endforeach; ?>
+            <?php if (!empty($physicalInterfaces)): ?>
+              <optgroup label="Physical &amp; System Interfaces">
+                <?php foreach ($physicalInterfaces as $iface): ?>
+                  <option value="<?= esc($iface['id']) ?>"<?= \App\Libraries\ObjectTip::iface($iface) ?>><?= esc($iface['name']) ?> (<?= esc($iface['physical_device'] ?: $iface['name']) ?>)</option>
+                <?php endforeach; ?>
+              </optgroup>
+            <?php endif; ?>
+            <?php if (!empty($vpnInterfaces['wireguard'])): ?>
+              <optgroup label="WireGuard VPN Tunnels">
+                <?php foreach ($vpnInterfaces['wireguard'] as $wg): ?>
+                  <option value="<?= esc($wg['interface']) ?>"><?= esc($wg['name'] ?? $wg['interface']) ?> (<?= esc($wg['interface']) ?>) <?= !empty($wg['addresses']) ? '[' . esc($wg['addresses']) . ']' : '' ?></option>
+                <?php endforeach; ?>
+              </optgroup>
+            <?php endif; ?>
+            <?php if (!empty($vpnInterfaces['openvpn'])): ?>
+              <optgroup label="OpenVPN Tunnels">
+                <?php foreach ($vpnInterfaces['openvpn'] as $ovpn): ?>
+                  <option value="<?= esc($ovpn['interface']) ?>"><?= esc($ovpn['name'] ?? $ovpn['interface']) ?> (<?= esc($ovpn['interface']) ?>)</option>
+                <?php endforeach; ?>
+              </optgroup>
+            <?php endif; ?>
+            <?php if (!empty($vpnInterfaces['ipsec'])): ?>
+              <optgroup label="IPsec VTI Tunnels">
+                <?php foreach ($vpnInterfaces['ipsec'] as $ipsec): ?>
+                  <option value="<?= esc($ipsec['interface']) ?>"><?= esc($ipsec['name'] ?? $ipsec['interface']) ?> (<?= esc($ipsec['interface']) ?>)</option>
+                <?php endforeach; ?>
+              </optgroup>
+            <?php endif; ?>
           </select>
         </div>
         <div class="rt-grid-2">
@@ -409,9 +460,34 @@ $__schedTip = static function (string $n) use ($__schedMap): string {
         <div class="rt-field">
           <label>Interface</label>
           <select name="interface_id" id="nptIface" data-fw-iface>
-            <?php foreach ($interfaces as $iface): ?>
-              <option value="<?= esc($iface['id']) ?>"<?= \App\Libraries\ObjectTip::iface($iface) ?>><?= esc($iface['name']) ?> (<?= esc($iface['physical_device'] ?: $iface['name']) ?>)</option>
-            <?php endforeach; ?>
+            <?php if (!empty($physicalInterfaces)): ?>
+              <optgroup label="Physical &amp; System Interfaces">
+                <?php foreach ($physicalInterfaces as $iface): ?>
+                  <option value="<?= esc($iface['id']) ?>"<?= \App\Libraries\ObjectTip::iface($iface) ?>><?= esc($iface['name']) ?> (<?= esc($iface['physical_device'] ?: $iface['name']) ?>)</option>
+                <?php endforeach; ?>
+              </optgroup>
+            <?php endif; ?>
+            <?php if (!empty($vpnInterfaces['wireguard'])): ?>
+              <optgroup label="WireGuard VPN Tunnels">
+                <?php foreach ($vpnInterfaces['wireguard'] as $wg): ?>
+                  <option value="<?= esc($wg['interface']) ?>"><?= esc($wg['name'] ?? $wg['interface']) ?> (<?= esc($wg['interface']) ?>)</option>
+                <?php endforeach; ?>
+              </optgroup>
+            <?php endif; ?>
+            <?php if (!empty($vpnInterfaces['openvpn'])): ?>
+              <optgroup label="OpenVPN Tunnels">
+                <?php foreach ($vpnInterfaces['openvpn'] as $ovpn): ?>
+                  <option value="<?= esc($ovpn['interface']) ?>"><?= esc($ovpn['name'] ?? $ovpn['interface']) ?> (<?= esc($ovpn['interface']) ?>)</option>
+                <?php endforeach; ?>
+              </optgroup>
+            <?php endif; ?>
+            <?php if (!empty($vpnInterfaces['ipsec'])): ?>
+              <optgroup label="IPsec VTI Tunnels">
+                <?php foreach ($vpnInterfaces['ipsec'] as $ipsec): ?>
+                  <option value="<?= esc($ipsec['interface']) ?>"><?= esc($ipsec['name'] ?? $ipsec['interface']) ?> (<?= esc($ipsec['interface']) ?>)</option>
+                <?php endforeach; ?>
+              </optgroup>
+            <?php endif; ?>
           </select>
         </div>
         <div class="rt-field"><label>Internal Prefix *</label><input type="text" name="internal_prefix" id="nptInternal" required placeholder="fd00:abcd:1::/64"></div>
@@ -446,9 +522,7 @@ function defaultToWan(selectId) {
   if (sel && [...sel.options].some(o => o.value === 'wan')) sel.value = 'wan';
 }
 
-document.querySelectorAll('.rt-modal-backdrop').forEach(function(m) {
-  m.addEventListener('click', function(e) { if (e.target === this) this.classList.remove('active'); });
-});
+
 
 function openDnatModal() {
   document.getElementById('dnatModalTitle').innerText = 'New Destination NAT';
@@ -460,11 +534,28 @@ function openDnatModal() {
   defaultToWan('dnatIface');
   openModal('dnatModal');
 }
+function setSelectIface(selId, val) {
+  var sel = document.getElementById(selId);
+  if (!sel || !val) return;
+  var found = false;
+  for (var i = 0; i < sel.options.length; i++) {
+    if (sel.options[i].value.toLowerCase() === String(val).toLowerCase()) {
+      sel.selectedIndex = i;
+      found = true;
+      break;
+    }
+  }
+  if (!found && val !== 'any') {
+    sel.add(new Option(val + ' (Virtual/Tunnel)', val, true, true));
+    sel.value = val;
+  }
+}
+
 function editDnat(dnat) {
   document.getElementById('dnatModalTitle').innerText = 'Edit Destination NAT: ' + dnat.name;
   document.getElementById('dnatForm').action = '<?= base_url('nat/dnat') ?>/' + encodeURIComponent(dnat.id) + '/update';
   document.getElementById('dnatName').value = dnat.name || '';
-  document.getElementById('dnatIface').value = dnat.interface_id || 'wan';
+  setSelectIface('dnatIface', dnat.interface_id || 'wan');
   document.getElementById('dnatExtIp').value = dnat.external_ip || '';
   document.getElementById('dnatExtPort').value = dnat.external_port || '';
   document.getElementById('dnatMappedIp').value = dnat.mapped_ip || '';
@@ -488,7 +579,7 @@ function editSnatPool(snatPool) {
   document.getElementById('snatPoolModalTitle').innerText = 'Edit SNAT Pool: ' + snatPool.name;
   document.getElementById('snatPoolForm').action = '<?= base_url('nat/snat-pools') ?>/' + encodeURIComponent(snatPool.id) + '/update';
   document.getElementById('snatPoolName').value = snatPool.name || '';
-  document.getElementById('snatPoolIface').value = snatPool.interface_id || 'wan';
+  setSelectIface('snatPoolIface', snatPool.interface_id || 'wan');
   document.getElementById('snatPoolStart').value = snatPool.start_ip || '';
   document.getElementById('snatPoolEnd').value = snatPool.end_ip || '';
   document.getElementById('snatPoolComment').value = snatPool.comment || '';

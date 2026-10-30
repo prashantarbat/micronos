@@ -76,6 +76,8 @@ final class CronPageTest extends BaseTestCase
 
     public function testTheRunHistoryDoesNotInventABackupRun(): void
     {
+        // The illustrative history exists only for the development client.
+        Services::injectMock('ipc', (new FakeIpcClient())->asDevelopmentMock());
         $result = $this->withSession($this->session())->get('cron/logs');
 
         $result->assertStatus(200);
@@ -89,6 +91,36 @@ final class CronPageTest extends BaseTestCase
         // not passing on an empty response.
         $entries = json_decode($body, true)['entries'] ?? [];
         $this->assertNotEmpty($entries, 'the run-history fallback returned nothing to inspect');
+    }
+
+    /** On a live appliance with no daemon answer, nothing is invented and the reason is given. */
+    public function testALiveApplianceWithoutTheDaemonShowsNoInventedRuns(): void
+    {
+        Services::injectMock('ipc', new FakeIpcClient());
+
+        $data = json_decode((string) $this->withSession($this->session())->get('cron/logs')->getJSON(), true);
+
+        $this->assertSame([], $data['entries']);
+        $this->assertNotEmpty($data['unavailable']);
+        $this->assertFalse($data['mock']);
+    }
+
+    /** Real journal lines from the daemon are parsed into run-history rows. */
+    public function testDaemonJournalLinesBecomeRunHistory(): void
+    {
+        Services::injectMock('ipc', new FakeIpcClient([
+            'system.cron_logs' => ['result' => ['success' => true, 'logs' => [
+                '2026-10-14T03:15:01+0000 micron-os CRON[4120]: (www-data) CMD (cd /usr/local/micron && /usr/bin/php spark micron:sync-services --geo)',
+            ]], 'error' => null],
+        ]));
+
+        $data  = json_decode((string) $this->withSession($this->session())->get('cron/logs')->getJSON(), true);
+        $entry = $data['entries'][0] ?? [];
+
+        $this->assertSame('www-data', $entry['user'] ?? null);
+        $this->assertSame(4120, $entry['pid'] ?? null);
+        $this->assertStringContainsString('micron:sync-services', $entry['command'] ?? '');
+        $this->assertNull($data['unavailable']);
     }
 
     private function session(): array

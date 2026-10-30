@@ -1,0 +1,811 @@
+#!/usr/bin/env python3
+"""
+micron-terminald — browser terminal service for Micron OS.
+
+Real Linux shells on server-side pseudo-terminals, streamed to the Web UI's
+xterm.js over a WebSocket. Python standard library only (it ships on the ISO
+and must work offline).
+
+Trust model
+-----------
+* The service never decides *who* may have a shell. The management plane
+  (PHP, which owns users, roles and sessions) asks for a one-time ticket over
+  the control socket /run/micron/terminal.sock (mode 0660 root:www-data,
+  SO_PEERCRED-checked). A ticket names the Web UI user, the privilege level
+  (standard | admin), the browser Origin, the client address and — for a
+  reattach — the session it may attach to. It is valid once, for a few
+  seconds.
+* The WebSocket listener binds 127.0.0.1 only; Apache proxies /terminal/ws to
+  it. A connection must present an unused ticket, the exact Origin the ticket
+  was issued for, and come from the same client address (X-Forwarded-For as
+  set by the local proxy). Anything else is refused and audited.
+* Standard sessions run as the unprivileged account `micron-term` with
+  per-process resource limits. Admin sessions run as root and have a hard
+  lifetime. Neither is ever started from a browser-supplied command: the
+  shell is the account's login shell, nothing else.
+* Keystrokes and output are never logged. The audit log records who, when,
+  which level, how it ended, and every refusal.
+
+Protocol (WebSocket, RFC 6455)
+------------------------------
+browser → server  text  {"t":"i","d":"<input>"} | {"t":"r","c":cols,"r":rows} | {"t":"p"}
+server → browser  binary  terminal output (raw bytes)
+                  text    {"t":"hello",...} | {"t":"exit","code":n} | {"t":"closed","reason":...}
+                          | {"t":"notice","msg":...} | {"t":"pong"}
+"""
+from __future__ import annotations
+
+import asyncio
+import base64
+import fcntl
+import grp
+import hashlib
+import ipaddress
+import json
+import logging
+import os
+import pty
+import pwd
+import resource
+import secrets
+import signal
+import socket
+import struct
+import sys
+import termios
+import time
+from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import parse_qs, urlsplit
+
+VERSION = "1.0.0"
+CONFIG_PATH = os.environ.get("MICRON_TERMINAL_CONFIG", "/etc/micron/terminal.json")
+
+DEFAULTS: Dict[str, Any] = {
+    "listen_host": "127.0.0.1",
+    "listen_port": 7681,
+    "control_socket": "/run/micron/terminal.sock",
+    "control_group": "www-data",
+    "audit_log": "/var/log/micron/terminal-audit.log",
+    "standard_user": "micron-term",
+    "shell": "/bin/bash",
+    "max_sessions_per_user": 3,
+    "max_sessions_total": 16,
+    "ticket_ttl": 30,
+    "idle_timeout": 900,            # seconds without keyboard input (standard)
+    "admin_idle_timeout": 600,      # ... (admin)
+    "max_lifetime": 28800,          # hard cap, standard (8 h)
+    "admin_max_lifetime": 3600,     # hard cap, admin (1 h)
+    "detach_grace": 120,            # a closed tab can reattach within this
+    "replay_bytes": 65536,          # output kept for a reattach
+    "max_frame": 1048576,
+    "max_input": 65536,
+    "rlimit_nproc": 256,            # standard sessions (per account)
+    "rlimit_as_mb": 2048,
+    "rlimit_fsize_mb": 1024,
+    "rlimit_nofile": 1024,
+}
+
+WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+LEVELS = ("standard", "admin")
+
+log = logging.getLogger("micron-terminald")
+
+
+def strict_loads(text: str) -> Any:
+    def reject(name: str) -> Any:
+        raise ValueError(f"non-standard JSON constant {name}")
+    return json.loads(text, parse_constant=reject)
+
+
+def load_config(path: str = CONFIG_PATH) -> Dict[str, Any]:
+    cfg = dict(DEFAULTS)
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            data = strict_loads(fh.read())
+        if isinstance(data, dict):
+            for k, v in data.items():
+                if k in DEFAULTS and type(v) is type(DEFAULTS[k]):
+                    cfg[k] = v
+    except FileNotFoundError:
+        pass
+    except (OSError, ValueError) as exc:
+        log.warning("ignoring %s: %s", path, exc)
+    return cfg
+
+
+# =============================================================================
+# Audit
+# =============================================================================
+class Audit:
+    """Append-only JSON lines (0600, root). No terminal contents, ever."""
+
+    def __init__(self, path: str):
+        self.path = path
+        try:
+            os.makedirs(os.path.dirname(path), mode=0o750, exist_ok=True)
+        except OSError:
+            pass
+
+    def __call__(self, event: str, **fields: Any) -> None:
+        rec = {"ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "event": event}
+        rec.update({k: v for k, v in fields.items() if v is not None})
+        line = json.dumps(rec, sort_keys=True, default=str)
+        log.info("audit %s", line)
+        try:
+            fd = os.open(self.path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+            try:
+                os.write(fd, (line + "\n").encode("utf-8"))
+            finally:
+                os.close(fd)
+        except OSError as exc:
+            log.error("audit write failed: %s", exc)
+
+
+# =============================================================================
+# Validation helpers
+# =============================================================================
+def valid_user_id(v: Any) -> bool:
+    return isinstance(v, (str, int)) and 0 < len(str(v)) <= 64 and str(v).replace("-", "").replace("_", "").isalnum()
+
+
+def valid_username(v: Any) -> bool:
+    return isinstance(v, str) and 0 < len(v) <= 64 and all(c.isalnum() or c in "._@-" for c in v)
+
+
+def normalise_origin(v: Any) -> Optional[str]:
+    if not isinstance(v, str) or len(v) > 255:
+        return None
+    parts = urlsplit(v.strip())
+    if parts.scheme not in ("http", "https") or not parts.hostname or parts.path not in ("", "/") or parts.query:
+        return None
+    port = parts.port
+    default = 443 if parts.scheme == "https" else 80
+    host = parts.hostname.lower()
+    if ":" in host:
+        host = f"[{host}]"
+    return f"{parts.scheme}://{host}" + (f":{port}" if port and port != default else "")
+
+
+def valid_ip(v: Any) -> bool:
+    try:
+        ipaddress.ip_address(str(v))
+        return True
+    except ValueError:
+        return False
+
+
+# =============================================================================
+# Sessions
+# =============================================================================
+class Session:
+    def __init__(self, sid: str, user_id: str, username: str, level: str, pid: int, fd: int):
+        self.id = sid
+        self.user_id = user_id
+        self.username = username
+        self.level = level
+        self.pid = pid
+        self.fd = fd
+        self.created = time.time()
+        self.last_input = time.time()
+        self.detached_at: Optional[float] = None
+        self.ws: Optional["WebSocket"] = None
+        self.replay = bytearray()
+        self.cols, self.rows = 80, 24
+        self.closed = False
+        self.exit_code: Optional[int] = None
+
+    def info(self) -> Dict[str, Any]:
+        return {"id": self.id, "user_id": self.user_id, "username": self.username, "level": self.level,
+                "pid": self.pid, "created": int(self.created), "last_input": int(self.last_input),
+                "attached": self.ws is not None, "cols": self.cols, "rows": self.rows}
+
+
+class WebSocket:
+    """Minimal RFC 6455 server endpoint (no extensions, server never masks)."""
+
+    def __init__(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter, max_frame: int):
+        self.reader = reader
+        self.writer = writer
+        self.max_frame = max_frame
+        self.closed = False
+        self.last_pong = time.time()
+
+    async def _send(self, opcode: int, payload: bytes) -> None:
+        if self.closed:
+            return
+        n = len(payload)
+        if n < 126:
+            head = struct.pack("!BB", 0x80 | opcode, n)
+        elif n < 65536:
+            head = struct.pack("!BBH", 0x80 | opcode, 126, n)
+        else:
+            head = struct.pack("!BBQ", 0x80 | opcode, 127, n)
+        try:
+            self.writer.write(head + payload)
+            if self.writer.transport.get_write_buffer_size() > 1 << 20:
+                await self.writer.drain()
+        except (ConnectionError, RuntimeError):
+            self.closed = True
+
+    async def send_text(self, obj: Dict[str, Any]) -> None:
+        await self._send(0x1, json.dumps(obj).encode("utf-8"))
+
+    async def send_binary(self, data: bytes) -> None:
+        await self._send(0x2, data)
+
+    async def ping(self) -> None:
+        await self._send(0x9, b"mtd")
+
+    async def close(self, code: int = 1000, reason: str = "") -> None:
+        if self.closed:
+            return
+        await self._send(0x8, struct.pack("!H", code) + reason.encode("utf-8")[:120])
+        self.closed = True
+        try:
+            self.writer.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+    async def recv(self) -> Optional[Tuple[int, bytes]]:
+        """Next complete data message (opcode, payload); None when closed."""
+        message = bytearray()
+        msg_op = None
+        while True:
+            try:
+                b1, b2 = await self.reader.readexactly(2)
+            except (asyncio.IncompleteReadError, ConnectionError):
+                return None
+            fin, opcode, masked, length = b1 & 0x80, b1 & 0x0F, b2 & 0x80, b2 & 0x7F
+            if b1 & 0x70 or not masked:          # RSV bits / unmasked client frame
+                await self.close(1002, "protocol error")
+                return None
+            if length == 126:
+                length = struct.unpack("!H", await self.reader.readexactly(2))[0]
+            elif length == 127:
+                length = struct.unpack("!Q", await self.reader.readexactly(8))[0]
+            if length > self.max_frame or len(message) + length > self.max_frame:
+                await self.close(1009, "message too big")
+                return None
+            mask = await self.reader.readexactly(4)
+            data = bytearray(await self.reader.readexactly(length))
+            for i in range(length):
+                data[i] ^= mask[i & 3]
+            if opcode == 0x8:
+                await self.close(1000)
+                return None
+            if opcode == 0x9:
+                await self._send(0xA, bytes(data[:125]))
+                continue
+            if opcode == 0xA:
+                self.last_pong = time.time()
+                continue
+            if opcode in (0x1, 0x2):
+                if msg_op is not None:
+                    await self.close(1002, "protocol error")
+                    return None
+                msg_op = opcode
+            elif opcode == 0x0:
+                if msg_op is None:
+                    await self.close(1002, "protocol error")
+                    return None
+            else:
+                await self.close(1002, "protocol error")
+                return None
+            message += data
+            if fin:
+                return msg_op, bytes(message)
+
+
+class TerminalService:
+    def __init__(self, cfg: Dict[str, Any]):
+        self.cfg = cfg
+        self.audit = Audit(cfg["audit_log"])
+        self.sessions: Dict[str, Session] = {}
+        self.tickets: Dict[str, Dict[str, Any]] = {}
+        self.loop: Optional[asyncio.AbstractEventLoop] = None
+        self.started = time.time()
+
+    # ------------------------------------------------------------ tickets
+    def issue(self, p: Dict[str, Any]) -> Dict[str, Any]:
+        uid, uname, level = p.get("user_id"), p.get("username"), p.get("level", "standard")
+        origin, client = normalise_origin(p.get("origin")), p.get("client_ip")
+        if not valid_user_id(uid) or not valid_username(uname):
+            return {"success": False, "error": "invalid user"}
+        if level not in LEVELS:
+            return {"success": False, "error": "invalid level"}
+        if origin is None:
+            return {"success": False, "error": "invalid origin"}
+        if not valid_ip(client):
+            return {"success": False, "error": "invalid client address"}
+        uid = str(uid)
+        attach = p.get("attach")
+        if attach is not None:
+            s = self.sessions.get(str(attach))
+            if s is None or s.closed:
+                return {"success": False, "error": "no such session"}
+            if s.user_id != uid:
+                self.audit("attach_denied", user_id=uid, username=uname, session=str(attach), reason="not the owner")
+                return {"success": False, "error": "no such session"}
+            if s.level != level:
+                return {"success": False, "error": "privilege level does not match the session"}
+        else:
+            mine = [s for s in self.sessions.values() if s.user_id == uid and not s.closed]
+            if len(mine) >= self.cfg["max_sessions_per_user"]:
+                self.audit("limit_reached", user_id=uid, username=uname, limit="per_user", sessions=len(mine))
+                return {"success": False, "error": f"session limit reached ({self.cfg['max_sessions_per_user']} per user); close one first",
+                        "code": "limit"}
+            live = [s for s in self.sessions.values() if not s.closed]
+            if len(live) >= self.cfg["max_sessions_total"]:
+                self.audit("limit_reached", user_id=uid, username=uname, limit="total", sessions=len(live))
+                return {"success": False, "error": "the appliance has reached its terminal session limit", "code": "limit"}
+        self._expire_tickets()
+        ticket = secrets.token_urlsafe(32)
+        self.tickets[ticket] = {"user_id": uid, "username": uname, "level": level, "origin": origin,
+                                "client_ip": str(client), "attach": str(attach) if attach is not None else None,
+                                "expires": time.time() + self.cfg["ticket_ttl"]}
+        self.audit("ticket_issued", user_id=uid, username=uname, level=level, client_ip=client,
+                   attach=str(attach) if attach is not None else None)
+        return {"success": True, "ticket": ticket, "expires_in": self.cfg["ticket_ttl"]}
+
+    def _expire_tickets(self) -> None:
+        now = time.time()
+        for t in [t for t, v in self.tickets.items() if v["expires"] < now]:
+            del self.tickets[t]
+
+    def consume(self, ticket: str) -> Optional[Dict[str, Any]]:
+        self._expire_tickets()
+        return self.tickets.pop(ticket, None)
+
+    # ----------------------------------------------------------- sessions
+    def _child_env(self, level: str, pw: Any, t: Dict[str, Any]) -> Dict[str, str]:
+        return {
+            "TERM": "xterm-256color", "COLORTERM": "truecolor", "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8",
+            "HOME": pw.pw_dir, "USER": pw.pw_name, "LOGNAME": pw.pw_name, "SHELL": self.cfg["shell"],
+            "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+                    if level == "admin" else "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+            "MICRON_TERMINAL": "1", "MICRON_TERMINAL_LEVEL": level,
+            "MICRON_TERMINAL_WEBUSER": t["username"],
+        }
+
+    def spawn(self, t: Dict[str, Any]) -> Session:
+        level = t["level"]
+        pw = pwd.getpwnam("root" if level == "admin" else self.cfg["standard_user"])
+        env = self._child_env(level, pw, t)
+        shell = self.cfg["shell"] if os.path.exists(self.cfg["shell"]) else "/bin/sh"
+        pid, fd = pty.fork()
+        if pid == 0:  # child
+            try:
+                os.closerange(3, 65536)
+                if level != "admin":
+                    mb = 1024 * 1024
+                    for lim, val in ((resource.RLIMIT_NPROC, self.cfg["rlimit_nproc"]),
+                                     (resource.RLIMIT_AS, self.cfg["rlimit_as_mb"] * mb),
+                                     (resource.RLIMIT_FSIZE, self.cfg["rlimit_fsize_mb"] * mb),
+                                     (resource.RLIMIT_NOFILE, self.cfg["rlimit_nofile"]),
+                                     (resource.RLIMIT_CORE, 0)):
+                        resource.setrlimit(lim, (val, val))
+                    os.initgroups(pw.pw_name, pw.pw_gid)
+                    os.setgid(pw.pw_gid)
+                    os.setuid(pw.pw_uid)
+                    if os.getuid() == 0 or os.geteuid() == 0:
+                        os._exit(126)
+                try:
+                    os.chdir(pw.pw_dir)
+                except OSError:
+                    os.chdir("/")
+                os.umask(0o022 if level == "admin" else 0o077)
+                os.execve(shell, [f"-{os.path.basename(shell)}"], env)
+            except BaseException:  # noqa: BLE001
+                os._exit(127)
+        sid = secrets.token_hex(8)
+        s = Session(sid, t["user_id"], t["username"], level, pid, fd)
+        fcntl.fcntl(fd, fcntl.F_SETFL, fcntl.fcntl(fd, fcntl.F_GETFL) | os.O_NONBLOCK)
+        self.sessions[sid] = s
+        self.loop.add_reader(fd, self._on_output, s)
+        self.audit("session_start" if level == "standard" else "admin_session_start", session=sid,
+                   user_id=s.user_id, username=s.username, level=level, pid=pid, account=pw.pw_name)
+        return s
+
+    def _on_output(self, s: Session) -> None:
+        try:
+            data = os.read(s.fd, 65536)
+        except BlockingIOError:
+            return
+        except OSError:
+            data = b""
+        if not data:
+            self.loop.remove_reader(s.fd)
+            asyncio.ensure_future(self.end(s, "shell exited"))
+            return
+        s.replay += data
+        if len(s.replay) > self.cfg["replay_bytes"]:
+            del s.replay[: len(s.replay) - self.cfg["replay_bytes"]]
+        if s.ws is not None and not s.ws.closed:
+            asyncio.ensure_future(s.ws.send_binary(data))
+            # Back-pressure: a slow browser pauses the shell instead of
+            # growing the buffer without bound.
+            if s.ws.writer.transport.get_write_buffer_size() > 4 << 20:
+                self.loop.remove_reader(s.fd)
+                asyncio.ensure_future(self._resume_when_drained(s))
+
+    async def _resume_when_drained(self, s: Session) -> None:
+        try:
+            if s.ws is not None:
+                await s.ws.writer.drain()
+        except (ConnectionError, RuntimeError):
+            pass
+        if not s.closed:
+            self.loop.add_reader(s.fd, self._on_output, s)
+
+    def resize(self, s: Session, cols: Any, rows: Any) -> bool:
+        if not isinstance(cols, int) or not isinstance(rows, int) or not (2 <= cols <= 500 and 2 <= rows <= 300):
+            return False
+        s.cols, s.rows = cols, rows
+        try:
+            fcntl.ioctl(s.fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
+        except OSError:
+            return False
+        return True
+
+    async def end(self, s: Session, reason: str, code: int = 1000) -> None:
+        if s.closed:
+            return
+        s.closed = True
+        try:
+            self.loop.remove_reader(s.fd)
+        except Exception:  # noqa: BLE001
+            pass
+        # Hang up the whole session (process group), then make sure.
+        for sig in (signal.SIGHUP, signal.SIGTERM):
+            try:
+                os.killpg(s.pid, sig)
+            except ProcessLookupError:
+                break
+            except PermissionError:
+                pass
+        status = None
+        for _ in range(30):
+            try:
+                pid, st = os.waitpid(s.pid, os.WNOHANG)
+            except ChildProcessError:
+                break
+            if pid:
+                status = st
+                break
+            await asyncio.sleep(0.1)
+        else:
+            try:
+                os.killpg(s.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            try:
+                _, status = os.waitpid(s.pid, 0)
+            except ChildProcessError:
+                pass
+        if status is not None:
+            s.exit_code = os.waitstatus_to_exitcode(status)
+        try:
+            os.close(s.fd)
+        except OSError:
+            pass
+        self.sessions.pop(s.id, None)
+        if s.ws is not None:
+            if reason == "shell exited":
+                await s.ws.send_text({"t": "exit", "code": s.exit_code})
+            await s.ws.send_text({"t": "closed", "reason": reason})
+            await s.ws.close(code, reason[:100])
+        unexpected = reason == "shell exited" and s.exit_code not in (0, None) and s.exit_code != -1
+        self.audit("admin_session_end" if s.level == "admin" else "session_end", session=s.id, user_id=s.user_id,
+                   username=s.username, level=s.level, reason=reason, exit_code=s.exit_code,
+                   duration=int(time.time() - s.created), unexpected_exit=unexpected or None)
+
+    async def reaper(self) -> None:
+        """Idle, lifetime and detached-session expiry; WebSocket keep-alive."""
+        while True:
+            await asyncio.sleep(5)
+            now = time.time()
+            self._expire_tickets()
+            for s in list(self.sessions.values()):
+                admin = s.level == "admin"
+                idle = self.cfg["admin_idle_timeout"] if admin else self.cfg["idle_timeout"]
+                life = self.cfg["admin_max_lifetime"] if admin else self.cfg["max_lifetime"]
+                if now - s.created > life:
+                    await self.end(s, "maximum session lifetime reached", 4001)
+                elif now - s.last_input > idle:
+                    await self.end(s, "idle timeout", 4002)
+                elif s.ws is None and s.detached_at and now - s.detached_at > self.cfg["detach_grace"]:
+                    await self.end(s, "browser did not reconnect")
+                elif s.ws is not None and not s.ws.closed:
+                    if now - s.ws.last_pong > 75:
+                        self.audit("connection_timeout", session=s.id, user_id=s.user_id, username=s.username)
+                        await s.ws.close(1001, "keep-alive timeout")
+                    else:
+                        await s.ws.ping()
+
+    # ---------------------------------------------------------- WebSocket
+    async def handle_http(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        peer = (writer.get_extra_info("peername") or ("?",))[0]
+        try:
+            head = await asyncio.wait_for(reader.readuntil(b"\r\n\r\n"), timeout=10)
+        except (asyncio.TimeoutError, asyncio.IncompleteReadError, asyncio.LimitOverrunError, ConnectionError):
+            writer.close()
+            return
+        lines = head.decode("latin-1").split("\r\n")
+        try:
+            method, target, _ = lines[0].split(" ", 2)
+        except ValueError:
+            return self._http_error(writer, 400, "bad request")
+        headers: Dict[str, str] = {}
+        for line in lines[1:]:
+            if ":" in line:
+                k, v = line.split(":", 1)
+                headers[k.strip().lower()] = v.strip()
+        url = urlsplit(target)
+        if method != "GET" or url.path not in ("/ws", "/terminal/ws"):
+            return self._http_error(writer, 404, "not found")
+        if headers.get("upgrade", "").lower() != "websocket" or "sec-websocket-key" not in headers:
+            return self._http_error(writer, 426, "websocket required")
+
+        # Client address: the proxy's X-Forwarded-For when the proxy is local.
+        client = peer
+        if peer in ("127.0.0.1", "::1") and headers.get("x-forwarded-for"):
+            client = headers["x-forwarded-for"].split(",")[-1].strip()
+
+        qs = parse_qs(url.query)
+        ticket = (qs.get("ticket") or [""])[0]
+        t = self.consume(ticket) if ticket else None
+        if t is None:
+            self.audit("auth_failed", reason="missing, used or expired ticket", client_ip=client)
+            return self._http_error(writer, 403, "ticket required")
+        origin = normalise_origin(headers.get("origin", ""))
+        if origin != t["origin"]:
+            self.audit("auth_failed", reason="origin mismatch", expected=t["origin"], got=headers.get("origin"),
+                       user_id=t["user_id"], username=t["username"], client_ip=client)
+            return self._http_error(writer, 403, "origin not allowed")
+        if client != t["client_ip"]:
+            self.audit("auth_failed", reason="client address mismatch", expected=t["client_ip"], got=client,
+                       user_id=t["user_id"], username=t["username"])
+            return self._http_error(writer, 403, "client mismatch")
+
+        accept = base64.b64encode(hashlib.sha1((headers["sec-websocket-key"] + WS_GUID).encode()).digest()).decode()
+        writer.write(("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
+                      f"Sec-WebSocket-Accept: {accept}\r\n\r\n").encode())
+        ws = WebSocket(reader, writer, self.cfg["max_frame"])
+        await self.run_session(ws, t, client)
+
+    @staticmethod
+    def _http_error(writer: asyncio.StreamWriter, code: int, text: str) -> None:
+        body = text.encode()
+        writer.write(f"HTTP/1.1 {code} {text}\r\nContent-Type: text/plain\r\nContent-Length: {len(body)}\r\n"
+                     "Connection: close\r\n\r\n".encode() + body)
+        writer.close()
+
+    async def run_session(self, ws: WebSocket, t: Dict[str, Any], client: str) -> None:
+        s: Optional[Session] = None
+        try:
+            if t["attach"]:
+                s = self.sessions.get(t["attach"])
+                if s is None or s.closed or s.user_id != t["user_id"]:
+                    await ws.send_text({"t": "closed", "reason": "the session no longer exists"})
+                    await ws.close(4004, "gone")
+                    return
+                if s.ws is not None:
+                    # One browser per session: the newer one takes over.
+                    old = s.ws
+                    await old.send_text({"t": "closed", "reason": "this session was opened in another window"})
+                    await old.close(4003, "taken over")
+                s.ws = ws
+                s.detached_at = None
+                self.audit("session_attach", session=s.id, user_id=s.user_id, username=s.username, client_ip=client)
+                await ws.send_text({"t": "hello", "session": s.id, "level": s.level, "reattached": True,
+                                    "idle_timeout": self._idle(s), "max_lifetime": self._life(s)})
+                if s.replay:
+                    await ws.send_binary(bytes(s.replay))
+            else:
+                try:
+                    s = self.spawn(t)
+                except (KeyError, OSError) as exc:
+                    self.audit("spawn_failed", user_id=t["user_id"], username=t["username"], level=t["level"], error=str(exc))
+                    await ws.send_text({"t": "closed", "reason": "the shell could not be started"})
+                    await ws.close(1011, "spawn failed")
+                    return
+                s.ws = ws
+                await ws.send_text({"t": "hello", "session": s.id, "level": s.level, "reattached": False,
+                                    "idle_timeout": self._idle(s), "max_lifetime": self._life(s)})
+
+            while True:
+                msg = await ws.recv()
+                if msg is None or s.closed:
+                    break
+                op, payload = msg
+                if op != 0x1:
+                    continue
+                try:
+                    obj = strict_loads(payload.decode("utf-8"))
+                except (UnicodeDecodeError, ValueError):
+                    await ws.send_text({"t": "notice", "msg": "malformed message ignored"})
+                    continue
+                if not isinstance(obj, dict):
+                    continue
+                kind = obj.get("t")
+                if kind == "i":
+                    data = obj.get("d")
+                    if not isinstance(data, str) or len(data) > self.cfg["max_input"]:
+                        continue
+                    s.last_input = time.time()
+                    try:
+                        os.write(s.fd, data.encode("utf-8"))
+                    except BlockingIOError:
+                        await asyncio.sleep(0.01)
+                        try:
+                            os.write(s.fd, data.encode("utf-8"))
+                        except OSError:
+                            pass
+                    except OSError:
+                        break
+                elif kind == "r":
+                    if not self.resize(s, obj.get("c"), obj.get("r")):
+                        await ws.send_text({"t": "notice", "msg": "invalid terminal size ignored"})
+                elif kind == "p":
+                    ws.last_pong = time.time()
+                    await ws.send_text({"t": "pong"})
+                elif kind == "x":
+                    await self.end(s, "closed by the user")
+                    return
+        finally:
+            if s is not None and not s.closed and s.ws is ws:
+                s.ws = None
+                s.detached_at = time.time()
+                self.audit("session_detach", session=s.id, user_id=s.user_id, username=s.username)
+            if not ws.closed:
+                await ws.close(1000)
+
+    def _idle(self, s: Session) -> int:
+        return self.cfg["admin_idle_timeout"] if s.level == "admin" else self.cfg["idle_timeout"]
+
+    def _life(self, s: Session) -> int:
+        return self.cfg["admin_max_lifetime"] if s.level == "admin" else self.cfg["max_lifetime"]
+
+    # ---------------------------------------------------- control socket
+    def _allowed_peer(self, sock: socket.socket) -> bool:
+        try:
+            creds = sock.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize("3i"))
+            _pid, uid, gid = struct.unpack("3i", creds)
+        except OSError:
+            return False
+        if uid == 0:
+            return True
+        try:
+            g = grp.getgrnam(self.cfg["control_group"])
+        except KeyError:
+            return False
+        try:
+            user = pwd.getpwuid(uid)
+        except KeyError:
+            return False
+        return gid == g.gr_gid or user.pw_name in g.gr_mem or user.pw_gid == g.gr_gid
+
+    async def handle_control(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        sock = writer.get_extra_info("socket")
+        if sock is None or not self._allowed_peer(sock):
+            self.audit("control_denied", reason="peer not authorised")
+            writer.close()
+            return
+        try:
+            while True:
+                hdr = await asyncio.wait_for(reader.readexactly(4), timeout=30)
+                n = struct.unpack("!I", hdr)[0]
+                if n > 65536:
+                    break
+                req = strict_loads((await reader.readexactly(n)).decode("utf-8"))
+                resp = self.dispatch(req if isinstance(req, dict) else {})
+                out = json.dumps(resp).encode("utf-8")
+                writer.write(struct.pack("!I", len(out)) + out)
+                await writer.drain()
+        except (asyncio.IncompleteReadError, asyncio.TimeoutError, ConnectionError, ValueError, UnicodeDecodeError):
+            pass
+        finally:
+            writer.close()
+
+    def dispatch(self, req: Dict[str, Any]) -> Dict[str, Any]:
+        rid = req.get("id")
+        method = req.get("method")
+        p = req.get("params") if isinstance(req.get("params"), dict) else {}
+        try:
+            if method == "terminal.issue":
+                result = self.issue(p)
+            elif method == "terminal.list":
+                uid = p.get("user_id")
+                result = {"success": True, "sessions": [s.info() for s in self.sessions.values()
+                                                        if not s.closed and (uid is None or s.user_id == str(uid))]}
+            elif method == "terminal.kill":
+                s = self.sessions.get(str(p.get("session_id")))
+                if s is None or (p.get("user_id") is not None and s.user_id != str(p.get("user_id"))):
+                    result = {"success": False, "error": "no such session"}
+                else:
+                    reason = str(p.get("reason") or "terminated from the Web UI")[:120]
+                    asyncio.ensure_future(self.end(s, reason))
+                    result = {"success": True}
+            elif method == "terminal.revoke_user":
+                uid = str(p.get("user_id"))
+                level = p.get("level")
+                hit = [s for s in self.sessions.values() if s.user_id == uid and (level is None or s.level == level)]
+                for s in hit:
+                    asyncio.ensure_future(self.end(s, str(p.get("reason") or "authorisation ended")[:120]))
+                for t in [k for k, v in self.tickets.items() if v["user_id"] == uid]:
+                    del self.tickets[t]
+                result = {"success": True, "terminated": len(hit)}
+            elif method == "terminal.status":
+                result = {"success": True, "version": VERSION, "uptime": int(time.time() - self.started),
+                          "sessions": len([s for s in self.sessions.values() if not s.closed]),
+                          "limits": {k: self.cfg[k] for k in ("max_sessions_per_user", "max_sessions_total", "idle_timeout",
+                                                               "admin_idle_timeout", "max_lifetime", "admin_max_lifetime",
+                                                               "detach_grace")},
+                          "standard_user_present": self._standard_user_present()}
+            else:
+                return {"jsonrpc": "2.0", "id": rid, "error": {"code": -32601, "message": "method not found"}}
+        except Exception as exc:  # noqa: BLE001 — a bad request must not take the service down
+            log.exception("control request failed")
+            return {"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": str(exc)[:200]}}
+        return {"jsonrpc": "2.0", "id": rid, "result": result}
+
+    def _standard_user_present(self) -> bool:
+        try:
+            pwd.getpwnam(self.cfg["standard_user"])
+            return True
+        except KeyError:
+            return False
+
+    async def shutdown(self) -> None:
+        for s in list(self.sessions.values()):
+            await self.end(s, "terminal service stopping", 1001)
+
+
+async def main() -> int:
+    cfg = load_config()
+    svc = TerminalService(cfg)
+    svc.loop = asyncio.get_running_loop()
+
+    control_path = cfg["control_socket"]
+    os.makedirs(os.path.dirname(control_path), exist_ok=True)
+    try:
+        os.unlink(control_path)
+    except FileNotFoundError:
+        pass
+    old = os.umask(0o117)
+    control_server = await asyncio.start_unix_server(svc.handle_control, path=control_path)
+    os.umask(old)
+    try:
+        os.chown(control_path, 0, grp.getgrnam(cfg["control_group"]).gr_gid)
+    except (KeyError, PermissionError):
+        pass
+    os.chmod(control_path, 0o660)
+
+    ws_server = await asyncio.start_server(svc.handle_http, cfg["listen_host"], cfg["listen_port"],
+                                           limit=cfg["max_frame"] + 1024)
+    log.info("micron-terminald %s listening on %s:%s (control %s)", VERSION, cfg["listen_host"], cfg["listen_port"], control_path)
+    svc.audit("service_start", version=VERSION)
+
+    stop = asyncio.Event()
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        svc.loop.add_signal_handler(sig, stop.set)
+    reaper = asyncio.ensure_future(svc.reaper())
+    await stop.wait()
+    reaper.cancel()
+    await svc.shutdown()
+    ws_server.close()
+    control_server.close()
+    svc.audit("service_stop")
+    try:
+        os.unlink(control_path)
+    except OSError:
+        pass
+    return 0
+
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    if os.geteuid() != 0:
+        print("micron-terminald must run as root (it starts shells for other accounts)", file=sys.stderr)
+        sys.exit(1)
+    sys.exit(asyncio.run(main()))

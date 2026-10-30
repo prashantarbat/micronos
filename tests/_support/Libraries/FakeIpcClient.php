@@ -31,6 +31,19 @@ class FakeIpcClient extends IpcClient
     }
 
     /**
+     * Behave like the development (Windows / no-socket) client: `isMock()`
+     * reports true, so controllers may show their labelled simulations.
+     * Without this the fake stands in for a *live* appliance whose daemon did
+     * not answer — where simulated output must never be shown.
+     */
+    public function asDevelopmentMock(bool $on = true): static
+    {
+        \Closure::bind(function () use ($on) { $this->mockMode = $on; }, $this, IpcClient::class)();
+
+        return $this;
+    }
+
+    /**
      * Queues a response for a method.
      *
      * @param array{result: mixed, error: mixed|null} $response

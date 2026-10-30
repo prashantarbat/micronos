@@ -56,7 +56,7 @@ class PermissionFilter implements FilterInterface
             // Web request → flash message + redirect to dashboard
             return redirect()
                 ->to(base_url('dashboard'))
-                ->with('error', "Access denied. Required permission: <code>{$requiredPerm}</code>");
+                ->with('error', "Access denied. Required permission: {$requiredPerm}");
         }
 
         return null;

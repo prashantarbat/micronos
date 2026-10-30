@@ -223,7 +223,7 @@ final class DiagnosticsPingTest extends BaseTestCase
     /** With no daemon (the dev box) the simulated output still reflects the form. */
     public function testPingFallsBackToSimulatedOutputWhenTheDaemonIsUnreachable(): void
     {
-        Services::injectMock('ipc', new FakeIpcClient());
+        Services::injectMock('ipc', (new FakeIpcClient())->asDevelopmentMock());
 
         $result = $this->post('diag/ping', $this->csrf([
             'host'     => '2001:db8::5',

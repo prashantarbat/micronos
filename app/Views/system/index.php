@@ -121,8 +121,7 @@ if (!function_exists('stickyColor')) {
       ['id'=>'organisation',  'icon'=>'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4', 'label'=>'Organisation'],
       ['id'=>'time',          'icon'=>'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z', 'label'=>'Time & NTP'],
       ['id'=>'network',       'icon'=>'M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9', 'label'=>'Networking'],
-      ['id'=>'webgui',        'icon'=>'M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17H4a2 2 0 01-2-2V5a2 2 0 012-2h16a2 2 0 012 2v10a2 2 0 01-2 2h-1', 'label'=>'Web GUI'],
-      ['id'=>'ssh',           'icon'=>'M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z', 'label'=>'SSH / Console'],
+      ['id'=>'admin_access',  'icon'=>'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z', 'label'=>'Admin Access'],
       ['id'=>'notifications', 'icon'=>'M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9', 'label'=>'Notifications'],
       ['id'=>'ldap',          'icon'=>'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z', 'label'=>'LDAP / AD'],
       ['id'=>'radius',        'icon'=>'M12 11c0 3.517-1.009 6.799-2.753 9.571m-3.44-2.04l.054-.09A13.916 13.916 0 008 11a4 4 0 118 0c0 1.017-.07 2.019-.203 3m-2.118 6.844A21.88 21.88 0 0015.171 17m3.839 1.132c.645-2.266.99-4.659.99-7.132A8 8 0 008 4.07M3 15.364c.64-1.319 1-2.8 1-4.364 0-1.457.39-2.823 1.07-4', 'label'=>'RADIUS Auth'],
@@ -450,7 +449,7 @@ if (!function_exists('stickyColor')) {
   <!-- ══════════════════════════════════════════════
        TAB: NETWORKING / IPV6
   ══════════════════════════════════════════════ -->
-  <?php $ipv6On = (int) sv('ipv6_enabled', $settings, 1) === 1; ?>
+  <?php $ipv6On = (int) sv('ipv6_enabled', $settings, 0) === 1; ?>
   <div class="sys-tab-panel" id="panel-network" style="display:none;">
     <div class="settings-section-header">
       <h2 class="settings-section-title">Networking</h2>
@@ -503,13 +502,14 @@ if (!function_exists('stickyColor')) {
   </div>
 
   <!-- ══════════════════════════════════════════════
-       TAB: WEB GUI
+       TAB: ADMIN ACCESS (WEB GUI & SSH)
   ══════════════════════════════════════════════ -->
-  <div class="sys-tab-panel" id="panel-webgui" style="display:none;">
-    <div class="settings-section-header">
-      <h2 class="settings-section-title">Web GUI Configuration</h2>
-      <p class="settings-section-desc">HTTP/HTTPS access settings, session security, and brute-force protection.</p>
-    </div>
+  <div class="sys-tab-panel" id="panel-admin_access" style="display:none;">
+    <div id="panel-webgui">
+      <div class="settings-section-header">
+        <h2 class="settings-section-title">Administrative Access: Web GUI</h2>
+        <p class="settings-section-desc">HTTP/HTTPS access settings, custom TLS certificates, session security, and brute-force protection.</p>
+      </div>
 
     <div class="card card-glass" style="margin-bottom:20px;">
       <div class="card-header">
@@ -541,6 +541,85 @@ if (!function_exists('stickyColor')) {
               <span class="toggle-slider"></span>
             </label>
             <small class="form-hint">Redirect port 80 requests to HTTPS</small>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Web GUI TLS / SSL Certificate ────────────────────── -->
+    <div class="card card-glass" style="margin-bottom:20px;">
+      <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
+        <span class="card-title">
+          <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+          </svg>
+          Web GUI TLS / SSL Certificate
+        </span>
+        <a href="<?= base_url('certificates') ?>" class="btn btn-ghost btn-sm" style="display:flex; align-items:center; gap:6px;">
+          <span>Manage Certificates</span>
+          <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+        </a>
+      </div>
+      <div class="card-body">
+        <div class="settings-grid-2">
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="webgui_cert_id">Active SSL/TLS Certificate</label>
+            <select id="webgui_cert_id" name="webgui_cert_id" class="form-control form-select" onchange="updateCertDetailsPreview(this)">
+              <option value="0" <?= ((int)sv('webgui_cert_id', $settings, '0') === 0) ? 'selected' : '' ?>>
+                Default Self-Signed Appliance Certificate (Factory Default)
+              </option>
+              <?php if (!empty($certificates)): ?>
+                <optgroup label="Installed Certificates (PKI &amp; ACME)">
+                  <?php foreach ($certificates as $cert): ?>
+                    <?php if (!empty($cert['certificate']) && empty($cert['revoked'])): ?>
+                      <option value="<?= (int)$cert['id'] ?>" <?= ((int)sv('webgui_cert_id', $settings, '0') === (int)$cert['id']) ? 'selected' : '' ?>
+                              data-cn="<?= esc($cert['common_name'] ?? '') ?>"
+                              data-expires="<?= esc(!empty($cert['valid_until']) ? date('d M Y', strtotime($cert['valid_until'])) : 'Unknown') ?>"
+                              data-san="<?= esc($cert['san_dns'] ?? '') ?>">
+                        <?= esc($cert['name']) ?> (CN: <?= esc($cert['common_name']) ?>)<?= !empty($cert['valid_until']) ? ' — Exp: ' . esc(date('d M Y', strtotime($cert['valid_until']))) : '' ?>
+                      </option>
+                    <?php endif; ?>
+                  <?php endforeach; ?>
+                </optgroup>
+              <?php endif; ?>
+            </select>
+            <small class="form-hint">Select a custom certificate imported in System &gt; Certificates or issued via Let's Encrypt / ACME.</small>
+          </div>
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label">Certificate Status</label>
+            <div id="cert-preview-box" style="padding:10px 14px; background:var(--color-surface-3); border:1px solid var(--color-border); border-radius:var(--radius-sm); font-size:0.8rem; line-height:1.5;">
+              <?php
+                $activeCertId = (int) ($settings['webgui_cert_id'] ?? 0);
+                $activeCert = null;
+                if ($activeCertId > 0 && !empty($certificates)) {
+                    foreach ($certificates as $c) {
+                        if ((int)$c['id'] === $activeCertId) {
+                            $activeCert = $c;
+                            break;
+                        }
+                    }
+                }
+              ?>
+              <?php if ($activeCert): ?>
+                <div style="display:flex; align-items:center; gap:6px; color:var(--color-emerald); font-weight:600; margin-bottom:4px;">
+                  <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--color-emerald);"></span>
+                  Custom Certificate Bound
+                </div>
+                <div><strong>Common Name:</strong> <?= esc($activeCert['common_name'] ?? '—') ?></div>
+                <div style="font-size:0.75rem; color:var(--text-muted);">
+                  Valid until: <?= !empty($activeCert['valid_until']) ? esc(date('d M Y', strtotime($activeCert['valid_until']))) : '—' ?>
+                  <?= !empty($activeCert['san_dns']) ? ' &bull; SAN: ' . esc($activeCert['san_dns']) : '' ?>
+                </div>
+              <?php else: ?>
+                <div style="display:flex; align-items:center; gap:6px; color:var(--color-cyan); font-weight:600; margin-bottom:4px;">
+                  <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--color-cyan);"></span>
+                  System Default Certificate
+                </div>
+                <div style="font-size:0.75rem; color:var(--text-secondary);">
+                  Using self-signed certificate at <code>/etc/micron/ssl/webgui.crt</code>. To remove browser security warnings, select a CA-signed or ACME certificate.
+                </div>
+              <?php endif; ?>
+            </div>
           </div>
         </div>
       </div>
@@ -716,12 +795,12 @@ if (!function_exists('stickyColor')) {
   </div>
 
   <!-- ══════════════════════════════════════════════
-       TAB: SSH / CONSOLE
+       SUBSECTION: SSH ACCESS
   ══════════════════════════════════════════════ -->
-  <div class="sys-tab-panel" id="panel-ssh" style="display:none;">
+  <div id="panel-ssh" style="margin-top:36px; padding-top:28px; border-top:1px solid var(--color-border);">
     <div class="settings-section-header">
-      <h2 class="settings-section-title">SSH & Console Access</h2>
-      <p class="settings-section-desc">Secure shell daemon and serial console configuration.</p>
+      <h2 class="settings-section-title">Administrative Access: SSH &amp; Console</h2>
+      <p class="settings-section-desc">Secure shell daemon configuration. The serial console (when the hardware has one) is fixed at 115200 baud, 8N1.</p>
     </div>
 
     <div class="card card-glass" style="margin-bottom:20px;">
@@ -783,25 +862,7 @@ if (!function_exists('stickyColor')) {
       </div>
     </div>
 
-    <div class="card card-glass" style="margin-bottom:20px;">
-      <div class="card-header">
-        <span class="card-title">
-          <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
-          Serial Console
-        </span>
-      </div>
-      <div class="card-body">
-        <div style="max-width:280px;">
-          <label class="form-label" for="console_speed">Console Baud Rate</label>
-          <select id="console_speed" name="console_speed" class="form-control form-select mono">
-            <?php foreach (['9600'=>'9600 bps','19200'=>'19200 bps','38400'=>'38400 bps','57600'=>'57600 bps','115200'=>'115200 bps (recommended)','230400'=>'230400 bps'] as $v => $l): ?>
-              <option value="<?= $v ?>" <?= (sv('console_speed',$settings,'115200') === $v) ? 'selected' : '' ?>><?= esc($l) ?></option>
-            <?php endforeach; ?>
-          </select>
-          <small class="form-hint">Physical serial port speed — requires appliance reboot to apply</small>
-        </div>
-      </div>
-    </div>
+  </div>
   </div>
 
   <!-- ══════════════════════════════════════════════
@@ -903,7 +964,7 @@ if (!function_exists('stickyColor')) {
   <div class="sys-tab-panel" id="panel-misc" style="display:none;">
     <div class="settings-section-header">
       <h2 class="settings-section-title">System & Miscellaneous</h2>
-      <p class="settings-section-desc">UI preferences, language, and system information.</p>
+      <p class="settings-section-desc">Interface theme and navigation layout. Micron OS is English-only.</p>
     </div>
 
     <div class="card card-glass" style="margin-bottom:20px;">
@@ -921,7 +982,7 @@ if (!function_exists('stickyColor')) {
               <?php
               // Theme catalogue comes from Config\Appearance (single source of truth)
               $appearance   = config('Appearance');
-              $currentTheme = sv('theme', $settings, 'dark');
+              $currentTheme = $appearance->resolveTheme(sv('theme', $settings, $appearance->defaultTheme));
               $themeGroups  = ['dark' => 'Dark', 'light' => 'Light'];
               foreach ($themeGroups as $mode => $groupLabel): ?>
                 <optgroup label="<?= esc($groupLabel) ?>">
@@ -936,59 +997,88 @@ if (!function_exists('stickyColor')) {
             <label class="form-label" for="layout">Layout Preset</label>
             <select id="layout" name="layout" class="form-control form-select">
               <?php
-              $currentLayout = sv('layout', $settings, 'sidebar');
+              $currentLayout = config('Appearance')->resolveLayout(sv('layout', $settings, config('Appearance')->defaultLayout));
               foreach (config('Appearance')->layouts as $value => $label): ?>
                 <option value="<?= esc($value) ?>" <?= $currentLayout === $value ? 'selected' : '' ?>><?= esc($label) ?></option>
               <?php endforeach; ?>
-            </select>
-          </div>
-          <div class="form-group">
-            <label class="form-label" for="language">Language</label>
-            <select id="language" name="language" class="form-control form-select">
-              <option value="en" <?= sv('language',$settings,'en')==='en'?'selected':'' ?>>English</option>
-              <option value="ar" <?= sv('language',$settings,'en')==='ar'?'selected':'' ?>>Arabic (عربي)</option>
-              <option value="fr" <?= sv('language',$settings,'en')==='fr'?'selected':'' ?>>Français</option>
-              <option value="de" <?= sv('language',$settings,'en')==='de'?'selected':'' ?>>Deutsch</option>
-              <option value="es" <?= sv('language',$settings,'en')==='es'?'selected':'' ?>>Español</option>
-              <option value="zh" <?= sv('language',$settings,'en')==='zh'?'selected':'' ?>>中文</option>
-              <option value="ja" <?= sv('language',$settings,'en')==='ja'?'selected':'' ?>>日本語</option>
-              <option value="ur" <?= sv('language',$settings,'en')==='ur'?'selected':'' ?>>Urdu (اردو)</option>
             </select>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- System Information (read-only) -->
+    <!-- Database & Storage Self-Healing Resilience -->
     <div class="card card-glass" style="margin-bottom:20px;">
-      <div class="card-header">
+      <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
         <span class="card-title">
-          <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-          System Information
+          <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"/>
+          </svg>
+          Database & Storage Durability
         </span>
-        <span style="font-size:0.7rem; color:var(--text-muted);">Read only</span>
+        <span class="badge <?= ($dbResilienceInfo['healthy'] ?? false) ? 'badge-success' : 'badge-danger' ?>" id="badge-db-health">
+          <?= ($dbResilienceInfo['healthy'] ?? false) ? 'SQLite WAL Verified' : 'Integrity Attention Needed' ?>
+        </span>
       </div>
       <div class="card-body">
-        <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap:16px;">
-          <?php
-          $sysInfo = [
-            'Micron OS Version' => \App\Libraries\AppVersion::getVersion() . ' (' . \App\Libraries\AppVersion::getChannel() . ')',
-            'PHP Version'       => PHP_VERSION,
-            'OS'                => PHP_OS_FAMILY,
-            'Architecture'      => php_uname('m'),
-            'Micron ID'         => ($settings['micron_id'] ?? '') ?: '—',
-            'DB Driver'         => config('Database')->default['DBDriver'] ?? '—',
-          ];
-          foreach ($sysInfo as $k => $v):
-          ?>
-            <div style="background:var(--color-surface-3); border:1px solid var(--color-border); border-radius:8px; padding:12px 14px;">
-              <div style="font-size:0.7rem; text-transform:uppercase; letter-spacing:0.06em; color:var(--text-muted); margin-bottom:4px;"><?= esc($k) ?></div>
-              <div style="font-family:var(--font-mono); font-size:0.85rem; color:var(--text-primary); word-break:break-all;"><?= esc($v) ?></div>
+        <p style="font-size:0.85rem; color:var(--text-secondary); margin-bottom:16px;">
+          MicronOS enforces Write-Ahead Logging (WAL) with synchronous write barriers, atomic shadow snapshotting (<code>VACUUM INTO</code>), and early boot-time self-healing against power cuts.
+        </p>
+
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:12px; margin-bottom:16px;">
+          <div style="background:rgba(255,255,255,0.03); border:1px solid var(--color-border); border-radius:8px; padding:12px;">
+            <div style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em;">Database File</div>
+            <div style="font-size:0.9rem; font-weight:600; color:var(--text-primary); margin-top:4px;" id="val-db-size">
+              <?= round(($dbResilienceInfo['db_size'] ?? 0) / 1048576, 2) ?> MB
             </div>
-          <?php endforeach; ?>
+            <div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;">
+              B-Tree Integrity: <strong style="color:var(--tone-green-fg);"><?= esc($dbResilienceInfo['integrity'] ?? 'OK') ?></strong>
+            </div>
+          </div>
+
+          <div style="background:rgba(255,255,255,0.03); border:1px solid var(--color-border); border-radius:8px; padding:12px;">
+            <div style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em;">Write-Ahead Log (WAL)</div>
+            <div style="font-size:0.9rem; font-weight:600; color:var(--text-primary); margin-top:4px;" id="val-wal-size">
+              <?= round(($dbResilienceInfo['wal_size'] ?? 0) / 1024, 1) ?> KB
+            </div>
+            <div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;">Auto-checkpoint at 16MB</div>
+          </div>
+
+          <div style="background:rgba(255,255,255,0.03); border:1px solid var(--color-border); border-radius:8px; padding:12px;">
+            <div style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em;">Crash-Recovery Snapshot</div>
+            <div style="font-size:0.9rem; font-weight:600; color:var(--text-primary); margin-top:4px;" id="val-snap-status">
+              <?= ($dbResilienceInfo['snapshot_exists'] ?? false) ? 'Ready (' . round(($dbResilienceInfo['snapshot_size'] ?? 0) / 1048576, 2) . ' MB)' : 'No snapshot yet' ?>
+            </div>
+            <div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;" id="val-snap-mtime">
+              <?= ($dbResilienceInfo['snapshot_exists'] ?? false && !empty($dbResilienceInfo['snapshot_mtime'])) ? date('Y-m-d H:i', $dbResilienceInfo['snapshot_mtime']) : 'Auto-created on boot' ?>
+            </div>
+          </div>
         </div>
+
+        <div style="display:flex; flex-wrap:wrap; gap:10px;">
+          <button type="button" class="btn btn-ghost btn-sm" id="btn-db-check" onclick="runDbIntegrityCheck()">
+            <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            </svg>
+            Verify Integrity
+          </button>
+          <button type="button" class="btn btn-ghost btn-sm" id="btn-db-checkpoint" onclick="runDbCheckpoint()">
+            <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+            </svg>
+            Flush & Truncate WAL
+          </button>
+          <button type="button" class="btn btn-ghost btn-sm" id="btn-db-snapshot" onclick="runDbSnapshot()">
+            <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"/>
+            </svg>
+            Create Shadow Snapshot
+          </button>
+        </div>
+        <div id="db-action-feedback" style="display:none; margin-top:12px; font-size:0.8rem; padding:8px 12px; border-radius:6px;"></div>
       </div>
     </div>
+
   </div>
 
   <!-- ===================================================
@@ -1881,6 +1971,9 @@ if (!function_exists('stickyColor')) {
 <script>
 // ── Tab switching ────────────────────────────────────
 function switchTab(id) {
+  if (id === 'webgui' || id === 'ssh') {
+    id = 'admin_access';
+  }
   document.querySelectorAll('.sys-tab-btn').forEach(b => b.classList.remove('active'));
   document.querySelectorAll('.sys-tab-panel').forEach(p => {
     p.classList.remove('active');
@@ -1905,18 +1998,58 @@ function switchTab(id) {
 
 // Restore last active tab (from URL hash or localStorage)
 (function() {
-  const hash = window.location.hash.replace('#', '');
+  let hash = window.location.hash.replace('#', '');
+  if (hash === 'webgui' || hash === 'ssh') {
+    hash = 'admin_access';
+  }
   if (hash && document.getElementById('panel-' + hash)) {
     switchTab(hash);
     return;
   }
-  const saved = localStorage.getItem('sys_active_tab');
+  let saved = localStorage.getItem('sys_active_tab');
+  if (saved === 'webgui' || saved === 'ssh') {
+    saved = 'admin_access';
+  }
   if (saved && document.getElementById('panel-' + saved)) {
     switchTab(saved);
     return;
   }
   switchTab('identity');
 })();
+
+function updateCertDetailsPreview(sel) {
+  const box = document.getElementById('cert-preview-box');
+  if (!box) return;
+  const opt = sel.options[sel.selectedIndex];
+  const val = parseInt(sel.value, 10);
+  if (val === 0) {
+    box.innerHTML = `
+      <div style="display:flex; align-items:center; gap:6px; color:var(--color-cyan); font-weight:600; margin-bottom:4px;">
+        <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--color-cyan);"></span>
+        System Default Certificate
+      </div>
+      <div style="font-size:0.75rem; color:var(--text-secondary);">
+        Using self-signed certificate at <code>/etc/micron/ssl/webgui.crt</code>. To remove browser security warnings, select a CA-signed or ACME certificate.
+      </div>`;
+  } else {
+    const cn = opt.getAttribute('data-cn') || '—';
+    const exp = opt.getAttribute('data-expires') || '—';
+    const san = opt.getAttribute('data-san') || '';
+    box.innerHTML = `
+      <div style="display:flex; align-items:center; gap:6px; color:var(--color-emerald); font-weight:600; margin-bottom:4px;">
+        <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--color-emerald);"></span>
+        Custom Certificate Selected
+      </div>
+      <div><strong>Common Name:</strong> ${escapeHtml(cn)}</div>
+      <div style="font-size:0.75rem; color:var(--text-muted);">
+        Valid until: ${escapeHtml(exp)} ${san ? '&bull; SAN: ' + escapeHtml(san) : ''}
+      </div>`;
+  }
+}
+
+function escapeHtml(str) {
+  return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
 
 // ── LDAP & RADIUS Helpers ────────────────────────────
 function adaptLdapDefaults(schema) {
@@ -2262,6 +2395,72 @@ function sendTestEmail() {
     resultEl.style.color = 'var(--color-amber)';
     resultEl.textContent = 'Save settings first, then use Diagnostics → Email Test.';
   }, 1200);
+}
+
+// ── Database & Storage Resilience Controls ──────────
+function runDbIntegrityCheck() {
+  const btn = document.getElementById('btn-db-check');
+  const fb = document.getElementById('db-action-feedback');
+  btn.disabled = true;
+  btn.innerText = 'Verifying...';
+  MicronScheduler.fetch('<?= base_url('system/db/check') ?>', {
+    method: 'POST',
+    headers: { 'X-Requested-With': 'XMLHttpRequest', 'X-CSRF-TOKEN': '<?= csrf_hash() ?>' }
+  }).then(r => r.json()).then(data => {
+    btn.disabled = false;
+    btn.innerHTML = '<svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg> Verify Integrity';
+    fb.style.display = 'block';
+    fb.style.background = data.healthy ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)';
+    fb.style.color = data.healthy ? 'var(--tone-green-fg)' : 'var(--tone-red-fg)';
+    fb.innerText = 'Integrity Check: ' + data.result;
+  }).catch(e => {
+    btn.disabled = false;
+    btn.innerText = 'Verify Integrity';
+    fb.style.display = 'block';
+    fb.innerText = 'Error checking integrity: ' + e;
+  });
+}
+
+function runDbCheckpoint() {
+  const btn = document.getElementById('btn-db-checkpoint');
+  const fb = document.getElementById('db-action-feedback');
+  btn.disabled = true;
+  btn.innerText = 'Checkpointing...';
+  MicronScheduler.fetch('<?= base_url('system/db/checkpoint') ?>', {
+    method: 'POST',
+    headers: { 'X-Requested-With': 'XMLHttpRequest', 'X-CSRF-TOKEN': '<?= csrf_hash() ?>' }
+  }).then(r => r.json()).then(data => {
+    btn.disabled = false;
+    btn.innerHTML = '<svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg> Flush & Truncate WAL';
+    fb.style.display = 'block';
+    fb.style.background = data.success ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)';
+    fb.style.color = data.success ? 'var(--tone-green-fg)' : 'var(--tone-red-fg)';
+    fb.innerText = data.message || 'WAL truncated.';
+  }).catch(e => {
+    btn.disabled = false;
+    btn.innerText = 'Flush & Truncate WAL';
+  });
+}
+
+function runDbSnapshot() {
+  const btn = document.getElementById('btn-db-snapshot');
+  const fb = document.getElementById('db-action-feedback');
+  btn.disabled = true;
+  btn.innerText = 'Snapshotting...';
+  MicronScheduler.fetch('<?= base_url('system/db/snapshot') ?>', {
+    method: 'POST',
+    headers: { 'X-Requested-With': 'XMLHttpRequest', 'X-CSRF-TOKEN': '<?= csrf_hash() ?>' }
+  }).then(r => r.json()).then(data => {
+    btn.disabled = false;
+    btn.innerHTML = '<svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"/></svg> Create Shadow Snapshot';
+    fb.style.display = 'block';
+    fb.style.background = data.success ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)';
+    fb.style.color = data.success ? 'var(--tone-green-fg)' : 'var(--tone-red-fg)';
+    fb.innerText = data.success ? ('Snapshot verified and saved: ' + data.path + ' (' + Math.round(data.size / 1024) + ' KB)') : ('Failed: ' + (data.error || 'Error'));
+  }).catch(e => {
+    btn.disabled = false;
+    btn.innerText = 'Create Shadow Snapshot';
+  });
 }
 
 // ── Save button feedback ─────────────────────────────

@@ -68,6 +68,57 @@ abstract class BaseController extends Controller
     }
 
     /**
+     * Compile-and-apply helper shared by every controller that pushes a
+     * subsystem configuration to the daemon. Uses the controller's own IPC
+     * client when it has one, so an injected test double is honoured.
+     */
+    protected function applier(): \App\Libraries\ConfigApplier
+    {
+        // The property is private in most controllers, so it is read in the
+        // subclass's own scope.
+        $own = property_exists($this, 'ipc')
+            ? \Closure::bind(fn () => $this->ipc ?? null, $this, static::class)()
+            : null;
+        $ipc = $own instanceof \App\Libraries\IpcClient ? $own : \Config\Services::ipc();
+
+        return new \App\Libraries\ConfigApplier($ipc);
+    }
+
+    /**
+     * Splits one `journalctl -o short-iso` line into its parts.
+     *
+     * @return array{timestamp: string, host: string, ident: string, pid: ?int, message: string}
+     */
+    protected function journalLine(string $line): array
+    {
+        if (preg_match('/^(\S+)\s+(\S+)\s+([^\s\[:]+)(?:\[(\d+)\])?:\s?(.*)$/', trim($line), $m)) {
+            $ts = strtotime($m[1]);
+
+            return ['timestamp' => $ts ? date('Y-m-d H:i:s', $ts) : $m[1], 'host' => $m[2],
+                'ident' => $m[3], 'pid' => $m[4] !== '' ? (int) $m[4] : null, 'message' => $m[5]];
+        }
+
+        return ['timestamp' => '', 'host' => '', 'ident' => '', 'pid' => null, 'message' => trim($line)];
+    }
+
+    /**
+     * The `result` of a daemon read, or null when the daemon did not answer
+     * successfully — so a log view can tell "no entries" from "no daemon".
+     */
+    protected function ipcRead(array $response): ?array
+    {
+        $result = $response['result'] ?? null;
+        // `_mock` is the development client's catch-all for a method it has no
+        // simulation for — that is "no data", not an empty success.
+        if (! empty($response['error']) || ! is_array($result) || ($result['success'] ?? true) === false
+            || isset($result['_mock'])) {
+            return null;
+        }
+
+        return $result;
+    }
+
+    /**
      * Interprets a micrond JSON-RPC response for a state-changing action.
      *
      * The daemon signals success either with an explicit `success` flag or a

@@ -56,6 +56,7 @@ MicronOS is a **CodeIgniter 4 (PHP 8.3+)** management plane fronting a Linux ker
 | Auth (Local/LDAP/RADIUS/2FA) | `Auth.php` | LdapAuthService/RadiusAuthService/TotpService | Implemented |
 | System Commit | `SystemCommit.php` | — | Implemented |
 | Docs Portal | `Docs.php` | — | Implemented |
+| CVEs & Security Advisories | `CveAdvisories.php` | `CveAuditEngine.php` | Implemented |
 
 ---
 
@@ -635,6 +636,33 @@ Serves the internal documentation hub. It reads the repository's `docs/*.md` dir
 
 ---
 
+### 2.33 CVEs & Security Advisories
+
+**File:** `app/Controllers/CveAdvisories.php` | **Routes:** `/security/cve` and `/cve` | **Library:** `CveAuditEngine`
+
+Vulnerability management and package security advisory control plane for MicronOS and Debian Linux appliances. It audits installed appliance packages with authenticated root inspection, matches installed versions against known Common Vulnerabilities and Exposures (CVEs) from the Debian Security Bug Tracker, and provides direct verification links into the NIST National Vulnerability Database (NVD).
+
+**Features:**
+- **Authenticated Root Package Scanning:** Discovers installed packages via `micrond` IPC (`sys.installed_packages`), native `dpkg-query -W`, and `/var/lib/dpkg/status` parsing with fallback appliance baseline profiling.
+- **NIST NVD Direct Deep-Links:** Generates direct, official external links (`https://nvd.nist.gov/vuln/detail/CVE-...`) for every advisory, enabling operators to review CVSS base scores, vector strings, and official NIST analysis with a single click.
+- **Debian Version Comparison:** Compares installed versions against fixed versions using Debian version comparison semantics (`[epoch:]upstream_version[-debian_revision]`), correctly handling tildes (`~`) and multi-component revisions.
+- **Remediation Commands:** Generates copy-paste shell commands (e.g. `sudo apt-get update && sudo apt-get install --only-upgrade <package>`) and package patch workflows.
+- **Reporting & Export:** Full CSV report generation and export (`/security/cve/export-csv`), scan history tracking (`cve_scans`), and automated feed synchronisation (`/security/cve/refresh-feed`).
+
+**Key Endpoints:**
+```
+GET  /security/cve              — Main security advisory dashboard and advisory table
+POST /security/cve/scan         — Initiate on-demand authenticated root package audit
+POST /security/cve/refresh-feed — Synchronise latest CVE feeds from Debian Security Tracker
+GET  /security/cve/export-csv   — Export filtered or complete CVE audit report as CSV
+GET  /security/cve/detail/{cve} — JSON advisory details, CVSS scores, affected packages & links
+```
+
+**Database Tables** (migration 000124): `cve_advisories`, `cve_scans`, `cve_settings`  
+**Permissions:** `security.cve.view`, `security.cve.scan`
+
+---
+
 ## 3. Compiler Libraries Reference
 
 ### 3.1 NftablesCompiler
@@ -684,6 +712,11 @@ NftablesCompiler::buildAddressSets(): string
 NftablesCompiler::buildNatChains(): string
 NftablesCompiler::buildForwardChains(): string
 ```
+
+**VPN & Multi-WAN Tunnel Interface Synchronisation:**
+- **WireGuard & OpenVPN Ingress/Egress:** Automatically generates bidirectional firewall rules for dynamic and persistent tunnel devices matching `wg+`, `tun+`, and Layer 2 bridged tap devices `tap+`.
+- **IPsec VTI & Native ESP/AH Encapsulation:** Supports route-based Virtual Tunnel Interfaces (`ipsec+`, `xfrm+`) and policy-based IPsec matching via `meta secpath exists` to securely pass encapsulated tunnel payloads without manual protocol 50 bypasses.
+- **PPPoE & Multi-WAN Groups:** Generates dynamic interface group members for `ppp+` and multi-gateway WAN failover, coordinating routing tables with connection-tracking marks.
 
 ---
 
@@ -966,15 +999,38 @@ The generated certificate is a genuine self-signed CA (`basicConstraints CA:TRUE
 
 ---
 
+### 4.21 CveAuditEngine
+
+**File:** `app/Libraries/CveAuditEngine.php` (650 lines)
+
+The vulnerability detection and package security auditing engine for MicronOS. It queries the local Debian system package database and matches installed versions against official security advisories and National Vulnerability Database (NVD) CVE entries.
+
+**Key Responsibilities:**
+- **Local Package Discovery:** Discovers installed packages via `micrond` IPC (`sys.installed_packages`), direct `dpkg-query -W -f='${Package}\t${Version}\t${Status}\n'`, reading `/var/lib/dpkg/status`, and an appliance baseline profile fallback.
+- **Debian Version Comparison:** Implements standard Debian version comparison rules:
+  ```php
+  CveAuditEngine::compareDebianVersions(string $v1, string $v2): int
+  ```
+  Splits versions into `epoch`, `upstream_version`, and `debian_revision`, comparing alphanumeric components and handling the Debian tilde `~` sort-order prefix.
+- **Debian Security Tracker Integration:** Fetches package vulnerability status from `security-tracker.debian.org`. Uses targeted package lookups and memory-safe response parsing to prevent memory exhaustion on large distributions.
+- **NIST NVD Linking:** Automatically constructs direct, verified links to official NIST vulnerability entries:
+  ```
+  https://nvd.nist.gov/vuln/detail/{cve_id}
+  ```
+- **Curated Enterprise Baseline Catalog:** Ships with an offline, high-priority CVE security advisory baseline for core firewall daemons (OpenSSL, OpenSSH, FRRouting, strongSwan, OpenVPN, Suricata, nftables, Squid, curl, sudo, xz-utils).
+- **Remediation & CSV Export:** Generates package-specific `apt-get` upgrade commands, tracks scan state in `cve_scans`, and formats reports for CSV download.
+
+---
+
 ## 5. Database Migration Inventory
 
-75 migrations, all dated 2026-10-02 through 2026-10-06.
+118 migrations, dated 2026-10-02 through 2026-10-18.
 
 ### Foundation (000001-000020)
 `interfaces`, `firewall_rules`, `nat_rules`, `ldap_servers`, `users`, `openvpn_servers`, `wireguard_tunnels`, `wireguard_peers`, `vpn_ephemeral_leases`, `webfilter_settings`, `webfilter_categories`, `system_backups`, `config_transactions`, `audit_logs`, `roles`, `permissions`, `role_permissions`, `user_roles`, `ipsec_tunnels`, network CRUD tables
 
 ### Feature Expansion (000021-000040)
-Firewall objects tables, dynamic routing (BGP/OSPF/BFD/VRF), HA/QoS/PKI tables, DHCP, DNSBL, comprehensive NAT, services/cron (17,032 bytes), SNMP/SIEM (12,606 bytes), system settings, OpenVPN client mode, local subnets push, WireGuard tunnel interface, IPsec VTI fields, WireGuard AllowedIPs, PKI import support, IPv6 enabled flag, WireGuard PSK
+Firewall objects tables, dynamic routing (BGP/OSPF/BFD/VRF), HA/QoS/PKI tables, DHCP, DNSBL, comprehensive NAT, services/cron, SNMP/SIEM, system settings, OpenVPN client mode, local subnets push, WireGuard tunnel interface, IPsec VTI fields, WireGuard AllowedIPs, PKI import support, IPv6 enabled flag, WireGuard PSK
 
 ### Sticky Header (000041, 000044-000046)
 Login banner + sticky header base, blink animation, header accent colors, refinements
@@ -989,19 +1045,19 @@ Login banner + sticky header base, blink animation, header accent colors, refine
 PBR match objects, gateway group sticky sessions
 
 ### PPPoE Full Stack (000055-000060)
-PPPoE client+server tables (000055), PPPoE redial cron seed (000056), RADIUS auth (000057), RADIUS accounting (000058), EAP-TLS (000059), backoff + session history (000060, 16,614 bytes)
+PPPoE client+server tables (000055), PPPoE redial cron seed (000056), RADIUS auth (000057), RADIUS accounting (000058), EAP-TLS (000059), backoff + session history (000060)
 
-### Latest Features (000070-000077)
-Interface virtual+traffic params (000070), DNS domain overrides (000071a), IDS/IPS tables (000071b, 15,314 bytes), enhanced webfilter (000072, 28,055 bytes), RADIUS/LDAP auth tables (000073, 12,488 bytes), DoS policies (000074), firewall schedules (000075), schedule enabled flag (000076), DoS policy schedule linkage (000077)
+### Security & Filtering (000070-000086)
+Interface virtual+traffic params (000070), DNS domain overrides (000071a), IDS/IPS tables (000071b), enhanced webfilter (000072), RADIUS/LDAP auth tables (000073), DoS policies (000074), firewall schedules (000075-000077), FRR policy tables (000078-000080), service seeds (000081), C-ICAP/ClamAV inspection (000082), NFQUEUE controls (000083), Webfilter cache controls & bypass lists (000084-000086).
 
-### Routing Policy & Service Inventory (000078-000081)
-FRR policy tables — `frr_prefix_lists`, `frr_route_maps` (000078); OSPF filter tables — `frr_ospf_distribute_lists`, `frr_ospf_area_filters` (000079); RIP & IS-IS tables — `frr_rip_*`, `frr_isis_*` (000080); and the idempotent seed of the IPsec/SNMP/SIEM page daemons (`strongswan`, `snmpd`, `rsyslog`) into `system_services` (000081).
+### Multicast, Plugins, DDNS & ACME (000087-000102)
+PIM multicast settings & services (000087-000088), backup credentials flag (000089), plugin manager & package registry tables (000090-000096), DHCP relay (000091), DNS resolution settings (000097), Dynamic DNS client providers (000098), ACME Let's Encrypt certificates & renew cron (000101-000102).
 
-### Antivirus Inspection (000082)
-C-ICAP/ClamAV inspection: the `icap_*` and `clamav_*` columns on `webfilter_settings`, the `webfilter_av_detections` log table, and the `clamav` / `c-icap` daemon seed.
+### Advanced Routing, ZTNA, Threat Intel & Core Cleanups (000103-000123)
+OS fields on users (000103), LACP Bonding & Wi-Fi tables (000104), Git config revisions (000105), AppID / nDPI Layer 7 classification (000106), SSL Deep Inspection (000107), Dynamic SD-WAN (000108), ZTNA clientless gateway (000109), SSO SAML/OIDC (000110), Threat Intel feeds (000111-000112), Bridge interfaces (000115), Captive Portal & Hotspot (000116), Terminal permissions (000121), Administrative interface access (2026-10-15-000002), Clean state purge (000122), Routing policy & route enhancements (000123).
 
-### Inline IPS Queue Controls (000083)
-`ids_settings.nfqueue_num` (the Netfilter queue Suricata reads) and `ids_settings.queue_fail_mode` (`open` adds the `bypass` flag, `closed` fails closed).
+### CVEs & Security Advisories (000124)
+`2026-10-18-000124_CreateCveAdvisoriesTables.php`: Creates `cve_advisories` (vulnerability records, CVSS scores, status, remediation, NIST NVD URLs), `cve_scans` (scan audit history), `cve_settings` (feed schedule & settings), and seeds permissions `security.cve.view` and `security.cve.scan`.
 
 ---
 
@@ -1147,12 +1203,15 @@ The two shipped layouts share one header on small screens. `data-layout="sidebar
 | `OspfPolicyTest` | Routing | Prefix-lists, route-maps, distribute-lists, area filters (38 cases) |
 | `RipIsisTest` | Routing | RIP & IS-IS settings, networks, neighbors, interfaces (25 cases) |
 | `ServiceControlTest` | Services | Per-page widget render, `control`/`status` endpoints, polling, log modal, collapse (12 cases) |
+| `CveAdvisoriesTest` | CveAdvisories | Menu endpoints, authenticated root package scan, NIST NVD links, CSV export, feed sync |
+| `AllPagesLiveSmokeTest` | All Controllers | Full appliance 65+ page route smoke test verifying 200 OK without 404 or 500 errors |
 
 ### Library Tests
 
 | Test Class | Library | Coverage |
 | :--- | :--- | :--- |
 | `NftablesCompilerTest` | NftablesCompiler | Full ruleset generation, address sets, NAT chains |
+| `FirewallVpnMultiWanSyncTest` | NftablesCompiler | WireGuard, OpenVPN, IPsec (VTI/XFRM), PPPoE, and Multi-WAN ruleset sync |
 | `PppoeCompilerTest` | PppoeCompiler | Server/client config generation |
 | `PppoeRadiusTest` | RadiusAuthService | Primary/secondary failover |
 | `PppoeBackoffTest` | PppoeBackoff | Exponential delay calculation, reset |

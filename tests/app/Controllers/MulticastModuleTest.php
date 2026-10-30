@@ -364,7 +364,7 @@ final class MulticastModuleTest extends BaseTestCase
         $mdns = $db->table('system_services')->where('id', 'mdns-repeater')->get()->getRowArray();
 
         $this->assertSame('running', $igmp['status']);
-        $this->assertNotNull($igmp['pid'], 'A running daemon must carry a pid');
+        $this->assertNull($igmp['pid'], 'micrond reported no pid, so none is invented');
         $this->assertSame('stopped', $mdns['status']);
         $this->assertNull($mdns['pid']);
     }

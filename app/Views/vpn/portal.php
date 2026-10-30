@@ -778,7 +778,7 @@
 </div>
 
 <!-- ── OpenVPN Preview Modal ── -->
-<div class="mno-modal-backdrop" id="modal-ovpn-preview" onclick="if(event.target===this)closeModal('modal-ovpn-preview')">
+<div class="mno-modal-backdrop" id="modal-ovpn-preview">
   <div class="mno-modal-dialog">
     <div class="mno-modal-header">
       <div class="mno-modal-title">
@@ -808,7 +808,7 @@
 </div>
 
 <!-- ── WireGuard Full Config Modal ── -->
-<div class="mno-modal-backdrop" id="modal-wg-preview" onclick="if(event.target===this)closeModal('modal-wg-preview')">
+<div class="mno-modal-backdrop" id="modal-wg-preview">
   <div class="mno-modal-dialog">
     <div class="mno-modal-header">
       <div class="mno-modal-title">

@@ -175,7 +175,7 @@ final class DiagnosticsToolsTest extends BaseTestCase
     /** With no daemon (the dev box) every tool still answers with its simulation. */
     public function testEachToolFallsBackToItsSimulationWhenTheDaemonIsUnreachable(): void
     {
-        Services::injectMock('ipc', new FakeIpcClient());
+        Services::injectMock('ipc', (new FakeIpcClient())->asDevelopmentMock());
 
         $dns = json_decode((string) $this->post('diag/dns-lookup', $this->csrf(['name' => 'cloudflare.com', 'type' => 'A']))->getJSON(), true);
         $this->assertStringContainsString('DiG', $dns['output']);

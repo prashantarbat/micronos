@@ -21,7 +21,7 @@ _microctl() {
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD - 1]}"
 
-    local commands="status interface firewall backup config admin help"
+    local commands="status interface ipv6 network terminal firewall backup config admin version health services service logs vpn plugins rpc doctor help"
     local create_opts="--encrypt --passphrase --description --out"
     local restore_opts="--passphrase --replace-key --nic-map --force"
 
@@ -45,6 +45,11 @@ _microctl() {
     # ----------------------------------------------------------------------
     case "${cur}" in
         -*)
+            case "${COMP_WORDS[1]}" in
+                version|health|services|service|logs|vpn|plugins|rpc|doctor)
+                    COMPREPLY=($(compgen -W "--json --yes --lines --interface" -- "${cur}"))
+                    return ;;
+            esac
             if [ "${COMP_WORDS[1]}" = "backup" ]; then
                 if [ "${COMP_WORDS[2]}" = "restore" ]; then
                     COMPREPLY=($(compgen -W "${restore_opts}" -- "${cur}"))
@@ -74,6 +79,14 @@ _microctl() {
             backup)    COMPREPLY=($(compgen -W "create restore" -- "${cur}")); return ;;
             config)    COMPREPLY=($(compgen -W "rollback" -- "${cur}")); return ;;
             admin)     COMPREPLY=($(compgen -W "reset-password" -- "${cur}")); return ;;
+            vpn)       COMPREPLY=($(compgen -W "wireguard openvpn ipsec" -- "${cur}")); return ;;
+            rpc)       COMPREPLY=($(compgen -W "methods" -- "${cur}")); return ;;
+            ipv6)      COMPREPLY=($(compgen -W "on off status" -- "${cur}")); return ;;
+            network)   COMPREPLY=($(compgen -W "status plan apply confirm rollback reconcile" -- "${cur}")); return ;;
+            terminal)  COMPREPLY=($(compgen -W "status sessions kill revoke" -- "${cur}")); return ;;
+            service|logs)
+                COMPREPLY=($(compgen -W "nftables unbound kea-dhcp4 wireguard openvpn strongswan frr squid suricata keepalived chrony snmpd rsyslog" -- "${cur}"))
+                return ;;
         esac
         COMPREPLY=()
         return
@@ -86,6 +99,8 @@ _microctl() {
         case "${COMP_WORDS[1]}:${COMP_WORDS[2]}" in
             backup:restore)    COMPREPLY=($(compgen -f -- "${cur}")); return ;;
             interface:set-lan) COMPREPLY=($(compgen -W "192.168.1.1/24" -- "${cur}")); return ;;
+            vpn:*)             COMPREPLY=($(compgen -W "status" -- "${cur}")); return ;;
+            service:*)         COMPREPLY=($(compgen -W "start stop restart" -- "${cur}")); return ;;
         esac
     fi
 

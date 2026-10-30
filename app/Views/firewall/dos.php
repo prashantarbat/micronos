@@ -697,9 +697,34 @@ foreach ($policies as $p) {
             <label class="form-label" for="create_interface_id">Target Interface *</label>
             <select class="form-control" id="create_interface_id" name="interface_id" data-fw-iface>
               <option value="all">Global (All Interfaces)</option>
-              <?php foreach ($interfaces as $iface): ?>
-                <option value="<?= esc($iface['name']) ?>"<?= \App\Libraries\ObjectTip::iface($iface) ?>><?= esc($iface['name']) ?> (<?= esc(($iface['physical_device'] ?? '') ?: ($iface['type'] ?? 'interface')) ?>)</option>
-              <?php endforeach; ?>
+              <?php if (!empty($physicalInterfaces)): ?>
+                <optgroup label="Physical &amp; System Interfaces">
+                  <?php foreach ($physicalInterfaces as $iface): ?>
+                    <option value="<?= esc($iface['name']) ?>"<?= \App\Libraries\ObjectTip::iface($iface) ?>><?= esc($iface['name']) ?> (<?= esc(($iface['physical_device'] ?? '') ?: ($iface['type'] ?? 'interface')) ?>)</option>
+                  <?php endforeach; ?>
+                </optgroup>
+              <?php endif; ?>
+              <?php if (!empty($vpnInterfaces['wireguard'])): ?>
+                <optgroup label="WireGuard VPN Tunnels">
+                  <?php foreach ($vpnInterfaces['wireguard'] as $wg): ?>
+                    <option value="<?= esc($wg['interface']) ?>"><?= esc($wg['name'] ?? $wg['interface']) ?> (<?= esc($wg['interface']) ?>) <?= !empty($wg['addresses']) ? '[' . esc($wg['addresses']) . ']' : '' ?></option>
+                  <?php endforeach; ?>
+                </optgroup>
+              <?php endif; ?>
+              <?php if (!empty($vpnInterfaces['openvpn'])): ?>
+                <optgroup label="OpenVPN Tunnels">
+                  <?php foreach ($vpnInterfaces['openvpn'] as $ovpn): ?>
+                    <option value="<?= esc($ovpn['interface']) ?>"><?= esc($ovpn['name'] ?? $ovpn['interface']) ?> (<?= esc($ovpn['interface']) ?>)</option>
+                  <?php endforeach; ?>
+                </optgroup>
+              <?php endif; ?>
+              <?php if (!empty($vpnInterfaces['ipsec'])): ?>
+                <optgroup label="IPsec VTI Tunnels">
+                  <?php foreach ($vpnInterfaces['ipsec'] as $ipsec): ?>
+                    <option value="<?= esc($ipsec['interface']) ?>"><?= esc($ipsec['name'] ?? $ipsec['interface']) ?> (<?= esc($ipsec['interface']) ?>)</option>
+                  <?php endforeach; ?>
+                </optgroup>
+              <?php endif; ?>
             </select>
           </div>
         </div>
@@ -943,9 +968,34 @@ foreach ($policies as $p) {
             <label class="form-label" for="edit_interface_id">Target Interface *</label>
             <select class="form-control" id="edit_interface_id" name="interface_id" data-fw-iface>
               <option value="all">Global (All Interfaces)</option>
-              <?php foreach ($interfaces as $iface): ?>
-                <option value="<?= esc($iface['name']) ?>"<?= \App\Libraries\ObjectTip::iface($iface) ?>><?= esc($iface['name']) ?> (<?= esc(($iface['physical_device'] ?? '') ?: ($iface['type'] ?? 'interface')) ?>)</option>
-              <?php endforeach; ?>
+              <?php if (!empty($physicalInterfaces)): ?>
+                <optgroup label="Physical &amp; System Interfaces">
+                  <?php foreach ($physicalInterfaces as $iface): ?>
+                    <option value="<?= esc($iface['name']) ?>"<?= \App\Libraries\ObjectTip::iface($iface) ?>><?= esc($iface['name']) ?> (<?= esc(($iface['physical_device'] ?? '') ?: ($iface['type'] ?? 'interface')) ?>)</option>
+                  <?php endforeach; ?>
+                </optgroup>
+              <?php endif; ?>
+              <?php if (!empty($vpnInterfaces['wireguard'])): ?>
+                <optgroup label="WireGuard VPN Tunnels">
+                  <?php foreach ($vpnInterfaces['wireguard'] as $wg): ?>
+                    <option value="<?= esc($wg['interface']) ?>"><?= esc($wg['name'] ?? $wg['interface']) ?> (<?= esc($wg['interface']) ?>) <?= !empty($wg['addresses']) ? '[' . esc($wg['addresses']) . ']' : '' ?></option>
+                  <?php endforeach; ?>
+                </optgroup>
+              <?php endif; ?>
+              <?php if (!empty($vpnInterfaces['openvpn'])): ?>
+                <optgroup label="OpenVPN Tunnels">
+                  <?php foreach ($vpnInterfaces['openvpn'] as $ovpn): ?>
+                    <option value="<?= esc($ovpn['interface']) ?>"><?= esc($ovpn['name'] ?? $ovpn['interface']) ?> (<?= esc($ovpn['interface']) ?>)</option>
+                  <?php endforeach; ?>
+                </optgroup>
+              <?php endif; ?>
+              <?php if (!empty($vpnInterfaces['ipsec'])): ?>
+                <optgroup label="IPsec VTI Tunnels">
+                  <?php foreach ($vpnInterfaces['ipsec'] as $ipsec): ?>
+                    <option value="<?= esc($ipsec['interface']) ?>"><?= esc($ipsec['name'] ?? $ipsec['interface']) ?> (<?= esc($ipsec['interface']) ?>)</option>
+                  <?php endforeach; ?>
+                </optgroup>
+              <?php endif; ?>
             </select>
           </div>
         </div>
@@ -1165,7 +1215,24 @@ function openEditModal(policy) {
 
   document.getElementById('edit_modal_title_name').textContent = policy.name;
   document.getElementById('edit_name').value = policy.name || '';
-  document.getElementById('edit_interface_id').value = policy.interface_id || 'all';
+  
+  const editIfSel = document.getElementById('edit_interface_id');
+  const targetIf = policy.interface_id || 'all';
+  let ifFound = false;
+  for (let i = 0; i < editIfSel.options.length; i++) {
+    if (editIfSel.options[i].value.toLowerCase() === String(targetIf).toLowerCase()) {
+      editIfSel.selectedIndex = i;
+      ifFound = true;
+      break;
+    }
+  }
+  if (!ifFound && targetIf !== 'all') {
+    editIfSel.add(new Option(targetIf + ' (Virtual/Tunnel)', targetIf, true, true));
+    editIfSel.value = targetIf;
+  } else if (!ifFound) {
+    editIfSel.value = 'all';
+  }
+
   document.getElementById('edit_action').value = policy.action || 'drop';
   document.getElementById('edit_description').value = policy.description || '';
   document.getElementById('edit_schedule').value = policy.schedule || 'always';
@@ -1198,15 +1265,6 @@ function openEditModal(policy) {
 function closeEditModal() {
   document.getElementById('editPolicyModal').classList.remove('active');
 }
-
-// Close modals when clicking backdrop
-document.querySelectorAll('.mno-modal-backdrop').forEach(modal => {
-  modal.addEventListener('click', (e) => {
-    if (e.target === modal) {
-      modal.classList.remove('active');
-    }
-  });
-});
 
 // ESC key to close modals
 document.addEventListener('keydown', (e) => {

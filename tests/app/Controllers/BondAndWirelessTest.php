@@ -35,6 +35,10 @@ final class BondAndWirelessTest extends BaseTestCase
     {
         parent::setUp();
 
+        // This machine has one Wi-Fi radio, named wlan0 (development client).
+        putenv('MICRON_MOCK_WIRELESS=wlan0');
+        \Config\Services::injectMock('ipc', new \App\Libraries\IpcClient());
+
         $this->db->table('interface_bonds')->where('id', 'bond0')->delete();
         $this->db->table('wireless_interfaces')->where('id', 'wlan0')->delete();
         $this->db->table('interfaces')->whereIn('id', ['bond0', 'wlan0'])->delete();
@@ -80,6 +84,7 @@ final class BondAndWirelessTest extends BaseTestCase
         $this->db->table('interface_bonds')->where('id', 'bond0')->delete();
         $this->db->table('wireless_interfaces')->where('id', 'wlan0')->delete();
         $this->db->table('interfaces')->whereIn('id', ['bond0', 'wlan0'])->delete();
+        putenv('MICRON_MOCK_WIRELESS');
         parent::tearDown();
     }
 
@@ -103,12 +108,12 @@ final class BondAndWirelessTest extends BaseTestCase
         return $params + [config(SecurityConfig::class)->tokenName => service('security')->getHash()];
     }
 
-    public function testIndexViewContainsBondsAndWirelessPanes(): void
+    public function testIndexViewContainsBondAndWirelessSections(): void
     {
         $result = $this->withSession($this->sessionData())->get('interfaces');
 
         $result->assertOK();
-        $result->assertSee('LACP Link Aggregation');
+        $result->assertSee('Link Aggregation Groups');
         $result->assertSee('Wireless LAN');
         $result->assertSee('bond0');
         $result->assertSee('wlan0');
@@ -129,7 +134,7 @@ final class BondAndWirelessTest extends BaseTestCase
 
         $result = $this->withSession($this->sessionData())->post('interfaces/bonds/store', $payload);
 
-        $result->assertRedirectTo(base_url('interfaces?tab=bonds'));
+        $result->assertRedirectTo(base_url('interfaces'));
         $result->assertSessionHas('success');
 
         // Verify interface_bonds table
@@ -180,7 +185,7 @@ final class BondAndWirelessTest extends BaseTestCase
         $payload = $this->csrf([]);
         $result = $this->withSession($this->sessionData())->post('interfaces/bonds/bond0/delete', $payload);
 
-        $result->assertRedirectTo(base_url('interfaces?tab=bonds'));
+        $result->assertRedirectTo(base_url('interfaces'));
         $result->assertSessionHas('success');
 
         $this->assertSame(0, $this->db->table('interface_bonds')->where('id', 'bond0')->countAllResults());
@@ -208,7 +213,7 @@ final class BondAndWirelessTest extends BaseTestCase
 
         $result = $this->withSession($this->sessionData())->post('interfaces/wireless/save', $payload);
 
-        $result->assertRedirectTo(base_url('interfaces?tab=wireless'));
+        $result->assertRedirectTo(base_url('interfaces'));
         $result->assertSessionHas('success');
 
         // Check wireless_interfaces table
@@ -235,5 +240,69 @@ final class BondAndWirelessTest extends BaseTestCase
         $json = json_decode($result->getJSON(), true);
         $this->assertIsArray($json);
         $this->assertTrue($json['success'] ?? false);
+    }
+
+    public function testWirelessOptionsAreHiddenWithoutAWirelessAdapter(): void
+    {
+        putenv('MICRON_MOCK_WIRELESS');
+
+        $result = $this->withSession($this->sessionData())->get('interfaces');
+        $result->assertOK();
+        $body = $result->getBody();
+
+        $this->assertStringNotContainsString('id="wirelessSection"', $body);
+        $this->assertStringNotContainsString('id="configureWirelessModal"', $body);
+        $this->assertStringNotContainsString('Setup Wi-Fi', $body);
+        $this->assertStringNotContainsString('value="wlan0"', $body, 'no invented wlan0 in the port picker');
+    }
+
+    public function testWirelessOptionsAppearWhenAnAdapterIsInstalled(): void
+    {
+        $body = $this->withSession($this->sessionData())->get('interfaces')->getBody();
+
+        $this->assertStringContainsString('id="wirelessSection"', $body);
+        $this->assertStringContainsString('id="configureWirelessModal"', $body);
+        $this->assertMatchesRegularExpression('/<select id="wlan_interface"[^>]*>\s*<option value="wlan0"/', $body);
+    }
+
+    public function testSavingWifiIsRefusedWithoutAWirelessAdapter(): void
+    {
+        putenv('MICRON_MOCK_WIRELESS');
+
+        $result = $this->post('interfaces/wireless/save', $this->csrf([
+            'id' => 'wlan0', 'interface' => 'wlan0', 'mode' => 'ap', 'ssid' => 'Test', 'security' => 'wpa2', 'passphrase' => 'longenough1',
+        ]));
+
+        $result->assertRedirect();
+        $this->assertNull($this->db->table('wireless_interfaces')->where('id', 'wlan0')->get()->getRowArray());
+    }
+
+    public function testSavingWifiIsRefusedForANonWirelessPort(): void
+    {
+        $result = $this->post('interfaces/wireless/save', $this->csrf([
+            'id' => 'enp3s0', 'interface' => 'enp3s0', 'mode' => 'ap', 'ssid' => 'Test', 'security' => 'wpa2', 'passphrase' => 'longenough1',
+        ]));
+
+        $result->assertRedirect();
+        $this->assertNull($this->db->table('wireless_interfaces')->where('id', 'enp3s0')->get()->getRowArray());
+    }
+
+    public function testWirelessStatusIs404ForAnAbsentRadio(): void
+    {
+        putenv('MICRON_MOCK_WIRELESS');
+        $this->withSession($this->sessionData())->get('interfaces/wireless/status/wlan0')->assertStatus(404);
+    }
+
+    public function testTheStoredPassphraseIsNeverRenderedIntoThePage(): void
+    {
+        $this->db->table('wireless_interfaces')->insert([
+            'id' => 'wlan0', 'interface' => 'wlan0', 'name' => 'AP', 'mode' => 'ap', 'ssid' => "Bob's AP",
+            'passphrase' => 'SuperSecretPassphrase9', 'security' => 'wpa2', 'hw_mode' => 'g', 'channel' => 6,
+            'country_code' => 'US', 'hidden_ssid' => 0, 'client_isolation' => 0, 'tx_power' => 20, 'enabled' => 1,
+        ]);
+
+        $body = $this->withSession($this->sessionData())->get('interfaces')->getBody();
+        $this->assertStringNotContainsString('SuperSecretPassphrase9', $body);
+        $this->assertStringContainsString('has_passphrase', $body);
     }
 }

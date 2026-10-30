@@ -6,44 +6,151 @@
 #
 #   sudo packaging/rebuild_iso.sh
 #
-# It stages the appliance overlay from the repository, runs `lb config`, builds
-# the hybrid BIOS/UEFI ISO, copies it beside the repository and prints the
-# checksum. The build aborts on any error — a partially staged overlay used to
-# be able to produce an ISO that booted but ran an older build.
+# Options:
+#   --bump              Force incrementing patch version in VERSION file before building
+#   --no-bump           Do not increment version; build with current version in VERSION
+#   --version <ver>     Build with specified version and update VERSION file
+#   -h, --help          Show help
+#
+# Behavior:
+#   - Versioning: Increments patch version (e.g. 0.0.41 -> 0.0.42) automatically
+#   - Integrity Checksums: Generates a single .checksums.txt file containing
+#     MD5, SHA1, and SHA2 (SHA256, SHA512) hashes for the ISO.
 #
 # Environment overrides:
 #   MICRONOS_BUILD_DIR   scratch build directory   (default /root/micronos-builder)
 #   MICRONOS_REPO_DIR    repository to build from  (default: this repository)
 #   MICRONOS_OUTPUT_DIR  where the ISO is written  (default: repository's parent)
+#   MICRONOS_AUTO_BUMP   bump policy: 'auto' (default), 'always', 'never'
 # ==============================================================================
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEFAULT_REPO="$(cd "${here}/.." && pwd)"
+if [ ! -f "${DEFAULT_REPO}/bin/micron-menu" ] && [ -d "/mnt/d/laragon/www/micronos/micronos" ]; then
+    DEFAULT_REPO="/mnt/d/laragon/www/micronos/micronos"
+fi
 
 BUILD_DIR="${MICRONOS_BUILD_DIR:-/root/micronos-builder}"
 REPO_DIR="${MICRONOS_REPO_DIR:-${DEFAULT_REPO}}"
-OUTPUT_DIR="${MICRONOS_OUTPUT_DIR:-$(dirname "${DEFAULT_REPO}")}"
+OUTPUT_DIR="${MICRONOS_OUTPUT_DIR:-$(dirname "${REPO_DIR}")}"
 
 if [ ! -f "${REPO_DIR}/bin/micron-menu" ] || [ ! -d "${REPO_DIR}/packaging/live-build" ]; then
     echo "ERROR: ${REPO_DIR} does not look like the Micron OS repository." >&2
     exit 1
 fi
 
-# Single source of truth for the release identity: the repository's VERSION file.
-# The ISO filename, /etc/os-release and the console menu all derive from it, so
-# they can never disagree (they used to: the file said 0.1.31 while both the
-# ISO name and /etc/os-release said 0.1.23).
-VERSION="$(head -n1 "${REPO_DIR}/VERSION" 2>/dev/null | tr -d '[:space:]')"
-[ -n "${VERSION}" ] || { echo "ERROR: ${REPO_DIR}/VERSION is missing or empty." >&2; exit 1; }
+bump_mode="${MICRONOS_AUTO_BUMP:-auto}" # 'auto', 'always', 'never'
+explicit_version=""
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --bump)
+            bump_mode="always"
+            shift
+            ;;
+        --no-bump)
+            bump_mode="never"
+            shift
+            ;;
+        --version)
+            [ -n "${2:-}" ] || { echo "ERROR: --version requires a version argument (e.g. 0.0.41)" >&2; exit 2; }
+            explicit_version="$2"
+            shift 2
+            ;;
+        -h|--help)
+            echo "Usage: sudo packaging/rebuild_iso.sh [--bump | --no-bump | --version <version>]"
+            echo ""
+            echo "Options:"
+            echo "  --bump           Force incrementing patch version in VERSION file before building"
+            echo "  --no-bump        Do not increment version; build with current version in VERSION"
+            echo "  --version <ver>  Build with specified version and update VERSION file"
+            echo "  -h, --help       Show this help"
+            exit 0
+            ;;
+        *)
+            echo "ERROR: Unknown option: $1" >&2
+            exit 2
+            ;;
+    esac
+done
+
+bump_version() {
+    local v="$1"
+    local major minor patch
+    IFS='.' read -r major minor patch <<< "$v"
+    if [[ "${patch:-}" =~ ^[0-9]+$ ]]; then
+        patch=$((patch + 1))
+        echo "${major}.${minor}.${patch}"
+    else
+        echo "$v"
+    fi
+}
+
+update_os_release() {
+    local ver="$1"
+    local os_rel="${REPO_DIR}/system/os-release"
+    mkdir -p "$(dirname "${os_rel}")"
+    cat > "${os_rel}" << OSRELEOF
+PRETTY_NAME="Micron OS ${ver} (amd64)"
+NAME="Micron OS"
+VERSION_ID="${ver}"
+VERSION="${ver} (amd64)"
+VERSION_CODENAME=trixie
+ID=micronos
+ID_LIKE=debian
+HOME_URL="https://micronos.local/"
+SUPPORT_URL="https://micronos.local/support"
+BUG_REPORT_URL="https://micronos.local/bugs"
+OSRELEOF
+}
+
+# Single source of truth for release identity
+CURRENT_VERSION="$(head -n1 "${REPO_DIR}/VERSION" 2>/dev/null | tr -d '[:space:]')"
+[ -n "${CURRENT_VERSION}" ] || CURRENT_VERSION="0.0.41"
+
+if [ -n "${explicit_version}" ]; then
+    VERSION="${explicit_version}"
+    echo "${VERSION}" > "${REPO_DIR}/VERSION"
+    update_os_release "${VERSION}"
+    echo "=== Version explicitly set to: ${VERSION} ==="
+elif [ "${bump_mode}" = "always" ]; then
+    VERSION="$(bump_version "${CURRENT_VERSION}")"
+    echo "${VERSION}" > "${REPO_DIR}/VERSION"
+    update_os_release "${VERSION}"
+    echo "=== Version incremented: ${CURRENT_VERSION} -> ${VERSION} ==="
+elif [ "${bump_mode}" = "never" ]; then
+    VERSION="${CURRENT_VERSION}"
+    update_os_release "${VERSION}"
+    echo "=== Building with current version: ${VERSION} (--no-bump) ==="
+else
+    # 'auto' mode: if ISO for CURRENT_VERSION already exists in OUTPUT_DIR or its folder, auto-increment
+    EXISTING_ISO="${OUTPUT_DIR}/micronos-${CURRENT_VERSION}-amd64.hybrid/micronos-${CURRENT_VERSION}-amd64.hybrid.iso"
+    if [ ! -f "${EXISTING_ISO}" ]; then
+        EXISTING_ISO="${OUTPUT_DIR}/micronos-${CURRENT_VERSION}-amd64.hybrid.iso"
+    fi
+    if [ -f "${EXISTING_ISO}" ]; then
+        VERSION="$(bump_version "${CURRENT_VERSION}")"
+        echo "${VERSION}" > "${REPO_DIR}/VERSION"
+        update_os_release "${VERSION}"
+        echo "=== Existing ISO found for ${CURRENT_VERSION}. Incrementing to next version: ${VERSION} ==="
+    else
+        VERSION="${CURRENT_VERSION}"
+        echo "${VERSION}" > "${REPO_DIR}/VERSION"
+        update_os_release "${VERSION}"
+        echo "=== Building initial ISO for version: ${VERSION} ==="
+    fi
+fi
 
 ISO_NAME="micronos-${VERSION}-amd64.hybrid.iso"
-ISO_DEST="${OUTPUT_DIR}/${ISO_NAME}"
+FOLDER_NAME="${ISO_NAME%.iso}"
+TARGET_DIR="${OUTPUT_DIR}/${FOLDER_NAME}"
+ISO_DEST="${TARGET_DIR}/${ISO_NAME}"
 BUILD_LOG="${BUILD_DIR}/build_new_iso.log"
 
 command -v lb >/dev/null 2>&1 || { echo "ERROR: live-build (lb) is not installed." >&2; exit 1; }
 
-mkdir -p "${BUILD_DIR}" "${OUTPUT_DIR}"
+mkdir -p "${BUILD_DIR}" "${OUTPUT_DIR}" "${TARGET_DIR}"
 
 echo "=== 1. Syncing build configs, bootloaders, and templates from ${REPO_DIR} ==="
 mkdir -p "${BUILD_DIR}/config/bootloaders"
@@ -51,9 +158,12 @@ cp -rf "${REPO_DIR}/packaging/live-build/config/bootloaders/"* "${BUILD_DIR}/con
 cp -rf "${REPO_DIR}/packaging/live-build/config/hooks" "${BUILD_DIR}/config/"
 cp -rf "${REPO_DIR}/packaging/live-build/config/package-lists" "${BUILD_DIR}/config/"
 cp -f  "${REPO_DIR}/packaging/live-build/auto/config" "${BUILD_DIR}/auto/config"
+if [ "$(realpath "$0" 2>/dev/null || true)" != "$(realpath "${BUILD_DIR}/rebuild_iso.sh" 2>/dev/null || true)" ]; then
+    cp -f "${REPO_DIR}/packaging/rebuild_iso.sh" "${BUILD_DIR}/rebuild_iso.sh" 2>/dev/null || true
+fi
 
 # Remove any old ISO inside the repository so the artifact only ever lands in
-# OUTPUT_DIR and cannot be confused with a stale image.
+# TARGET_DIR and cannot be confused with a stale image.
 rm -f "${REPO_DIR}/micronos-"*"-amd64.hybrid.iso"
 
 echo "=== 2. Cleaning old binary stage ==="
@@ -74,12 +184,13 @@ echo "=== 5. Running lb build (log: ${BUILD_LOG}) ==="
 set -o pipefail
 lb build 2>&1 | tee "${BUILD_LOG}"
 
-echo "=== 6. Outputting ISO to ${OUTPUT_DIR} ==="
+echo "=== 6. Outputting ISO to ${TARGET_DIR} ==="
 if [ ! -f "${BUILD_DIR}/live-image-amd64.hybrid.iso" ]; then
     echo "ERROR: live-image-amd64.hybrid.iso was not produced; see ${BUILD_LOG}" >&2
     exit 1
 fi
 
+mkdir -p "${TARGET_DIR}"
 cp -f "${BUILD_DIR}/live-image-amd64.hybrid.iso" "${ISO_DEST}"
 
 echo "=== 7. Verifying the artifact ==="
@@ -93,11 +204,87 @@ if command -v xorriso >/dev/null 2>&1; then
         || echo "WARNING: no El Torito catalog found; verifying boot mode manually."
 fi
 
-SHA="$(sha256sum "${ISO_DEST}" | awk '{print $1}')"
-printf '%s  %s\n' "${SHA}" "$(basename "${ISO_DEST}")" > "${ISO_DEST}.sha256"
+echo "=== 8. Generating cryptographic checksums (MD5, SHA1, SHA2) ==="
+ISO_BASENAME="$(basename "${ISO_DEST}")"
+CHECKSUM_FILE="${TARGET_DIR}/${ISO_BASENAME}.checksums.txt"
+
+# Clean up any legacy separate checksum files
+rm -f "${TARGET_DIR}/${ISO_BASENAME}.md5.txt" "${TARGET_DIR}/${ISO_BASENAME}.sha1.txt" "${TARGET_DIR}/${ISO_BASENAME}.sha2.txt" "${TARGET_DIR}/${ISO_BASENAME}.sha256.txt" "${TARGET_DIR}/${ISO_BASENAME}.sha512.txt" "${TARGET_DIR}/${ISO_BASENAME}.md5" "${TARGET_DIR}/${ISO_BASENAME}.sha1"
+
+# 1. MD5
+if command -v md5sum >/dev/null 2>&1; then
+    MD5_VAL="$(md5sum "${ISO_DEST}" | awk '{print $1}')"
+else
+    echo "WARNING: md5sum command not found; skipping MD5."
+    MD5_VAL="N/A"
+fi
+
+# 2. SHA1
+if command -v sha1sum >/dev/null 2>&1; then
+    SHA1_VAL="$(sha1sum "${ISO_DEST}" | awk '{print $1}')"
+else
+    echo "WARNING: sha1sum command not found; skipping SHA1."
+    SHA1_VAL="N/A"
+fi
+
+# 3. SHA2 (SHA256 & SHA512)
+if command -v sha256sum >/dev/null 2>&1; then
+    SHA256_VAL="$(sha256sum "${ISO_DEST}" | awk '{print $1}')"
+else
+    echo "WARNING: sha256sum command not found; skipping SHA256."
+    SHA256_VAL="N/A"
+fi
+
+SHA512_VAL=""
+if command -v sha512sum >/dev/null 2>&1; then
+    SHA512_VAL="$(sha512sum "${ISO_DEST}" | awk '{print $1}')"
+fi
+
+# Write all checksums into a single TXT file
+BUILD_TIME_UTC="$(date -u '+%Y-%m-%d %H:%M:%S UTC' 2>/dev/null || date)"
+cat > "${CHECKSUM_FILE}" << CHKEOF
+# ==============================================================================
+# Micron OS ISO Checksums
+# ==============================================================================
+# File:      ${ISO_BASENAME}
+# Version:   ${VERSION}
+# Timestamp: ${BUILD_TIME_UTC}
+# ==============================================================================
+
+MD5:    ${MD5_VAL}
+SHA1:   ${SHA1_VAL}
+SHA2:   ${SHA256_VAL}
+$( [ -n "${SHA512_VAL}" ] && echo "SHA512: ${SHA512_VAL}" )
+
+# Standard verification checksums:
+${MD5_VAL}  ${ISO_BASENAME}
+${SHA1_VAL}  ${ISO_BASENAME}
+${SHA256_VAL}  ${ISO_BASENAME}
+$( [ -n "${SHA512_VAL}" ] && echo "${SHA512_VAL}  ${ISO_BASENAME}" )
+CHKEOF
+
+# Also keep backward-compatible .sha256 verification file
+printf '%s  %s\n' "${SHA256_VAL}" "${ISO_BASENAME}" > "${TARGET_DIR}/${ISO_BASENAME}.sha256"
+
+# Copy build log into the target directory
+if [ -f "${BUILD_LOG}" ]; then
+    cp -f "${BUILD_LOG}" "${TARGET_DIR}/build.log" 2>/dev/null || true
+fi
 
 echo ""
-echo "SUCCESS: Micron OS ${VERSION} ISO created at: ${ISO_DEST}"
-ls -lh "${ISO_DEST}"
-echo "SHA256: ${SHA}"
-echo "Checksum written to: ${ISO_DEST}.sha256"
+echo "=============================================================================="
+echo " SUCCESS: Micron OS ${VERSION} ISO created at: ${ISO_DEST}"
+echo " Directory: ${TARGET_DIR}"
+echo "=============================================================================="
+ls -lh "${TARGET_DIR}"
+echo ""
+echo "Cryptographic Checksums (Saved in single file: $(basename "${CHECKSUM_FILE}")):"
+echo "  MD5:    ${MD5_VAL}"
+echo "  SHA1:   ${SHA1_VAL}"
+echo "  SHA2:   ${SHA256_VAL} (SHA256)"
+if [ -n "${SHA512_VAL}" ]; then
+    echo "  SHA512: ${SHA512_VAL}"
+fi
+echo ""
+echo "Checksum file written to: ${CHECKSUM_FILE}"
+echo "=============================================================================="

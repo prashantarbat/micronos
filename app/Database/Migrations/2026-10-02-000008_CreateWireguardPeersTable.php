@@ -40,7 +40,7 @@ class CreateWireguardPeersTable extends Migration
             ],
             'persistent_keepalive' => [
                 'type'    => 'INT',
-                'default' => 25,
+                'default' => 2,
             ],
             'enabled' => [
                 'type'       => 'TINYINT',

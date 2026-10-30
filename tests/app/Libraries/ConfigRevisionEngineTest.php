@@ -22,11 +22,20 @@ class ConfigRevisionEngineTest extends BaseTestCase
 
     protected ConfigRevisionEngine $engine;
     protected string $testRepoPath;
+    protected string $initialVersion;
+
+    /** The real VERSION file, restored byte for byte after each test. */
+    private ?string $savedVersionFile = null;
 
     protected function setUp(): void
     {
         parent::setUp();
+        $path = AppVersion::getVersionFilePath();
+        $this->savedVersionFile = is_file($path) ? (string) file_get_contents($path) : null;
+        // A development version, so edits bump the patch.
+        AppVersion::setVersion(0, 1, 23);
         AppVersion::clearCache();
+        $this->initialVersion = AppVersion::getVersion();
 
         // Ensure system_settings row 1 exists
         if ($this->db->table('system_settings')->where('id', 1)->countAllResults() === 0) {
@@ -48,7 +57,24 @@ class ConfigRevisionEngineTest extends BaseTestCase
         parent::tearDown();
         // Clean up temporary repo
         $this->removeDirectory($this->testRepoPath);
-        AppVersion::setVersion(0, 1, 23);
+        if ($this->savedVersionFile !== null) {
+            file_put_contents(AppVersion::getVersionFilePath(), $this->savedVersionFile);
+        }
+        AppVersion::clearCache();
+    }
+
+    public function testReleaseVersionsAreNotBumpedByConfigurationEdits(): void
+    {
+        foreach (['1.0.0-rc.1', '1.0.0'] as $release) {
+            file_put_contents(AppVersion::getVersionFilePath(), $release . "\n");
+            AppVersion::clearCache();
+
+            $result = $this->engine->commit('ministrator', "Edit on {$release}", 'system', true);
+
+            $this->assertTrue($result['success']);
+            $this->assertSame($release, $result['version']);
+            $this->assertSame($release, trim((string) file_get_contents(AppVersion::getVersionFilePath())));
+        }
     }
 
     public function testEnsureGitRepoCreatesGitDirectory(): void
@@ -62,8 +88,8 @@ class ConfigRevisionEngineTest extends BaseTestCase
         $state = $this->engine->exportState('system');
 
         $this->assertSame('Micron OS', $state['project']);
-        $this->assertSame('0.1.23', $state['version']);
-        $this->assertSame('Development', $state['channel']);
+        $this->assertSame($this->initialVersion, $state['version']);
+        $this->assertSame(AppVersion::getChannel(), $state['channel']);
         $this->assertIsArray($state['tables']);
         $this->assertArrayHasKey('system_settings', $state['tables']);
     }
@@ -71,15 +97,18 @@ class ConfigRevisionEngineTest extends BaseTestCase
     public function testCommitCreatesGitCommitAndRecordsInDatabase(): void
     {
         $startVersion = AppVersion::getVersion();
-        $this->assertSame('0.1.23', $startVersion);
+        $this->assertSame($this->initialVersion, $startVersion);
 
         // Make an initial commit
         $result = $this->engine->commit('ministrator', 'Initial system baseline', 'system', true);
 
+        $parts = explode('.', $this->initialVersion);
+        $expectedNext = sprintf('%s.%s.%d', $parts[0], $parts[1], (int)$parts[2] + 1);
+
         $this->assertTrue($result['success']);
         $this->assertNotEmpty($result['commit_hash']);
-        $this->assertSame('0.1.24', $result['version']); // Patch bumped!
-        $this->assertSame('Development', $result['channel']);
+        $this->assertSame($expectedNext, $result['version']); // Patch bumped!
+        $this->assertSame(AppVersion::getChannel(), $result['channel']);
         $this->assertSame('ministrator', $result['author']);
 
         // Verify database entry

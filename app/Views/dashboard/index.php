@@ -22,6 +22,12 @@
       <div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;">
         Appliance: <strong style="color:var(--color-cyan); font-family:var(--font-mono);"><?= esc($systemInfo['hostname'] ?? 'micron-edge01') ?></strong>
         &bull; Uptime: <?= esc($uptimeStr) ?>
+        <?php if (!empty($bootSlot)): ?>
+        &bull; Boot Slot: <strong style="color:var(--color-cyan); font-family:var(--font-mono);" title="<?= esc('Root device: ' . ($bootSlot['device'] ?? 'unknown')) ?>"><?= esc($bootSlot['label']) ?></strong>
+          <?php if (!empty($bootSlot['next'])): ?>
+          <span style="color:var(--color-amber);">(Slot <?= esc($bootSlot['next']) ?> on next reboot)</span>
+          <?php endif; ?>
+        <?php endif; ?>
         &bull; Active Rules: <?= esc($ruleCount) ?>
       </div>
     </div>
@@ -77,6 +83,12 @@
 <!-- ============================================================
      1.5 Executive NOC / SOC Operational Health KPI Banner
      ============================================================ -->
+<?php $telemetryMode = $telemetryMode ?? 'simulated'; ?>
+<?php if ($telemetryMode === 'simulated'): ?>
+<div class="sim-banner" role="note"><strong>Development mode — sample data.</strong>&nbsp;The appliance daemon is not reachable from this server, so the figures below are illustrative samples, not measurements.</div>
+<?php elseif ($telemetryMode === 'unavailable'): ?>
+<div class="alert alert-error" role="alert"><span class="alert-text">Live telemetry is unavailable: the appliance daemon (micrond) did not answer. Values below are blank until it responds — check Services or run <code>microctl doctor</code> on the console.</span></div>
+<?php endif; ?>
 <div class="dash-kpi-banner">
   <!-- KPI 1: Active Firewall Defense Engine -->
   <div class="kpi-card">
@@ -90,8 +102,13 @@
         <span class="kpi-title">Threat Defense</span>
         <span class="badge badge-success" style="font-size:0.6rem; padding:1px 5px;">ACTIVE</span>
       </div>
-      <div class="kpi-value">4,289 <span style="font-size:0.7rem; font-weight:500; color:var(--text-muted);">Blocked</span></div>
-      <div class="kpi-sub">0 Critical Exploits &bull; Stateful Engine</div>
+      <?php if ($telemetryMode === 'simulated'): ?>
+      <div class="kpi-value">4,289 <span style="font-size:0.7rem; font-weight:500; color:var(--text-muted);">Blocked (sample)</span></div>
+      <div class="kpi-sub">Sample figure &bull; Stateful Engine</div>
+      <?php else: ?>
+      <div class="kpi-value"><?= $blockedRecent === null ? '—' : number_format((int) $blockedRecent) ?> <span style="font-size:0.7rem; font-weight:500; color:var(--text-muted);">Blocked</span></div>
+      <div class="kpi-sub">In the most recent firewall log entries</div>
+      <?php endif; ?>
     </div>
   </div>
 
@@ -107,8 +124,10 @@
         <span class="kpi-title">WAN Gateway</span>
         <span class="badge badge-success" style="font-size:0.6rem; padding:1px 5px;">ONLINE</span>
       </div>
-      <div class="kpi-value"><?= !empty($gateways[0]['rtt']) ? esc($gateways[0]['rtt']) . ' <span style="font-size:0.7rem; font-weight:500; color:var(--text-muted);">ms RTT</span>' : '8.2 <span style="font-size:0.7rem; font-weight:500; color:var(--text-muted);">ms RTT</span>' ?></div>
-      <div class="kpi-sub">0.0% Packet Loss &bull; 1.2ms Jitter</div>
+      <div class="kpi-value"><?= isset($gateways[0]['rtt']) ? esc((string) $gateways[0]['rtt']) . ' <span style="font-size:0.7rem; font-weight:500; color:var(--text-muted);">ms RTT</span>' : '— <span style="font-size:0.7rem; font-weight:500; color:var(--text-muted);">no probe data</span>' ?></div>
+      <div class="kpi-sub"><?= isset($gateways[0]['rtt'])
+          ? esc((string) ($gateways[0]['loss'] ?? '—')) . '% Packet Loss &bull; ' . esc((string) ($gateways[0]['rttsd'] ?? '—')) . ' ms Jitter'
+          : 'Enable the SD-WAN SLA probe to measure the uplink' ?></div>
     </div>
   </div>
 
@@ -125,7 +144,7 @@
         <span class="badge badge-cyan" style="font-size:0.6rem; padding:1px 5px;"><?= $statesPct ?>% LOAD</span>
       </div>
       <div class="kpi-value" id="kpiStatesCount"><?= number_format($statesActive) ?> <span style="font-size:0.7rem; font-weight:500; color:var(--text-muted);">Flows</span></div>
-      <div class="kpi-sub"><?= number_format($statesMax) ?> Max States &bull; 342 NAT Sessions</div>
+      <div class="kpi-sub"><?= $statesMax > 0 ? number_format($statesMax) . ' max states' : 'State table size unknown' ?></div>
     </div>
   </div>
 
@@ -142,7 +161,7 @@
         <span class="badge badge-success" style="font-size:0.6rem; padding:1px 5px;">OPTIMAL</span>
       </div>
       <div class="kpi-value"><?= $cpuPct ?>% <span style="font-size:0.7rem; font-weight:500; color:var(--text-muted);">CPU</span> &bull; <?= $memPct ?>% <span style="font-size:0.7rem; font-weight:500; color:var(--text-muted);">RAM</span></div>
-      <div class="kpi-sub"><?= $cpuCores ?> Cores &bull; Core Temp: <?= $temperature ?>°C</div>
+      <div class="kpi-sub"><?= (int) $cpuCores ?> Cores &bull; Temp: <?= $temperature === null ? 'n/a' : esc((string) $temperature) . '°C' ?></div>
     </div>
   </div>
 </div>
@@ -163,19 +182,36 @@ foreach ($interfaces as $ifItem) {
         $ifByPort[(int)$ifItem['port_num']] = $ifItem;
     }
 }
-$wanIf  = $ifByDev['eth0'] ?? ($interfaces[0] ?? []);
-$mgmtIf = $ifByDev['eth3'] ?? [];
-$sfp1If = $ifByDev['sfp0'] ?? [];
-$sfp2If = $ifByDev['sfp1'] ?? [];
+// Front-panel bays, built from the ports the kernel actually reports
+// (LiveTelemetry::interfaces): WAN uplink(s), copper Ethernet, fibre/SFP and
+// Wi-Fi radios, each labelled with its real device name (eno1, enp7s0 ...).
+$bays = ['wan' => [], 'lan' => [], 'sfp' => [], 'wireless' => []];
+foreach ($interfaces as $ifItem) {
+    $bay = (string) ($ifItem['bay'] ?? '');
+    if (isset($bays[$bay]) && empty($ifItem['virtual'])) {
+        $bays[$bay][] = $ifItem;
+    }
+}
+$physicalCount = count($bays['wan']) + count($bays['lan']) + count($bays['sfp']) + count($bays['wireless']);
+$wanIf  = $bays['wan'][0] ?? $bays['lan'][0] ?? $bays['sfp'][0] ?? $bays['wireless'][0] ?? [];
+$speedLabel = static function (array $pIf): string {
+    $sp = $pIf['speed'] ?? null;
+    if (! is_numeric($sp) || (int) $sp <= 0) {
+        return ($pIf['status'] ?? '') === 'up' ? 'link' : '—';
+    }
+    $sp = (int) $sp;
+
+    return $sp >= 1000 ? rtrim(rtrim(number_format($sp / 1000, 1), '0'), '.') . 'G' : $sp . 'M';
+};
 
 // Helper closure to render authentic physical RJ45 socket
 $renderRj45Socket = function (array $pIf, bool $isTop = true) use ($wanIf) {
     $dev = $pIf['device'] ?? '';
     $name = $pIf['name'] ?? $dev;
     $isUp = ($pIf['status'] ?? 'down') === 'up';
-    $isSelected = ($dev === ($wanIf['device'] ?? 'eth0'));
+    $isSelected = ($dev === ($wanIf['device'] ?? ''));
     $zone = $pIf['zone'] ?? 'LAN';
-    $speed = $pIf['speed'] ?? '1000';
+    $speed = $pIf['speed'] ?? '—';
     $ip = $pIf['ip'] ?? '—';
     $mac = $pIf['mac'] ?? '—';
     $mtu = $pIf['mtu'] ?? 1500;
@@ -196,7 +232,7 @@ $renderRj45Socket = function (array $pIf, bool $isTop = true) use ($wanIf) {
          data-tx="<?= esc($tx) ?>"
          onclick="selectChassisPort('<?= esc($dev) ?>')"
          ondblclick="openPortInspector('<?= esc($dev) ?>')"
-         title="<?= esc($name) ?> (<?= esc($dev) ?>) &bull; <?= $isUp ? 'Link Active (' . esc($speed) . ' Mbps Full)' : 'Disconnected / Standby' ?>">
+         title="<?= esc($name) ?> (<?= esc($dev) ?>) &bull; <?= $isUp ? 'Link up' . (is_numeric($speed) ? ' (' . esc($speed) . ' Mb/s)' : '') : 'No link' ?>">
       <?php if ($isTop): ?>
         <div class="fg-socket-leds">
           <span class="fg-socket-led left <?= $isUp ? 'green' : '' ?>"></span>
@@ -225,9 +261,9 @@ $renderSfpSocket = function (array $pIf, string $label) use ($wanIf) {
     $dev = $pIf['device'] ?? '';
     $name = $pIf['name'] ?? $label;
     $isUp = ($pIf['status'] ?? 'down') === 'up';
-    $isSelected = ($dev === ($wanIf['device'] ?? 'eth0'));
+    $isSelected = ($dev === ($wanIf['device'] ?? ''));
     $zone = $pIf['zone'] ?? 'FIBER';
-    $speed = $pIf['speed'] ?? '10000';
+    $speed = $pIf['speed'] ?? '—';
     $ip = $pIf['ip'] ?? '—';
     $mac = $pIf['mac'] ?? '—';
     $mtu = $pIf['mtu'] ?? 9000;
@@ -250,7 +286,7 @@ $renderSfpSocket = function (array $pIf, string $label) use ($wanIf) {
            data-tx="<?= esc($tx) ?>"
            onclick="selectChassisPort('<?= esc($dev) ?>')"
            ondblclick="openPortInspector('<?= esc($dev) ?>')"
-           title="<?= esc($name) ?> (<?= esc($dev) ?>) &bull; <?= $isUp ? '10G Fiber Link Active' : 'Optical Cage Standby' ?>">
+           title="<?= esc($name) ?> (<?= esc($dev) ?>) &bull; <?= $isUp ? 'Fibre link up' : 'No link' ?>">
         <div class="fg-socket-leds">
           <span class="fg-socket-led left <?= $isUp ? 'cyan' : '' ?>"></span>
           <span class="fg-socket-led right <?= $isUp ? 'cyan act' : '' ?>"></span>
@@ -261,7 +297,7 @@ $renderSfpSocket = function (array $pIf, string $label) use ($wanIf) {
         </div>
         <div class="fg-socket-notch" style="width:24px; height:4px;"></div>
       </div>
-      <div class="fg-port-number bottom">10G</div>
+      <div class="fg-port-number bottom fp-sub"><?= esc($pIf['zone'] ?? '') ?></div>
     </div>
     <?php
 };
@@ -281,119 +317,64 @@ $renderSfpSocket = function (array $pIf, string $label) use ($wanIf) {
       </svg>
       <div>
         <div class="chassis-silkscreen">MICRON OS SECURITY APPLIANCE &bull; CHASSIS PORT TOPOLOGY</div>
-        <div class="chassis-model-sub">MODEL: XG-8000 ENTERPRISE APPLIANCE &bull; PHYSICAL FRONT PANEL INTERFACES</div>
+        <div class="chassis-model-sub"><?= $telemetryMode === 'live' ? 'LIVE KERNEL INTERFACES (/sys/class/net)' : 'SAMPLE FRONT PANEL' ?> &bull; PHYSICAL &amp; VIRTUAL PORTS</div>
       </div>
     </div>
 
-    <!-- Diagnostic Chassis LEDs -->
+    <!-- Status LEDs: only what the appliance can actually report -->
+    <?php $__live = ($telemetryMode ?? '') !== 'unavailable'; $__errs = array_sum(array_map(static fn ($i) => (int) ($i['errors'] ?? 0), $interfaces)); ?>
     <div class="chassis-sys-leds">
-      <div class="sys-led-item" title="Main Power Supply 1 Active"><span class="sys-led-bulb green"></span> PWR1</div>
-      <div class="sys-led-item" title="Auxiliary Power Supply 2 Active"><span class="sys-led-bulb green"></span> PWR2</div>
-      <div class="sys-led-item" title="Kernel Subsystem Health: Optimal"><span class="sys-led-bulb cyan pulse"></span> STS</div>
-      <div class="sys-led-item" title="Hardware Alarms: None"><span class="sys-led-bulb"></span> ALM</div>
-      <div class="sys-led-item" title="CARP/VRRP High Availability: Master"><span class="sys-led-bulb cyan"></span> HA</div>
+      <div class="sys-led-item" title="Management plane is up"><span class="sys-led-bulb green"></span> PWR</div>
+      <div class="sys-led-item" title="<?= $__live ? 'Daemon answering' : 'Daemon not answering' ?>"><span class="sys-led-bulb <?= $__live ? 'cyan pulse' : '' ?>"></span> STS</div>
+      <div class="sys-led-item" title="<?= $__errs > 0 ? esc((string) $__errs) . ' interface errors counted' : 'No interface errors counted' ?>"><span class="sys-led-bulb <?= $__errs > 0 ? 'amber' : '' ?>"></span> ALM</div>
+      <div class="sys-led-item" title="Physical ports detected"><span class="sys-led-bulb <?= $physicalCount > 0 ? 'green' : '' ?>"></span> <?= (int) $physicalCount ?>P</div>
     </div>
   </div>
 
   <!-- Hardware Faceplate Enclosure -->
   <div class="chassis-bays-wrapper ports-matrix" id="chassisPortsMatrix">
     
-    <!-- BAY 1: Uplinks & Management (WAN & MGMT) -->
-    <div class="chassis-bay-section bay-wan-mgmt">
-      <div class="chassis-section-label">WAN &bull; MGMT</div>
-      <div class="bay-wan-mgmt-grid">
-        <!-- CONSOLE Port Column -->
-        <div class="fg-port-column" title="Serial Console Port (115200 8N1)">
-          <div class="fg-port-number top" style="color:var(--color-cyan); font-size:0.62rem;">CONSOLE</div>
-          <div class="fg-rj45-socket console-socket" style="cursor:default;">
-            <div class="fg-socket-leds">
-              <span class="fg-socket-led blue"></span>
-              <span class="fg-socket-led blue"></span>
-            </div>
-            <div class="fg-socket-pins">
-              <span></span><span></span><span></span><span></span>
-            </div>
-            <div class="fg-socket-notch"></div>
-          </div>
-          <div class="fg-port-number bottom" style="color:var(--text-muted); font-size:0.58rem;">RJ45</div>
-        </div>
+    <?php if ($physicalCount === 0): ?>
+      <div class="fp-empty">
+        <?= ($telemetryMode ?? '') === 'unavailable'
+            ? 'The appliance daemon is not answering, so the ports cannot be read.'
+            : 'No physical network ports were reported by the kernel.' ?>
+      </div>
+    <?php endif; ?>
 
-        <!-- MGMT Port Column -->
-        <?php if (!empty($mgmtIf)): ?>
-          <div class="fg-port-column">
-            <div class="fg-port-number top" style="font-size:0.62rem;">MGMT</div>
-            <?php $renderRj45Socket($mgmtIf, true); ?>
-            <div class="fg-port-number bottom" style="color:var(--text-muted); font-size:0.58rem;">OOB</div>
-          </div>
-        <?php endif; ?>
-
-        <!-- WAN 1 Port Column -->
-        <?php if (!empty($wanIf)): ?>
-          <div class="fg-port-column">
-            <div class="fg-port-number top" style="color:var(--color-cyan); font-size:0.62rem;">WAN 1</div>
-            <?php $renderRj45Socket($wanIf, true); ?>
-            <div class="fg-port-number bottom" style="color:var(--text-muted); font-size:0.58rem;">1G</div>
-          </div>
-        <?php endif; ?>
-
-        <!-- WAN 2 Port Column (Redundant WAN Uplink) -->
-        <div class="fg-port-column" title="WAN 2 Secondary Uplink">
-          <div class="fg-port-number top" style="color:var(--color-cyan); font-size:0.62rem;">WAN 2</div>
-          <div class="port-card fg-rj45-socket is-down" style="opacity:0.65; cursor:pointer;"
-               id="port_card_eth18" data-device="eth18" data-name="WAN 2" data-zone="WAN" data-status="down" data-speed="1000" data-ip="—" data-mac="00:1a:2b:3c:4d:18" data-mtu="1500" data-rx="0.0" data-tx="0.0"
-               onclick="selectChassisPort('eth18')">
-            <div class="fg-socket-leds">
-              <span class="fg-socket-led left"></span>
-              <span class="fg-socket-led right"></span>
+    <?php $__first = true; ?>
+    <?php foreach (['wan' => 'WAN', 'lan' => 'Ethernet', 'sfp' => 'SFP / Fibre', 'wireless' => 'Wireless'] as $__bay => $__label): ?>
+      <?php if ($bays[$__bay] === []) { continue; } ?>
+      <?php if (! $__first): ?><div class="chassis-bay-divider"></div><?php endif; $__first = false; ?>
+      <?php $__ports = $bays[$__bay]; $__twoRows = $__bay === 'lan' && count($__ports) > 4; ?>
+      <div class="chassis-bay-section bay-<?= esc($__bay) ?>" data-bay="<?= esc($__bay) ?>">
+        <div class="chassis-section-label"><?= esc($__label) ?> &bull; <?= count($__ports) ?></div>
+        <div class="fp-port-grid<?= $__twoRows ? ' two-rows' : '' ?>" style="--fp-cols: <?= $__twoRows ? (int) ceil(count($__ports) / 2) : count($__ports) ?>;">
+          <?php foreach ($__ports as $__i => $__p): ?>
+            <?php $__top = ! $__twoRows || $__i % 2 === 0; ?>
+            <div class="fg-port-column fp-port" data-port-num="<?= (int) ($__p['port_num'] ?? 0) ?>">
+              <?php if ($__top): ?><div class="fg-port-number top fp-dev" title="<?= esc(trim(($__p['driver'] ?? '') . ' ' . ($__p['slot'] ?? ''))) ?>"><?= esc($__p['device']) ?></div><?php endif; ?>
+              <?php if ($__bay === 'sfp'): ?>
+                <?php $renderSfpSocket($__p, (string) $__p['device']); ?>
+              <?php elseif ($__bay === 'wireless'): ?>
+                <div class="port-card fp-radio <?= ($__p['status'] ?? '') === 'up' ? 'is-up' : 'is-down' ?>"
+                     id="port_card_<?= esc($__p['device']) ?>" data-device="<?= esc($__p['device']) ?>" data-name="<?= esc($__p['name'] ?? $__p['device']) ?>"
+                     data-zone="<?= esc($__p['zone'] ?? 'WLAN') ?>" data-status="<?= esc($__p['status'] ?? 'down') ?>" data-speed="<?= esc((string) ($__p['speed'] ?? '—')) ?>"
+                     data-ip="<?= esc((string) ($__p['ip'] ?? '—')) ?>" data-mac="<?= esc((string) ($__p['mac'] ?? '—')) ?>" data-mtu="<?= esc((string) ($__p['mtu'] ?? '')) ?>"
+                     data-rx="<?= esc((string) ($__p['rx_mbps'] ?? 0)) ?>" data-tx="<?= esc((string) ($__p['tx_mbps'] ?? 0)) ?>"
+                     onclick="selectChassisPort('<?= esc($__p['device']) ?>')" title="<?= esc($__p['device']) ?> &bull; Wi-Fi radio">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12.55a11 11 0 0114 0M8.5 16.05a6 6 0 017 0M2 8.82a15 15 0 0120 0"/><circle cx="12" cy="20" r="1"/></svg>
+                </div>
+              <?php else: ?>
+                <?php $renderRj45Socket($__p, $__top); ?>
+              <?php endif; ?>
+              <?php if (! $__top): ?><div class="fg-port-number bottom fp-dev"><?= esc($__p['device']) ?></div><?php endif; ?>
+              <div class="fp-sub" title="<?= esc($__p['name'] ?? '') ?>"><?= esc(($__p['assigned'] ?? false) ? ($__p['name'] ?? $__p['zone'] ?? '') : 'unassigned') ?> &middot; <?= esc($speedLabel($__p)) ?></div>
             </div>
-            <div class="fg-socket-pins">
-              <span></span><span></span><span></span><span></span>
-            </div>
-            <div class="fg-socket-notch"></div>
-          </div>
-          <div class="fg-port-number bottom" style="color:var(--text-muted); font-size:0.58rem;">1G</div>
+          <?php endforeach; ?>
         </div>
       </div>
-    </div>
-
-    <!-- Vertical Bay Divider -->
-    <div class="chassis-bay-divider"></div>
-
-    <!-- BAY 2: The 16-Port Switch Matrix (Ports 1 to 16 arranged in 8 columns - EXACTLY MATCHING USER'S IMAGE 2!) -->
-    <div class="chassis-bay-section bay-internal-16">
-      <div class="chassis-section-label">INTERNAL SWITCH MATRIX (1 &ndash; 16)</div>
-      <div class="fg-16port-grid">
-        <?php for ($col = 1; $col <= 8; $col++): 
-          $oddNum  = ($col * 2) - 1; // 1, 3, 5, 7, 9, 11, 13, 15
-          $evenNum = $col * 2;       // 2, 4, 6, 8, 10, 12, 14, 16
-          $oddPort  = $ifByPort[$oddNum]  ?? ['device' => 'port' . $oddNum,  'name' => 'Port ' . $oddNum,  'status' => 'down', 'zone' => 'INTERNAL', 'ip' => '—', 'mac' => '00:1a:2b:3c:4d:' . sprintf('%02x', $oddNum),  'speed' => '1000', 'mtu' => 1500, 'rx_mbps' => 0.0, 'tx_mbps' => 0.0];
-          $evenPort = $ifByPort[$evenNum] ?? ['device' => 'port' . $evenNum, 'name' => 'Port ' . $evenNum, 'status' => 'down', 'zone' => 'INTERNAL', 'ip' => '—', 'mac' => '00:1a:2b:3c:4d:' . sprintf('%02x', $evenNum), 'speed' => '1000', 'mtu' => 1500, 'rx_mbps' => 0.0, 'tx_mbps' => 0.0];
-        ?>
-          <div class="fg-port-column">
-            <div class="fg-port-number top"><?= $oddNum ?></div>
-            <?php $renderRj45Socket($oddPort, true); ?>
-            <?php $renderRj45Socket($evenPort, false); ?>
-            <div class="fg-port-number bottom"><?= $evenNum ?></div>
-          </div>
-        <?php endfor; ?>
-      </div>
-    </div>
-
-    <!-- Vertical Bay Divider -->
-    <div class="chassis-bay-divider"></div>
-
-    <!-- BAY 3: 10G Optical Uplinks (SFP+ 1 & SFP+ 2) -->
-    <div class="chassis-bay-section bay-sfp">
-      <div class="chassis-section-label">10G SFP+ FIBER</div>
-      <div class="sfp-cages-row">
-        <?php if (!empty($sfp1If)): ?>
-          <?php $renderSfpSocket($sfp1If, 'SFP+ 1'); ?>
-        <?php endif; ?>
-        <?php if (!empty($sfp2If)): ?>
-          <?php $renderSfpSocket($sfp2If, 'SFP+ 2'); ?>
-        <?php endif; ?>
-      </div>
-    </div>
+    <?php endforeach; ?>
 
   </div><!-- /chassis-bays-wrapper -->
 
@@ -403,10 +384,10 @@ $renderSfpSocket = function (array $pIf, string $label) use ($wanIf) {
       <span class="hud-status-orb" id="hudOrb"></span>
       <div>
         <div style="display:flex; align-items:center; gap:8px;">
-          <strong id="hudTitle"><?= esc($wanIf['name'] ?? 'WAN 1') ?> (<?= esc($wanIf['device'] ?? 'eth0') ?>)</strong>
+          <strong id="hudTitle"><?= esc($wanIf['name'] ?? 'No port') ?><?= isset($wanIf['device']) ? ' (' . esc($wanIf['device']) . ')' : '' ?></strong>
           <span class="badge badge-cyan" id="hudZoneBadge"><?= esc($wanIf['zone'] ?? 'WAN') ?> ZONE</span>
         </div>
-        <div id="hudIpVal"><?= esc($wanIf['ip'] ?? '198.51.100.25') ?>/<?= esc($wanIf['mask'] ?? '24') ?> &bull; MAC: <?= esc($wanIf['mac'] ?? '00:1a:2b:3c:4d:01') ?></div>
+        <div id="hudIpVal"><?= esc($wanIf['ip'] ?? '—') ?><?= ! empty($wanIf['mask']) ? '/' . esc((string) $wanIf['mask']) : '' ?> &bull; MAC: <?= esc($wanIf['mac'] ?? '—') ?></div>
       </div>
     </div>
 
@@ -414,15 +395,15 @@ $renderSfpSocket = function (array $pIf, string $label) use ($wanIf) {
     <div class="chassis-hud-rates">
       <div>
         <span class="hud-rate-label">Inbound (Rx)</span>
-        <div class="hud-rate-val green" id="hudRxRate"><?= number_format($wanIf['rx_mbps'] ?? 41.2, 1) ?> <span class="unit">Mbps</span></div>
+        <div class="hud-rate-val green" id="hudRxRate"><?= number_format((float) ($wanIf['rx_mbps'] ?? 0), 1) ?> <span class="unit">Mbps</span></div>
       </div>
       <div>
         <span class="hud-rate-label">Outbound (Tx)</span>
-        <div class="hud-rate-val cyan" id="hudTxRate"><?= number_format($wanIf['tx_mbps'] ?? 14.5, 1) ?> <span class="unit">Mbps</span></div>
+        <div class="hud-rate-val cyan" id="hudTxRate"><?= number_format((float) ($wanIf['tx_mbps'] ?? 0), 1) ?> <span class="unit">Mbps</span></div>
       </div>
       <div>
         <span class="hud-rate-label">Carrier Link</span>
-        <div class="hud-rate-val text-primary" id="hudSpeedVal"><?= esc($wanIf['speed'] ?? '1000') ?> Mbps Full-Duplex</div>
+        <div class="hud-rate-val text-primary" id="hudSpeedVal"><?= is_numeric($wanIf['speed'] ?? null) ? esc($wanIf['speed']) . ' Mb/s' : 'speed not reported' ?></div>
       </div>
     </div>
 
@@ -445,10 +426,16 @@ $renderSfpSocket = function (array $pIf, string $label) use ($wanIf) {
 
   <!-- Bottom Virtual Adapters Rail -->
   <div class="fg-chassis-subrail" style="margin-top:12px; padding-top:10px; border-top:1px dashed var(--color-border); display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-    <span class="fg-subrail-title" style="font-size:0.65rem; font-weight:800; font-family:var(--font-mono); color:var(--text-muted); text-transform:uppercase;">VIRTUAL TUNNELS:</span>
-    <span class="fg-subrail-pill" title="WireGuard VPN Tunnel"><span style="display:inline-block; width:6px; height:6px; border-radius:50%; background:#10b981;"></span><strong>wg0</strong> &bull; 10.10.0.1/24</span>
-    <span class="fg-subrail-pill" title="LACP Link Aggregation Group"><span style="display:inline-block; width:6px; height:6px; border-radius:50%; background:#00d4ff;"></span><strong>bond0</strong> &bull; Trunk (802.3ad)</span>
-    <span class="fg-subrail-pill" title="802.1Q Segmented Guest Network"><span style="display:inline-block; width:6px; height:6px; border-radius:50%; background:#a855f7;"></span><strong>vlan10@eth1</strong> &bull; 192.168.10.1/24</span>
+    <span class="fg-subrail-title" style="font-size:0.65rem; font-weight:800; font-family:var(--font-mono); color:var(--text-muted); text-transform:uppercase;">VIRTUAL INTERFACES:</span>
+    <?php
+    $__virt = array_values(array_filter($interfaces, static fn ($i) => ! empty($i['virtual'])));
+    ?>
+    <?php if ($__virt === []): ?>
+    <span class="fg-subrail-pill" style="color:var(--text-muted);">none</span>
+    <?php endif; ?>
+    <?php foreach ($__virt as $__v): ?>
+    <span class="fg-subrail-pill"><span style="display:inline-block; width:6px; height:6px; border-radius:50%; background:<?= ($__v['status'] ?? '') === 'up' ? '#10b981' : '#64748b' ?>;"></span><strong><?= esc($__v['device']) ?></strong> &bull; <?= ($__v['ip'] ?? '—') !== '—' ? esc($__v['ip'] . '/' . $__v['mask']) : esc($__v['status'] ?? '') ?></span>
+    <?php endforeach; ?>
   </div>
 </div>
 
@@ -484,7 +471,7 @@ $renderSfpSocket = function (array $pIf, string $label) use ($wanIf) {
         <div style="height:6px; background:var(--color-surface-3); border-radius:99px; overflow:hidden;">
           <div id="bar_cpu" style="height:100%; width:<?= $cpuPct ?>%; background:linear-gradient(90deg, #0096c7, var(--color-cyan)); border-radius:99px; transition:width 0.5s ease;"></div>
         </div>
-        <div style="font-size:0.68rem; color:var(--text-muted); margin-top:3px;"><?= $cpuCores ?> Cores &bull; Temp: <?= $temperature ?>°C</div>
+        <div style="font-size:0.68rem; color:var(--text-muted); margin-top:3px;"><?= (int) $cpuCores ?> Cores &bull; Temp: <?= $temperature === null ? 'n/a' : esc((string) $temperature) . '°C' ?></div>
       </div>
 
       <!-- RAM -->
@@ -527,8 +514,9 @@ $renderSfpSocket = function (array $pIf, string $label) use ($wanIf) {
       </div>
       <div class="dash-card-actions">
         <select id="trafficIfaceSelect" class="form-control" style="height:26px; padding:2px 6px; font-size:0.72rem; width:auto;" onchange="changeTrafficIface(this.value)">
+          <option value="">All ports</option>
           <?php foreach ($interfaces as $if): ?>
-            <option value="<?= esc($if['id']) ?>"><?= esc($if['name']) ?> (<?= esc($if['device']) ?>)</option>
+            <option value="<?= esc($if['device']) ?>"><?= esc($if['name']) ?> (<?= esc($if['device']) ?>)</option>
           <?php endforeach; ?>
         </select>
         <button type="button" class="card-btn btn-remove" onclick="removeCard('card_widget_traffic')" title="Remove Widget">&#x2715;</button>
@@ -560,15 +548,15 @@ $renderSfpSocket = function (array $pIf, string $label) use ($wanIf) {
       <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; margin-top:12px;">
         <div class="dash-stat-box">
           <div style="font-size:0.65rem; color:var(--color-emerald); font-weight:700;">Inbound (Rx)</div>
-          <div style="font-size:1.1rem; font-weight:800; font-family:var(--font-mono); color:var(--text-primary);" id="stat_in_mbps">38.4 <span style="font-size:0.7rem; font-weight:500;">Mbps</span></div>
+          <div style="font-size:1.1rem; font-weight:800; font-family:var(--font-mono); color:var(--text-primary);" id="stat_in_mbps">— <span style="font-size:0.7rem; font-weight:500;">Mbps</span></div>
         </div>
         <div class="dash-stat-box">
           <div style="font-size:0.65rem; color:var(--color-cyan); font-weight:700;">Outbound (Tx)</div>
-          <div style="font-size:1.1rem; font-weight:800; font-family:var(--font-mono); color:var(--text-primary);" id="stat_out_mbps">14.2 <span style="font-size:0.7rem; font-weight:500;">Mbps</span></div>
+          <div style="font-size:1.1rem; font-weight:800; font-family:var(--font-mono); color:var(--text-primary);" id="stat_out_mbps">— <span style="font-size:0.7rem; font-weight:500;">Mbps</span></div>
         </div>
         <div class="dash-stat-box">
           <div style="font-size:0.65rem; color:var(--text-muted); font-weight:700;">Peak Bandwidth</div>
-          <div style="font-size:1.1rem; font-weight:800; font-family:var(--font-mono); color:var(--text-primary);" id="stat_peak">68.5 <span style="font-size:0.7rem; font-weight:500;">Mbps</span></div>
+          <div style="font-size:1.1rem; font-weight:800; font-family:var(--font-mono); color:var(--text-primary);" id="stat_peak">— <span style="font-size:0.7rem; font-weight:500;">Mbps</span></div>
         </div>
       </div>
     </div>
@@ -676,7 +664,7 @@ $renderSfpSocket = function (array $pIf, string $label) use ($wanIf) {
         <span class="drag-handle" title="Drag to rearrange">&#x22EE;&#x22EE;</span>
         <span class="dash-card-title">
           <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="color:var(--color-cyan);">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M17.657 18.657A8 8 0 016.343 7.343S7 9 10 9 10c0-2 .5-5 2.986-7C14 5 16.09 5.777 17.656 7.343A7.975 7.975 0 0120 13a7.975 7.975 0 01-2.343 5.657z"/>
+            <path stroke-linecap="round" stroke-linejoin="round" d="M17.657 18.657A8 8 0 016.343 7.343S7 9 9 10c0-2 .5-5 2.986-7C14 5 16.09 5.777 17.656 7.343A7.975 7.975 0 0120 13a7.975 7.975 0 01-2.343 5.657z"/>
           </svg>
           Firewall Live Filter Log Stream
         </span>
@@ -793,7 +781,7 @@ $renderSfpSocket = function (array $pIf, string $label) use ($wanIf) {
       <table class="spec-table" style="width:100%; font-size:0.8rem;">
         <tr>
           <td style="color:var(--text-muted); width:35%;">Appliance Model</td>
-          <td style="font-family:var(--font-mono); font-weight:700; color:var(--text-primary);">Micron OS Enterprise Security Appliance XG-8000</td>
+          <td style="font-family:var(--font-mono); font-weight:700; color:var(--text-primary);"><?= esc(config('Branding')->productName) ?> appliance (<?= esc($cpuModel ?? '—') ?>)</td>
         </tr>
         <tr>
           <td style="color:var(--text-muted);">OS Version</td>
@@ -805,7 +793,7 @@ $renderSfpSocket = function (array $pIf, string $label) use ($wanIf) {
         </tr>
         <tr>
           <td style="color:var(--text-muted);">Kernel Release</td>
-          <td style="font-family:var(--font-mono); color:var(--text-secondary);"><?= esc($systemInfo['kernel'] ?? 'Linux 6.8.0-micron-hardened') ?></td>
+          <td style="font-family:var(--font-mono); color:var(--text-secondary);"><?= esc($systemInfo['kernel'] ?? php_uname('s') . ' ' . php_uname('r')) ?></td>
         </tr>
         <tr>
           <td style="color:var(--text-muted);">Last Rollback</td>
@@ -833,6 +821,17 @@ $renderSfpSocket = function (array $pIf, string $label) use ($wanIf) {
   </div>
 
   <!-- CARD 8: WireGuard & OpenVPN Gateway -->
+  <?php
+  // Service state badge from the daemon's systemd view ($services), never assumed.
+  $__svcState = [];
+  foreach (($services ?? []) as $__s) { $__svcState[$__s['name'] ?? ''] = $__s['status'] ?? ''; }
+  $__svcBadge = static function (string $name) use ($__svcState): string {
+      $st = $__svcState[$name] ?? null;
+      if ($st === null) { return '<span class="badge badge-muted" style="font-size:0.62rem;">NOT INSTALLED</span>'; }
+      $up = $st === 'running';
+      return '<span class="badge ' . ($up ? 'badge-success' : 'badge-warning') . '" style="font-size:0.62rem;">' . ($up ? 'RUNNING' : 'STOPPED') . '</span>';
+  };
+  ?>
   <div class="dash-card" id="card_widget_vpn" draggable="true">
     <div class="dash-card-header">
       <div class="dash-card-title-group">
@@ -854,7 +853,7 @@ $renderSfpSocket = function (array $pIf, string $label) use ($wanIf) {
         <div class="dash-stat-box">
           <div style="display:flex; justify-content:space-between; align-items:center;">
             <strong style="font-size:0.8rem; color:var(--text-primary);">WireGuard (wg0)</strong>
-            <span class="badge badge-success" style="font-size:0.62rem;">ONLINE</span>
+            <?= $__svcBadge('wireguard') ?>
           </div>
           <div style="font-size:0.72rem; color:var(--text-muted); margin-top:4px;">
             Peers: <strong style="color:var(--color-cyan);"><?= $wgPeersCount ?></strong> active &bull; Listen: 51820/UDP
@@ -864,12 +863,153 @@ $renderSfpSocket = function (array $pIf, string $label) use ($wanIf) {
         <div class="dash-stat-box">
           <div style="display:flex; justify-content:space-between; align-items:center;">
             <strong style="font-size:0.8rem; color:var(--text-primary);">OpenVPN Server</strong>
-            <span class="badge badge-success" style="font-size:0.62rem;">RUNNING</span>
+            <?= $__svcBadge('openvpn') ?>
           </div>
           <div style="font-size:0.72rem; color:var(--text-muted); margin-top:4px;">
-            Port: 1194/UDP &bull; TLS 1.3 &bull; 2FA TOTP Active
+            Port: 1194/UDP
           </div>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <?php
+  $wd = $widgetData ?? ['leases' => [], 'lease_count' => 0, 'states_known' => false, 'states_total' => null, 'by_proto' => [], 'by_state' => [], 'plugins' => []];
+  $cardHead = static function (string $id, string $title, string $href, string $icon, string $color = 'var(--color-cyan)'): void { ?>
+    <div class="dash-card-header">
+      <div class="dash-card-title-group">
+        <span class="drag-handle" title="Drag to rearrange">&#x22EE;&#x22EE;</span>
+        <span class="dash-card-title">
+          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="color:<?= $color ?>;"><path stroke-linecap="round" stroke-linejoin="round" d="<?= $icon ?>"/></svg>
+          <?= esc($title) ?>
+        </span>
+      </div>
+      <div class="dash-card-actions">
+        <?php if ($href !== ''): ?><a href="<?= base_url($href) ?>" class="card-btn" title="Open">&rarr;</a><?php endif; ?>
+        <button type="button" class="card-btn btn-remove" onclick="removeCard('<?= esc($id) ?>')" title="Remove Widget">&#x2715;</button>
+      </div>
+    </div>
+  <?php };
+  $__phys = array_values(array_filter($interfaces, static fn ($i) => empty($i['virtual'])));
+  ?>
+
+  <!-- CARD: Physical Ports (live link state of every NIC on this machine) -->
+  <div class="dash-card" id="card_widget_ports" draggable="true">
+    <?php $cardHead('card_widget_ports', 'Physical Ports', 'interfaces', 'M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z'); ?>
+    <div class="dash-card-body" style="padding:12px 16px;">
+      <?php if ($__phys === []): ?>
+        <div class="wd-empty">No physical ports reported.</div>
+      <?php else: ?>
+        <div class="wd-kpis">
+          <div><span class="wd-kpi"><?= count(array_filter($__phys, static fn ($p) => ($p['status'] ?? '') === 'up')) ?></span><span class="wd-kpi-l">link up</span></div>
+          <div><span class="wd-kpi"><?= count($__phys) ?></span><span class="wd-kpi-l">ports</span></div>
+          <div><span class="wd-kpi"><?= count(array_filter($__phys, static fn ($p) => ! ($p['assigned'] ?? true))) ?></span><span class="wd-kpi-l">unassigned</span></div>
+        </div>
+        <table class="wd-table">
+          <?php foreach ($__phys as $p): ?>
+            <tr>
+              <td><span class="wd-dot <?= ($p['status'] ?? '') === 'up' ? 'up' : '' ?>"></span><code><?= esc($p['device']) ?></code></td>
+              <td class="wd-muted"><?= esc(($p['assigned'] ?? false) ? ($p['name'] ?? '') : 'unassigned') ?></td>
+              <td class="wd-right wd-mono"><?= is_numeric($p['speed'] ?? null) ? esc((string) $p['speed']) . ' Mb/s' : '—' ?></td>
+            </tr>
+          <?php endforeach; ?>
+        </table>
+      <?php endif; ?>
+    </div>
+  </div>
+
+  <!-- CARD: Storage & Memory -->
+  <div class="dash-card" id="card_widget_storage" draggable="true">
+    <?php $cardHead('card_widget_storage', 'Storage & Memory', 'system', 'M4 7v10c0 2 3.6 3 8 3s8-1 8-3V7M4 7c0 2 3.6 3 8 3s8-1 8-3M4 7c0-2 3.6-3 8-3s8 1 8 3m0 5c0 2-3.6 3-8 3s-8-1-8-3', 'var(--color-emerald)'); ?>
+    <div class="dash-card-body" style="padding:12px 16px;">
+      <?php foreach ([
+          ['Root filesystem', $diskPct, ($diskTotal ? number_format((float) $diskUsed, 1) . ' / ' . number_format((float) $diskTotal, 1) . ' GB' : '—')],
+          ['Memory', $memPct, ($memTotal ? number_format($memUsed) . ' / ' . number_format($memTotal) . ' MB' : '—')],
+          ['Swap', $swapPct ?? 0, (($swapTotal ?? 0) > 0 ? number_format($swapUsed) . ' / ' . number_format($swapTotal) . ' MB' : 'none configured')],
+      ] as [$__l, $__pct, $__txt]): ?>
+        <div style="margin-bottom:12px;">
+          <div class="wd-row"><span><?= esc($__l) ?></span><span class="wd-mono"><?= esc($__txt) ?></span></div>
+          <div class="wd-bar"><span style="width:<?= max(0, min(100, (int) $__pct)) ?>%;" class="<?= (int) $__pct >= 90 ? 'crit' : ((int) $__pct >= 75 ? 'warn' : '') ?>"></span></div>
+        </div>
+      <?php endforeach; ?>
+    </div>
+  </div>
+
+  <!-- CARD: DHCP Leases (Kea lease file) -->
+  <div class="dash-card" id="card_widget_dhcp" draggable="true">
+    <?php $cardHead('card_widget_dhcp', 'DHCP Leases', 'dhcp', 'M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.4-4 8-9 8a9.9 9.9 0 01-4.3-1L3 20l1.4-3.7A7.6 7.6 0 013 12c0-4.4 4-8 9-8s9 3.6 9 8z', 'var(--color-amber, #f59e0b)'); ?>
+    <div class="dash-card-body" style="padding:12px 16px;">
+      <div class="wd-kpis"><div><span class="wd-kpi"><?= (int) $wd['lease_count'] ?></span><span class="wd-kpi-l">active leases</span></div></div>
+      <?php if ($wd['leases'] === []): ?>
+        <div class="wd-empty">No active leases.</div>
+      <?php else: ?>
+        <table class="wd-table">
+          <?php foreach ($wd['leases'] as $l): ?>
+            <tr>
+              <td class="wd-mono"><?= esc((string) ($l['ip'] ?? '')) ?></td>
+              <td class="wd-muted"><?= esc((string) (($l['hostname'] ?? '') !== '' ? $l['hostname'] : ($l['mac'] ?? ''))) ?></td>
+              <td class="wd-right wd-muted" title="expires"><?= esc(substr((string) ($l['expires'] ?? ''), 11)) ?></td>
+            </tr>
+          <?php endforeach; ?>
+        </table>
+      <?php endif; ?>
+    </div>
+  </div>
+
+  <!-- CARD: Connection States (conntrack) -->
+  <div class="dash-card" id="card_widget_conntrack" draggable="true" style="display:none;">
+    <?php $cardHead('card_widget_conntrack', 'Connection States', 'diag/states', 'M13 10V3L4 14h7v7l9-11h-7z', 'var(--color-purple, #a855f7)'); ?>
+    <div class="dash-card-body" style="padding:12px 16px;">
+      <?php if (! $wd['states_known']): ?>
+        <div class="wd-empty">Connection table could not be read.</div>
+      <?php else: ?>
+        <div class="wd-kpis"><div><span class="wd-kpi"><?= number_format((int) $wd['states_total']) ?></span><span class="wd-kpi-l">tracked flows</span></div></div>
+        <div class="wd-chips">
+          <?php foreach ($wd['by_proto'] as $__p => $__n): ?><span class="wd-chip"><?= esc((string) $__p) ?> <strong><?= (int) $__n ?></strong></span><?php endforeach; ?>
+        </div>
+        <?php if ($wd['by_state'] !== []): ?>
+          <table class="wd-table" style="margin-top:8px;">
+            <?php foreach ($wd['by_state'] as $__s => $__n): ?>
+              <tr><td class="wd-muted">TCP <?= esc((string) $__s) ?></td><td class="wd-right wd-mono"><?= (int) $__n ?></td></tr>
+            <?php endforeach; ?>
+          </table>
+        <?php endif; ?>
+      <?php endif; ?>
+    </div>
+  </div>
+
+  <!-- CARD: Installed Plugins -->
+  <div class="dash-card" id="card_widget_plugins" draggable="true">
+    <?php $cardHead('card_widget_plugins', 'Installed Plugins', 'plugins', 'M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a1 1 0 01-1-1v-3a1 1 0 00-1-1H4a2 2 0 110-4h1a1 1 0 001-1V7a1 1 0 011-1h3a1 1 0 001-1V4z'); ?>
+    <div class="dash-card-body" style="padding:12px 16px;">
+      <?php if ($wd['plugins'] === []): ?>
+        <div class="wd-empty">No plugins installed. <a href="<?= base_url('plugins') ?>">Browse plugins</a></div>
+      <?php else: ?>
+        <table class="wd-table">
+          <?php foreach ($wd['plugins'] as $pl): ?>
+            <tr>
+              <td><span class="wd-dot <?= $pl['enabled'] ? 'up' : '' ?>"></span><a href="<?= base_url('plugins/' . rawurlencode($pl['id'])) ?>"><?= esc($pl['name']) ?></a></td>
+              <td class="wd-right wd-muted wd-mono"><?= esc($pl['version']) ?></td>
+            </tr>
+          <?php endforeach; ?>
+        </table>
+      <?php endif; ?>
+    </div>
+  </div>
+
+  <!-- CARD: Quick Actions -->
+  <div class="dash-card" id="card_widget_actions" draggable="true">
+    <?php $cardHead('card_widget_actions', 'Quick Actions', '', 'M4 6h16M4 12h16M4 18h7'); ?>
+    <div class="dash-card-body" style="padding:12px 16px;">
+      <div class="wd-actions">
+        <a class="btn btn-ghost btn-sm" href="<?= base_url('firewall') ?>">Firewall rules</a>
+        <a class="btn btn-ghost btn-sm" href="<?= base_url('interfaces') ?>">Interfaces</a>
+        <a class="btn btn-ghost btn-sm" href="<?= base_url('dhcp') ?>">DHCP server</a>
+        <a class="btn btn-ghost btn-sm" href="<?= base_url('vpn/wireguard') ?>">WireGuard</a>
+        <a class="btn btn-ghost btn-sm" href="<?= base_url('diag') ?>">Diagnostics</a>
+        <a class="btn btn-ghost btn-sm" href="<?= base_url('services') ?>">Services</a>
+        <a class="btn btn-ghost btn-sm" href="<?= base_url('backup') ?>">Backups</a>
+        <a class="btn btn-ghost btn-sm" href="<?= base_url('plugins') ?>">Plugins</a>
       </div>
     </div>
   </div>
@@ -881,16 +1021,16 @@ $renderSfpSocket = function (array $pIf, string $label) use ($wanIf) {
      ============================================================ -->
 <div id="portHudTooltip">
   <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--color-border); padding-bottom:6px; margin-bottom:8px;">
-    <strong style="color:var(--text-primary); font-size:0.85rem;" id="hudPortName">WAN 1 (eth0)</strong>
-    <span class="badge badge-cyan" id="hudPortZone" style="font-size:0.65rem;">WAN</span>
+    <strong style="color:var(--text-primary); font-size:0.85rem;" id="hudPortName"><?= esc($wanIf['device'] ?? '—') ?></strong>
+    <span class="badge badge-cyan" id="hudPortZone" style="font-size:0.65rem;">—</span>
   </div>
   <table style="width:100%; font-size:0.72rem; line-height:1.6;">
-    <tr><td style="color:var(--text-muted);">Link Status:</td><td style="font-weight:700; color:var(--color-emerald);" id="hudPortStatus">UP (Carrier Active)</td></tr>
-    <tr><td style="color:var(--text-muted);">Negotiated Speed:</td><td style="font-family:var(--font-mono); color:var(--text-primary);" id="hudPortSpeed">1000 Mbps Full Duplex</td></tr>
-    <tr><td style="color:var(--text-muted);">IPv4 Address:</td><td style="font-family:var(--font-mono); font-weight:700; color:var(--color-cyan);" id="hudPortIp">198.51.100.25/24</td></tr>
-    <tr><td style="color:var(--text-muted);">MAC Address:</td><td style="font-family:var(--font-mono); color:var(--text-secondary);" id="hudPortMac">00:1a:2b:3c:4d:01</td></tr>
-    <tr><td style="color:var(--text-muted);">MTU:</td><td style="font-family:var(--font-mono); color:var(--text-secondary);" id="hudPortMtu">1500</td></tr>
-    <tr><td style="color:var(--text-muted);">Throughput Rate:</td><td style="font-family:var(--font-mono); font-weight:700; color:var(--color-emerald);" id="hudPortRate">&darr; 38.5M &bull; &uarr; 14.2M</td></tr>
+    <tr><td style="color:var(--text-muted);">Link Status:</td><td style="font-weight:700; color:var(--color-emerald);" id="hudPortStatus">—</td></tr>
+    <tr><td style="color:var(--text-muted);">Negotiated Speed:</td><td style="font-family:var(--font-mono); color:var(--text-primary);" id="hudPortSpeed">—</td></tr>
+    <tr><td style="color:var(--text-muted);">IPv4 Address:</td><td style="font-family:var(--font-mono); font-weight:700; color:var(--color-cyan);" id="hudPortIp">—</td></tr>
+    <tr><td style="color:var(--text-muted);">MAC Address:</td><td style="font-family:var(--font-mono); color:var(--text-secondary);" id="hudPortMac">—</td></tr>
+    <tr><td style="color:var(--text-muted);">MTU:</td><td style="font-family:var(--font-mono); color:var(--text-secondary);" id="hudPortMtu">—</td></tr>
+    <tr><td style="color:var(--text-muted);">Throughput Rate:</td><td style="font-family:var(--font-mono); font-weight:700; color:var(--color-emerald);" id="hudPortRate">—</td></tr>
   </table>
   <div style="margin-top:8px; font-size:0.65rem; color:var(--text-muted); border-top:1px dashed var(--color-border); padding-top:6px;">
     Click to open Port Inspector Drawer &bull; Toggle Up/Down
@@ -905,7 +1045,7 @@ $renderSfpSocket = function (array $pIf, string $label) use ($wanIf) {
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
       <div>
         <h3 style="font-size:1.1rem; font-weight:800; color:var(--text-primary); margin:0;" id="inspPortTitle">
-          Port Diagnostic Inspector: eth0
+          Port Diagnostic Inspector: <?= esc($wanIf['device'] ?? '') ?>
         </h3>
         <div style="font-size:0.75rem; color:var(--text-muted);" id="inspPortSub">Hardware Interface Actions</div>
       </div>
@@ -977,6 +1117,12 @@ const WIDGET_CATALOG = [
   { id: 'card_widget_filter_log', name: 'Firewall Live Filter Log', cat: 'Security', desc: 'Real-time scrolling log of dropped/passed flows.', span: 2 },
   { id: 'card_widget_services', name: 'Services Watchdog', cat: 'System', desc: 'Core daemons status and daemon control buttons.', span: 1 },
   { id: 'card_widget_sysinfo', name: 'System Hardware Info', cat: 'System', desc: 'Appliance model, kernel release, and hardware crypto.', span: 2 },
+  { id: 'card_widget_ports', name: 'Physical Ports', cat: 'Network', desc: 'Link state and speed of every NIC on this machine (enp7s0, eno1 ...).', span: 1 },
+  { id: 'card_widget_storage', name: 'Storage & Memory', cat: 'System', desc: 'Root filesystem, RAM and swap usage.', span: 1 },
+  { id: 'card_widget_dhcp', name: 'DHCP Leases', cat: 'Network', desc: 'Active leases from the DHCP server, newest first.', span: 1 },
+  { id: 'card_widget_conntrack', name: 'Connection States', cat: 'Security', desc: 'Tracked flows by protocol and TCP state.', span: 1 },
+  { id: 'card_widget_plugins', name: 'Installed Plugins', cat: 'System', desc: 'Installed plugins and whether they are enabled.', span: 1 },
+  { id: 'card_widget_actions', name: 'Quick Actions', cat: 'System', desc: 'Shortcuts to the most used configuration pages.', span: 1 },
   { id: 'card_widget_vpn', name: 'VPN Gateways & Tunnels', cat: 'Network', desc: 'WireGuard and OpenVPN active tunnel metrics.', span: 1 },
 ];
 
@@ -1027,17 +1173,17 @@ const PROFILE_CONFIGS = {
   default: {
     name: 'Overview',
     description: 'Balanced enterprise telemetry and security overview',
-    cards: ['card_widget_gauges', 'card_widget_traffic', 'card_widget_interfaces', 'card_widget_gateways', 'card_widget_filter_log', 'card_widget_services', 'card_widget_vpn', 'card_widget_sysinfo']
+    cards: ['card_widget_gauges', 'card_widget_traffic', 'card_widget_interfaces', 'card_widget_gateways', 'card_widget_filter_log', 'card_widget_services', 'card_widget_vpn', 'card_widget_sysinfo', 'card_widget_ports', 'card_widget_storage', 'card_widget_dhcp', 'card_widget_plugins', 'card_widget_actions']
   },
   noc: {
     name: 'Network NOC',
     description: 'Bandwidth throughput, WAN gateways and link quality priority',
-    cards: ['card_widget_traffic', 'card_widget_interfaces', 'card_widget_gateways', 'card_widget_vpn', 'card_widget_gauges']
+    cards: ['card_widget_traffic', 'card_widget_interfaces', 'card_widget_gateways', 'card_widget_vpn', 'card_widget_gauges', 'card_widget_ports', 'card_widget_dhcp', 'card_widget_conntrack']
   },
   soc: {
     name: 'Security SOC',
     description: 'Stateful firewall logs, threat defense, and daemon watchdogs priority',
-    cards: ['card_widget_filter_log', 'card_widget_services', 'card_widget_vpn', 'card_widget_sysinfo', 'card_widget_gauges']
+    cards: ['card_widget_filter_log', 'card_widget_services', 'card_widget_vpn', 'card_widget_sysinfo', 'card_widget_gauges', 'card_widget_conntrack', 'card_widget_plugins']
   }
 };
 
@@ -1325,6 +1471,11 @@ function applySavedStructure(layout) {
         }
       }
     });
+    // Cards added after this layout was saved go after the saved ones.
+    const savedIds = layout.cards.map(item => typeof item === 'string' ? item : item.id);
+    grid.querySelectorAll(':scope > .dash-card').forEach(cardEl => {
+      if (!savedIds.includes(cardEl.id)) grid.appendChild(cardEl);
+    });
   } else if (Array.isArray(layout.active_widgets) && layout.active_widgets.length > 0) {
     layout.active_widgets.forEach(cardId => {
       const cardEl = document.getElementById(cardId);
@@ -1346,6 +1497,12 @@ function applySavedStructure(layout) {
 }
 
 // Save & Reset Dashboard Structure API
+// CSRF tokens rotate after every POST (Config\Security::$regenerate), so the
+// page keeps the latest one: every JSON answer carries the next token.
+const DASH_CSRF_NAME = '<?= csrf_token() ?>';
+let DASH_CSRF = '<?= csrf_hash() ?>';
+function dashTakeCsrf(data) { if (data && typeof data.csrf === 'string' && data.csrf) DASH_CSRF = data.csrf; return data; }
+
 function saveDashboardStructure(showFeedback = true) {
   const saveBtn = document.getElementById('btnSaveDashboardStructure');
   const originalHtml = saveBtn ? saveBtn.innerHTML : '';
@@ -1388,7 +1545,7 @@ function saveDashboardStructure(showFeedback = true) {
   const formData = new FormData();
   formData.append('profile', currentProfile || 'default');
   formData.append('layout', JSON.stringify(payload));
-  formData.append('<?= csrf_token() ?>', '<?= csrf_hash() ?>');
+  formData.append(DASH_CSRF_NAME, DASH_CSRF);
 
   return MicronScheduler.fetch('<?= base_url('dashboard/layout/save') ?>', {
     method: 'POST',
@@ -1396,6 +1553,7 @@ function saveDashboardStructure(showFeedback = true) {
     headers: { 'X-Requested-With': 'XMLHttpRequest' }
   })
   .then(res => res.json())
+  .then(dashTakeCsrf)
   .then(data => {
     if (saveBtn && showFeedback) {
       saveBtn.classList.remove('is-saving');
@@ -1435,21 +1593,31 @@ function saveDashboardStructure(showFeedback = true) {
   });
 }
 
+// Background saves are coalesced and run one at a time: each POST spends the
+// current CSRF token and its answer carries the next, so two saves in flight at
+// once would make the second one fail with 403.
+let dashSaveTimer = null, dashSaveChain = Promise.resolve();
 function saveLayoutToServer() {
-  saveDashboardStructure(false);
+  clearTimeout(dashSaveTimer);
+  dashSaveTimer = setTimeout(() => {
+    dashSaveChain = dashSaveChain.then(() => saveDashboardStructure(false)).catch(() => {});
+  }, 400);
 }
 
-function resetDashboardLayout() {
-  if (!confirm('Reset dashboard cards to factory default layout?')) return;
+async function resetDashboardLayout() {
+  const ok = window.MicronConfirm
+    ? await MicronConfirm.ask({ title: 'Reset dashboard layout', text: 'Reset the cards on this dashboard to the default layout? Your arrangement for this profile is discarded.', confirmLabel: 'Reset layout', danger: true })
+    : confirm('Reset dashboard cards to factory default layout?');
+  if (!ok) return;
   const formData = new FormData();
   formData.append('profile', currentProfile || 'default');
-  formData.append('<?= csrf_token() ?>', '<?= csrf_hash() ?>');
+  formData.append(DASH_CSRF_NAME, DASH_CSRF);
 
   MicronScheduler.fetch('<?= base_url('dashboard/layout/reset') ?>', {
     method: 'POST',
     body: formData,
     headers: { 'X-Requested-With': 'XMLHttpRequest' }
-  }).then(() => {
+  }).then(res => res.json()).then(dashTakeCsrf).then(() => {
     try {
       localStorage.removeItem('micron_dash_cols');
       localStorage.removeItem('micron_dash_layout_' + (currentProfile || 'default'));
@@ -1459,7 +1627,7 @@ function resetDashboardLayout() {
 }
 
 // Chassis Faceplate Physical Port Selection & HUD Engine
-let currentSelectedPort = '<?= esc($wanIf['device'] ?? 'eth0') ?>';
+let currentSelectedPort = <?= json_encode((string) ($wanIf['device'] ?? ''), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
 
 function selectChassisPort(device) {
   currentSelectedPort = device;
@@ -1492,7 +1660,7 @@ function selectChassisPort(device) {
   const elOrb = document.getElementById('hudOrb');
 
   if (elTitle) elTitle.textContent = `${name} (${device})`;
-  if (elSub) elSub.textContent = `${zone} Physical Interface &bull; ${isUp ? 'Carrier Active (1000Base-T Full-Duplex)' : 'Disconnected (Standby Auto-MDIX)'}`;
+  if (elSub) elSub.textContent = `${zone} Physical Interface &bull; ${isUp ? 'Carrier active' : 'No carrier'}`;
   if (elZone) {
     elZone.textContent = `${zone} ZONE`;
     elZone.className = `badge ${zone === 'WAN' ? 'badge-cyan' : 'badge-success'}`;
@@ -1506,7 +1674,7 @@ function selectChassisPort(device) {
   const elMtu = document.getElementById('hudMtuVal');
 
   if (elIp) elIp.textContent = ip;
-  if (elSpeed) elSpeed.textContent = isUp ? `${speed} Mbps Full-Duplex` : 'Link Down (Cable Unplugged)';
+  if (elSpeed) elSpeed.textContent = isUp ? (/^\d+$/.test(String(speed)) ? `${speed} Mb/s` : 'speed not reported') : 'Link down';
   if (elMac) elMac.textContent = mac;
   if (elMtu) elMtu.textContent = `${mtu} Bytes`;
 
@@ -1528,7 +1696,7 @@ function updateHudRates(rx, tx) {
 }
 
 function openSelectedPortInspector() {
-  openPortInspector(currentSelectedPort || 'eth0');
+  if (currentSelectedPort) openPortInspector(currentSelectedPort);
 }
 
 function toggleSelectedPortLink() {
@@ -1582,11 +1750,12 @@ function closePortInspector() {
 function triggerPortAction(action) {
   if (!activeSelectedPort) return;
   const terminal = document.getElementById('inspPcapTerminal');
-  terminal.innerHTML += `\n> Executing port action [${action}] on ${activeSelectedPort}...`;
+  terminal.textContent += `\n> Executing port action [${action}] on ${activeSelectedPort}...`;
 
   const formData = new FormData();
   formData.append('device', activeSelectedPort);
   formData.append('action', action);
+  formData.append(DASH_CSRF_NAME, DASH_CSRF);
 
   MicronScheduler.fetch('<?= base_url('dashboard/port-action') ?>', {
     method: 'POST',
@@ -1594,15 +1763,18 @@ function triggerPortAction(action) {
     headers: { 'X-Requested-With': 'XMLHttpRequest' }
   })
   .then(res => res.json())
+  .then(dashTakeCsrf)
   .then(data => {
+    // textContent, never innerHTML: the message echoes the port name.
     if (data.packets) {
-      terminal.innerHTML = data.packets.join('\n');
+      terminal.textContent = data.packets.join('\n');
     } else {
-      terminal.innerHTML += `\n✔ ${data.message || 'Action executed successfully.'}`;
+      terminal.textContent += `\n${data.success ? '✔' : '✖'} ${data.message || (data.success ? 'Done.' : 'The action failed.')}`;
+      if (data.redirect) terminal.textContent += `\n→ ${data.redirect}`;
     }
   })
   .catch(err => {
-    terminal.innerHTML += `\n✖ Error executing action: ${err}`;
+    terminal.textContent += `\n✖ Error executing action: ${err}`;
   });
 }
 
@@ -1643,7 +1815,7 @@ function triggerServiceAction(service, action) {
   const formData = new FormData();
   formData.append('service', service);
   formData.append('action', action);
-  formData.append('<?= csrf_token() ?>', '<?= csrf_hash() ?>');
+  formData.append(DASH_CSRF_NAME, DASH_CSRF);
 
   MicronScheduler.fetch('<?= base_url('dashboard/service-toggle') ?>', {
     method: 'POST',
@@ -1651,11 +1823,13 @@ function triggerServiceAction(service, action) {
     headers: { 'X-Requested-With': 'XMLHttpRequest' }
   })
   .then(res => res.json())
+  .then(dashTakeCsrf)
   .then(data => {
+    const msg = data.message || (data.success ? `${service}: ${action} completed` : `${service}: ${action} failed`);
     if (window.showToast) {
-      showToast(data.message || `Service ${service} ${action} completed successfully`, 'success');
-    } else {
-      alert(data.message || `Service ${service} ${action} triggered`);
+      showToast(msg, data.success ? 'success' : 'error');
+    } else if (window.MicronToast) {
+      MicronToast.show(msg, data.success ? 'success' : 'error');
     }
   })
   .catch(err => {
@@ -1736,11 +1910,17 @@ async function pollTelemetry() {
       });
     }
 
-    // 3. Update Live Traffic Graph
-    const totalRx = (data.ports || []).reduce((acc, p) => acc + (parseFloat(p.rx_mbps) || 0), 0);
-    const totalTx = (data.ports || []).reduce((acc, p) => acc + (parseFloat(p.tx_mbps) || 0), 0);
-    trafficPointsIn.shift(); trafficPointsIn.push(Math.max(5, Math.min(100, totalRx || 25)));
-    trafficPointsOut.shift(); trafficPointsOut.push(Math.max(2, Math.min(100, totalTx || 12)));
+    // 3. Update Live Traffic Graph (selected port, or the sum of physical ports)
+    const ports = (data.ports || []).filter(p => trafficIface ? p.device === trafficIface : !p.virtual);
+    const rx = ports.reduce((acc, p) => acc + (parseFloat(p.rx_mbps) || 0), 0);
+    const tx = ports.reduce((acc, p) => acc + (parseFloat(p.tx_mbps) || 0), 0);
+    trafficPointsIn.shift(); trafficPointsIn.push(rx);
+    trafficPointsOut.shift(); trafficPointsOut.push(tx);
+    const fmt = v => `${v.toFixed(v >= 100 ? 0 : 1)} <span style="font-size:0.7rem; font-weight:500;">Mbps</span>`;
+    const peak = Math.max(...trafficPointsIn, ...trafficPointsOut);
+    const elIn = document.getElementById('stat_in_mbps'); if (elIn) elIn.innerHTML = fmt(rx);
+    const elOut = document.getElementById('stat_out_mbps'); if (elOut) elOut.innerHTML = fmt(tx);
+    const elPeak = document.getElementById('stat_peak'); if (elPeak) elPeak.innerHTML = fmt(peak);
     renderSvgChart();
 
     return true;
@@ -1750,9 +1930,17 @@ async function pollTelemetry() {
   }
 }
 
-// Live Traffic Graph Simulation / History
-let trafficPointsIn = Array(30).fill(25);
-let trafficPointsOut = Array(30).fill(12);
+// Live Traffic Graph history (Mbps), filled from real telemetry polls
+let trafficPointsIn = Array(30).fill(0);
+let trafficPointsOut = Array(30).fill(0);
+let trafficIface = '';
+
+function changeTrafficIface(device) {
+  trafficIface = device || '';
+  trafficPointsIn = Array(30).fill(0);
+  trafficPointsOut = Array(30).fill(0);
+  renderSvgChart();
+}
 
 document.addEventListener('DOMContentLoaded', () => {
   renderSvgChart();
@@ -1765,8 +1953,11 @@ function renderSvgChart() {
   const w = 600, h = 160;
   const step = w / (trafficPointsIn.length - 1);
 
-  const ptsIn = trafficPointsIn.map((v, i) => `${i * step},${h - (v / 100 * h)}`).join(' ');
-  const ptsOut = trafficPointsOut.map((v, i) => `${i * step},${h - (v / 100 * h)}`).join(' ');
+  // Auto-scale to the largest sample in view (at least 1 Mbps full-scale).
+  const scale = Math.max(1, ...trafficPointsIn, ...trafficPointsOut) * 1.1;
+  const y = v => (h - (Math.max(0, v) / scale * h)).toFixed(1);
+  const ptsIn = trafficPointsIn.map((v, i) => `${(i * step).toFixed(1)},${y(v)}`).join(' ');
+  const ptsOut = trafficPointsOut.map((v, i) => `${(i * step).toFixed(1)},${y(v)}`).join(' ');
 
   const areaIn = `M0,${h} L${ptsIn} L${w},${h} Z`;
   const areaOut = `M0,${h} L${ptsOut} L${w},${h} Z`;

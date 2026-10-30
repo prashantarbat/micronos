@@ -36,7 +36,7 @@ final class TerminalCliUsageTest extends CIUnitTestCase
         return [
             'unknown backup subcommand' => [['backup', 'nonsense'], 'Usage: microctl backup <create|restore|verify>'],
             'backup restore without a path' => [['backup', 'restore'], 'Usage: microctl backup restore <path>'],
-            'unknown interface subcommand' => [['interface', 'bogus'], 'Usage: microctl interface set-lan'],
+            'unknown interface subcommand' => [['interface', 'bogus'], 'Usage: microctl interface <assign'],
             'unknown firewall subcommand' => [['firewall', 'bogus'], 'Usage: microctl firewall reset'],
             'unknown config subcommand' => [['config', 'bogus'], 'Usage: microctl config rollback'],
             'unknown admin subcommand' => [['admin', 'bogus'], 'Usage: microctl admin reset-password'],

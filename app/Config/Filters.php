@@ -4,6 +4,7 @@ namespace Config;
 
 use App\Filters\AuthFilter;
 use App\Filters\PermissionFilter;
+use App\Filters\ZtnaAuthFilter;
 use CodeIgniter\Config\Filters as BaseFilters;
 use CodeIgniter\Filters\Cors;
 use CodeIgniter\Filters\CSRF;
@@ -39,6 +40,7 @@ class Filters extends BaseFilters
         // MicronOS custom filters
         'auth'          => AuthFilter::class,
         'permission'    => PermissionFilter::class,
+        'ztnaauth'      => ZtnaAuthFilter::class,
     ];
 
     /**
@@ -99,6 +101,11 @@ class Filters extends BaseFilters
                 '/',
                 'auth/*', 'auth/login', 'auth/logout',
                 'vpn/clientless-gateway/verify-auth*',
+                // Clientless Gateway portal: own login page, guarded by `ztnaauth`.
+                'vpn/clientless-gateway/login', 'vpn/clientless-gateway/login/*',
+                'vpn/clientless-gateway/logout',
+                'vpn/clientless-gateway/portal',
+                'vpn/clientless-gateway/launch/*', 'vpn/clientless-gateway/connect/*',
                 'portal', 'portal/*',
                 'hotspot-detect.html', 'canonical.html',
                 'generate_204', 'gen_204',
@@ -109,7 +116,10 @@ class Filters extends BaseFilters
         ],
         'after' => [
             // 'honeypot',
-            // 'secureheaders',
+            // X-Frame-Options, nosniff, Referrer-Policy and friends on every
+            // response. HSTS is deliberately not sent: an appliance still on its
+            // self-signed certificate would lock its administrators out.
+            'secureheaders',
         ],
     ];
 

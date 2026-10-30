@@ -57,13 +57,18 @@ $routes->post('dashboard/service-toggle', 'Dashboard::serviceToggle', ['filter' 
 // ---- Interfaces ----
 $routes->group('interfaces', ['filter' => 'permission:interfaces.view'], function ($r) {
     $r->get('/', 'Interfaces::index');
+    $r->get('new', 'Interfaces::create', ['filter' => 'permission:interfaces.edit']);
     $r->post('store', 'Interfaces::store', ['filter' => 'permission:interfaces.edit']);
     $r->get('edit/(:segment)', 'Interfaces::edit/$1', ['filter' => 'permission:interfaces.edit']);
     $r->post('save', 'Interfaces::save', ['filter' => 'permission:interfaces.edit']);
     $r->post('(:segment)/update', 'Interfaces::save', ['filter' => 'permission:interfaces.edit']);
     $r->post('(:segment)/toggle', 'Interfaces::toggle/$1', ['filter' => 'permission:interfaces.edit']);
     $r->post('(:segment)/delete', 'Interfaces::delete/$1', ['filter' => 'permission:interfaces.edit']);
+    $r->post('assign', 'Interfaces::assign', ['filter' => 'permission:interfaces.edit']);
     $r->post('apply', 'Interfaces::apply', ['filter' => 'permission:interfaces.apply']);
+    $r->post('network/confirm', 'Interfaces::confirmNetwork', ['filter' => 'permission:interfaces.apply']);
+    $r->post('network/rollback', 'Interfaces::rollbackNetwork', ['filter' => 'permission:interfaces.apply']);
+    $r->get('network/status', 'Interfaces::networkStatus');
 
     // Link Aggregation / Bonding (bond0 LACP)
     $r->post('bonds/store', 'Interfaces::storeBond', ['filter' => 'permission:interfaces.edit']);
@@ -188,18 +193,57 @@ $routes->group('nat', ['filter' => 'permission:nat.view'], function ($r) {
     $r->get('snat-pools', static fn() => redirect()->to(base_url('nat?tab=snat')));
 });
 
-// ---- Routing ----
+// ---- Routing Standalone Protocol Aliases (redirect to canonical /routing?tab=... paths) ----
+$routes->get('ospf', static fn() => redirect()->to(base_url('routing/ospf')));
+$routes->get('bgp', static fn() => redirect()->to(base_url('routing?tab=bgp')));
+$routes->get('rip', static fn() => redirect()->to(base_url('routing?tab=rip')));
+$routes->get('isis', static fn() => redirect()->to(base_url('routing?tab=isis')));
+$routes->get('bfd', static fn() => redirect()->to(base_url('routing?tab=bfd')));
+$routes->get('vrf', static fn() => redirect()->to(base_url('routing?tab=vrf')));
+$routes->get('pbr', static fn() => redirect()->to(base_url('routing?tab=vrf&sub=pbr')));
+$routes->get('multiwan', static fn() => redirect()->to(base_url('routing?tab=multiwan')));
+$routes->get('frr', static fn() => redirect()->to(base_url('routing?tab=frr')));
+$routes->get('fib', static fn() => redirect()->to(base_url('routing?tab=fib')));
+$routes->get('policy', static fn() => redirect()->to(base_url('routing?tab=policy')));
+
 $routes->group('routing', ['filter' => 'permission:routing.table.view'], function ($r) {
+    // FRR status & configuration download / reload
+    $r->get('frr', static fn() => redirect()->to(base_url('routing?tab=frr')));
+    $r->get('frr/download', 'Routing::downloadFrrConf');
+    $r->post('frr/reload', 'Routing::reloadFrr', ['filter' => 'permission:routing.static.manage']);
     // Server-side object search for the PBR match-criteria pickers. The same
     // endpoint as `firewall/objects/search`, under this group's permission.
     $r->get('objects/search', 'Firewall::searchObjects');
 
-    // Static routes & FIB (existing)
+    // Dynamic Routing index (BGP, OSPF, Policy, etc.)
     $r->get('/', 'Routing::index');
+
+    // Static routes dedicated page
+    $r->get('static', 'Routing::staticPage', ['filter' => 'permission:routing.table.view']);
+    $r->get('static/check-gateways', 'Routing::checkStaticGateways', ['filter' => 'permission:routing.table.view']);
+    $r->post('static/check-gateways', 'Routing::checkStaticGateways', ['filter' => 'permission:routing.table.view']);
     $r->post('static/store', 'Routing::storeStatic', ['filter' => 'permission:routing.static.manage']);
     $r->post('static/(:segment)/update', 'Routing::updateStatic/$1', ['filter' => 'permission:routing.static.manage']);
     $r->post('static/(:segment)/toggle', 'Routing::toggleStatic/$1', ['filter' => 'permission:routing.static.manage']);
     $r->post('static/(:segment)/delete', 'Routing::deleteStatic/$1', ['filter' => 'permission:routing.static.manage']);
+
+    // ── Policy: Access Lists, Prefix Lists, Route Maps ────────────────
+    $r->get('policy', 'Routing::policyPage', ['filter' => 'permission:routing.table.view']);
+    $r->post('policy/access-lists/store', 'Routing::storeAccessList', ['filter' => 'permission:routing.static.manage']);
+    $r->post('policy/access-lists/(:segment)/update', 'Routing::updateAccessList/$1', ['filter' => 'permission:routing.static.manage']);
+    $r->post('policy/access-lists/(:segment)/delete', 'Routing::deleteAccessList/$1', ['filter' => 'permission:routing.static.manage']);
+    $r->post('policy/prefix-lists/store', 'Routing::storePrefixList', ['filter' => 'permission:routing.static.manage']);
+    $r->post('policy/prefix-lists/(:segment)/update', 'Routing::updatePrefixList/$1', ['filter' => 'permission:routing.static.manage']);
+    $r->post('policy/prefix-lists/(:segment)/delete', 'Routing::deletePrefixList/$1', ['filter' => 'permission:routing.static.manage']);
+    $r->post('policy/route-maps/store', 'Routing::storeRouteMap', ['filter' => 'permission:routing.static.manage']);
+    $r->post('policy/route-maps/(:segment)/update', 'Routing::updateRouteMap/$1', ['filter' => 'permission:routing.static.manage']);
+    $r->post('policy/route-maps/(:segment)/delete', 'Routing::deleteRouteMap/$1', ['filter' => 'permission:routing.static.manage']);
+    $r->post('policy/distribute-lists/store', 'Routing::storeDistributeList', ['filter' => 'permission:routing.static.manage']);
+    $r->post('policy/distribute-lists/(:segment)/update', 'Routing::updateDistributeList/$1', ['filter' => 'permission:routing.static.manage']);
+    $r->post('policy/distribute-lists/(:segment)/delete', 'Routing::deleteDistributeList/$1', ['filter' => 'permission:routing.static.manage']);
+    $r->post('policy/area-filters/store', 'Routing::storeAreaFilter', ['filter' => 'permission:routing.static.manage']);
+    $r->post('policy/area-filters/(:segment)/update', 'Routing::updateAreaFilter/$1', ['filter' => 'permission:routing.static.manage']);
+    $r->post('policy/area-filters/(:segment)/delete', 'Routing::deleteAreaFilter/$1', ['filter' => 'permission:routing.static.manage']);
 
     // ── BGP ──────────────────────────────────────────────────────────
     $r->post('bgp/settings/save', 'Routing::saveBgpSettings', ['filter' => 'permission:routing.static.manage']);
@@ -208,6 +252,8 @@ $routes->group('routing', ['filter' => 'permission:routing.table.view'], functio
     $r->post('bgp/(:segment)/delete', 'Routing::deleteBgp/$1', ['filter' => 'permission:routing.static.manage']);
 
     // ── OSPF Global Settings ─────────────────────────────────────────
+    $r->get('ospf', 'Routing::ospfPage', ['filter' => 'permission:routing.table.view']);
+    $r->get('ospf/status', 'Routing::ospfStatusJson', ['filter' => 'permission:routing.table.view']);
     $r->post('ospf/settings/save', 'Routing::saveOspfSettings', ['filter' => 'permission:routing.static.manage']);
 
     // OSPF Networks (network X.X.X.X/X area Y.Y.Y.Y statements)
@@ -286,6 +332,18 @@ $routes->group('routing', ['filter' => 'permission:routing.table.view'], functio
     $r->post('multiwan/groups/(:segment)/update', 'Routing::updateGatewayGroup/$1', ['filter' => 'permission:routing.static.manage']);
     $r->post('multiwan/groups/(:segment)/delete', 'Routing::deleteGatewayGroup/$1', ['filter' => 'permission:routing.static.manage']);
     $r->post('multiwan/apply', 'Routing::applyMultiWan', ['filter' => 'permission:routing.static.manage']);
+
+    // ── Full Routing Table (Combined View) ──────────────────────────────
+    $r->get('full-table', 'Routing::fullRoutingTable', ['filter' => 'permission:routing.table.view']);
+
+    // ── Standalone Protocol Pages (each tab as separate URL) ──────────────
+    $r->get('bgp', 'Routing::bgpPage', ['filter' => 'permission:routing.table.view']);
+    $r->get('ospf', 'Routing::ospfPage', ['filter' => 'permission:routing.table.view']);
+    $r->get('rip', 'Routing::ripPage', ['filter' => 'permission:routing.table.view']);
+    $r->get('isis', 'Routing::isisPage', ['filter' => 'permission:routing.table.view']);
+    $r->get('bfd', 'Routing::bfdPage', ['filter' => 'permission:routing.table.view']);
+    $r->get('vrf', 'Routing::vrfPage', ['filter' => 'permission:routing.table.view']);
+    $r->get('multiwan', 'Routing::multiwanPage', ['filter' => 'permission:routing.table.view']);
 });
 
 // ---- Application-Aware Dynamic SD-WAN (SLA Path Steering) ----
@@ -328,6 +386,7 @@ $routes->group('pppoe', ['filter' => 'permission:pppoe.server.view'], function (
 // ---- VPN — WireGuard ----
 $routes->group('vpn/wireguard', ['filter' => 'permission:vpn.wireguard.view'], function ($r) {
     $r->get('/', 'VpnWireguard::index');
+    $r->post('settings', 'VpnWireguard::saveSettings', ['filter' => 'permission:vpn.wireguard.manage']);
     // ── Tunnels (interfaces + their addresses) ──────────────────────
     $r->post('tunnels/store', 'VpnWireguard::storeTunnel', ['filter' => 'permission:vpn.wireguard.manage']);
     $r->post('tunnels/(:segment)/update', 'VpnWireguard::updateTunnel/$1', ['filter' => 'permission:vpn.wireguard.manage']);
@@ -378,14 +437,27 @@ $routes->group('vpn/ipsec', ['filter' => 'permission:vpn.ipsec.view'], function 
 // ---- In-Browser Clientless Web Application & Desktop Gateway (HTML5 RDP/SSH - ZTNA) ----
 $routes->group('vpn/clientless-gateway', function ($r) {
     $r->get('/', 'ZtnaGateway::index', ['filter' => 'permission:vpn.openvpn.view']);
-    $r->get('portal', 'ZtnaGateway::portal');
+    // Portal users sign in on the gateway's own login page (not the appliance
+    // login); these routes are excluded from the global auth filter and
+    // protected by `ztnaauth` instead.
+    $r->get('login', 'ZtnaGateway::login');
+    $r->post('login', 'ZtnaGateway::loginPost');
+    $r->get('login/verify', 'ZtnaGateway::totp');
+    $r->post('login/verify', 'ZtnaGateway::totpPost');
+    $r->get('logout', 'ZtnaGateway::logout');
+    $r->get('portal', 'ZtnaGateway::portal', ['filter' => 'ztnaauth']);
     $r->post('resource/save', 'ZtnaGateway::saveResource', ['filter' => 'permission:vpn.openvpn.manage']);
     $r->post('resource/(:segment)/delete', 'ZtnaGateway::deleteResource/$1', ['filter' => 'permission:vpn.openvpn.manage']);
-    $r->get('launch/(:segment)', 'ZtnaGateway::launch/$1');
-    $r->get('connect/(:segment)', 'ZtnaGateway::connect/$1');
+    $r->get('launch/(:segment)', 'ZtnaGateway::launch/$1', ['filter' => 'ztnaauth']);
+    $r->get('connect/(:segment)', 'ZtnaGateway::connect/$1', ['filter' => 'ztnaauth']);
+    $r->post('certificate/select', 'ZtnaGateway::certificateSelect', ['filter' => 'permission:vpn.openvpn.manage']);
+    $r->post('certificate/upload', 'ZtnaGateway::certificateUpload', ['filter' => 'permission:vpn.openvpn.manage']);
+    $r->post('certificate/acme', 'ZtnaGateway::certificateAcme', ['filter' => 'permission:vpn.openvpn.manage']);
     $r->post('session/(:segment)/terminate', 'ZtnaGateway::terminateSession/$1', ['filter' => 'permission:vpn.openvpn.manage']);
     $r->match(['get', 'post'], 'verify-auth', 'ZtnaGateway::verifyAuth');
     $r->post('settings/save', 'ZtnaGateway::saveSettings', ['filter' => 'permission:vpn.openvpn.manage']);
+    $r->post('branding/reset', 'ZtnaGateway::resetBranding', ['filter' => 'permission:vpn.openvpn.manage']);
+    $r->post('guacd/test', 'ZtnaGateway::testGuacd', ['filter' => 'permission:vpn.openvpn.manage']);
     $r->post('apply', 'ZtnaGateway::apply', ['filter' => 'permission:vpn.openvpn.manage']);
     $r->get('status', 'ZtnaGateway::status');
 });
@@ -405,7 +477,7 @@ $captiveRoutes = static function ($r) {
     $r->get('vouchers/print/(:segment)', 'Captive::printVouchers/$1');
 
     $r->get('sessions', 'Captive::sessions');
-    $r->post('sessions/(:segment)/terminate', 'Captive::disconnectSession/$1', ['filter' => 'permission:captive.sessions.terminate']);
+    $r->post('sessions/(:segment)/terminate', 'Captive::disconnectSession/$1', ['filter' => 'permission:captive.sessions.disconnect']);
 
     $r->get('branding/(:segment)', 'Captive::branding/$1');
     $r->post('branding/(:segment)/save', 'Captive::saveBranding/$1', ['filter' => 'permission:captive.edit']);
@@ -586,6 +658,22 @@ $routes->group('threat-intel', ['filter' => 'permission:ids.view'], function ($r
     $r->get('compile-dnsbl', 'ThreatIntel::compileDnsblRuleset');
 });
 
+// ---- CVEs & Security Advisories (Authenticated Package Vulnerability Auditing & NIST NVD) ----
+$routes->group('security/cve', ['filter' => 'permission:ids.view'], function ($r) {
+    $r->get('/', 'CveAdvisories::index');
+    $r->post('scan', 'CveAdvisories::runScan', ['filter' => 'permission:ids.edit']);
+    $r->post('refresh-feed', 'CveAdvisories::refreshFeed', ['filter' => 'permission:ids.edit']);
+    $r->get('export-csv', 'CveAdvisories::exportCsv');
+    $r->get('detail/(:segment)', 'CveAdvisories::detail/$1');
+});
+$routes->group('cve', ['filter' => 'permission:ids.view'], function ($r) {
+    $r->get('/', 'CveAdvisories::index');
+    $r->post('scan', 'CveAdvisories::runScan', ['filter' => 'permission:ids.edit']);
+    $r->post('refresh-feed', 'CveAdvisories::refreshFeed', ['filter' => 'permission:ids.edit']);
+    $r->get('export-csv', 'CveAdvisories::exportCsv');
+    $r->get('detail/(:segment)', 'CveAdvisories::detail/$1');
+});
+
 // ---- Backup & Restore ----
 $routes->group('backup', ['filter' => 'permission:backup.view'], function ($r) {
     $r->get('/', 'Backup::index');
@@ -652,6 +740,7 @@ $routes->group('diag', ['filter' => 'permission:system.info.view'], function ($r
     $r->get('states/data', 'Diagnostics::statesData', ['filter' => 'permission:diag.states.view']);
     $r->get('states/export-csv', 'Diagnostics::exportStatesCsv', ['filter' => 'permission:diag.states.view']);
     $r->get('states/export-json', 'Diagnostics::exportStatesJson', ['filter' => 'permission:diag.states.view']);
+
     $r->post('states/kill', 'Diagnostics::killState', ['filter' => 'permission:system.settings.edit']);
     $r->post('states/kill-host', 'Diagnostics::killHostStates', ['filter' => 'permission:system.settings.edit']);
 });
@@ -662,6 +751,15 @@ $routes->group('system', ['filter' => 'permission:system.info.view'], function (
     $r->post('save', 'SystemSettings::save', ['filter' => 'permission:system.settings.edit']);
     $r->post('reboot', 'SystemSettings::reboot', ['filter' => 'permission:system.reboot']);
     $r->post('halt', 'SystemSettings::halt', ['filter' => 'permission:system.halt']);
+});
+
+// ---- Terminal / Console (browser shell; see Controllers/Terminal.php) ----
+$routes->group('terminal', ['filter' => 'permission:terminal.access'], function ($r) {
+    $r->get('/', 'Terminal::index');
+    $r->post('session', 'Terminal::session');
+    $r->post('elevate', 'Terminal::elevate');
+    $r->get('sessions', 'Terminal::sessions');
+    $r->post('sessions/(:segment)/kill', 'Terminal::kill/$1');
 });
 
 // ---- Profile (own account management — no role check needed) ----
@@ -887,11 +985,11 @@ $routes->group('plugins', ['filter' => 'permission:plugins.view'], function ($r)
 // ---- LightSquid Console & Plugin Friendly Direct URLs ----
 $routes->get('lightsquid', 'Plugins::lightsquidReport', ['filter' => 'permission:plugins.view']);
 $routes->get('lightsquid/(:any)', 'Plugins::lightsquidReport/$1', ['filter' => 'permission:plugins.view']);
-$routes->get('darkstat', static fn () => redirect()->to('plugins/darkstat'));
-$routes->get('lldpd', static fn () => redirect()->to('plugins/lldpd'));
-$routes->get('zerotier', static fn () => redirect()->to('plugins/zerotier'));
-$routes->get('netbird', static fn () => redirect()->to('plugins/netbird'));
-$routes->get('nat64', static fn () => redirect()->to('plugins/nat64'));
+$routes->get('darkstat', static fn() => redirect()->to('plugins/darkstat'));
+$routes->get('lldpd', static fn() => redirect()->to('plugins/lldpd'));
+$routes->get('zerotier', static fn() => redirect()->to('plugins/zerotier'));
+$routes->get('netbird', static fn() => redirect()->to('plugins/netbird'));
+$routes->get('nat64', static fn() => redirect()->to('plugins/nat64'));
 
 // ---- System Settings ----
 $routes->group('system', ['filter' => 'permission:dashboard.view'], function ($r) {
@@ -920,6 +1018,11 @@ $routes->group('system', ['filter' => 'permission:dashboard.view'], function ($r
     $r->post('revisions/commit', 'ConfigRevisions::commitManual', ['filter' => 'permission:system.settings.edit']);
     $r->post('revisions/rollback/(:segment)', 'ConfigRevisions::rollback/$1', ['filter' => 'permission:system.settings.edit']);
     $r->get('revisions/export/(:segment)', 'ConfigRevisions::export/$1');
+
+    // Database Resilience & Storage Health Controls
+    $r->post('db/check', 'SystemSettings::checkDatabase', ['filter' => 'permission:system.settings.edit']);
+    $r->post('db/checkpoint', 'SystemSettings::checkpointDatabase', ['filter' => 'permission:system.settings.edit']);
+    $r->post('db/snapshot', 'SystemSettings::snapshotDatabase', ['filter' => 'permission:system.settings.edit']);
 
     // Centralized Single Sign-On (SSO) Federation (OIDC / SAML 2.0)
     $r->get('sso', 'Sso::index');

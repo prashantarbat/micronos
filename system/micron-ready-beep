@@ -1,80 +1,167 @@
 #!/bin/bash
 # ==============================================================================
-# Micron OS — Ready Audible Notification (Three Short Beeps)
+# Micron OS — Ready Audible Notification (Three Long & Loud Beeps)
 # ==============================================================================
-# Emits three short beeps when the appliance has successfully booted, all
-# network interfaces are configured, and management services are operational.
+# Emits three long and loud beeps when the appliance has successfully booted,
+# core services are active, and the management plane is ready.
+#
+# Hardware Targets:
+#   1. PC Speaker Hardware Timer / evdev (KIOCSOUND ioctl / /dev/input/event*)
+#   2. Standard 'beep' utility (when installed)
+#   3. ALSA High-Definition Audio / HDMI / Onboard DAC (/dev/snd/* via aplay)
+#   4. Linux Virtual Terminal ASCII Bell (/dev/tty0, /dev/tty1, /dev/console)
 # ==============================================================================
 
-# Ensure kernel pcspkr module is loaded for PC speaker hardware
+# Ensure kernel speaker and audio modules are loaded
 modprobe pcspkr >/dev/null 2>&1 || true
+modprobe snd_pcm >/dev/null 2>&1 || true
 
-# Helper: Play beeps using Python console ioctl (KIOCSOUND)
-# Directly programs the timer on motherboard PC speakers without external packages
-play_ioctl_beeps() {
+BEEP_FREQ=880        # 880 Hz (Concert A: resonant, piercing, and louder than 1.2 kHz)
+BEEP_DUR_MS=450      # 450 ms per beep (long, authoritative tone)
+BEEP_GAP_MS=180      # 180 ms silence between beeps
+BEEP_COUNT=3
+
+# ------------------------------------------------------------------------------
+# Method 1: Motherboard PC Speaker via Python console ioctl & input event
+# ------------------------------------------------------------------------------
+play_pcspkr_hardware() {
     python3 -c '
-import fcntl, os, time, sys
+import fcntl, os, time, sys, glob, struct
 
-KIOCSOUND = 0x4B2F
 PIT_FREQ = 1193180
-FREQ = 1200 # 1200 Hz tone
+FREQ = 880
 TONE = int(PIT_FREQ / FREQ)
+DURATION = 0.45
+GAP = 0.18
+COUNT = 3
 
-devices = ["/dev/console", "/dev/tty0", "/dev/tty1"]
-played = False
+success = False
 
-for dev in devices:
-    if not os.path.exists(dev):
-        continue
+# A. Try evdev input event subsystem (/dev/input/by-path/*pcspkr* or /dev/input/event*)
+for evdev in glob.glob("/dev/input/by-path/*pcspkr*") + glob.glob("/dev/input/event*"):
     try:
-        fd = os.open(dev, os.O_WRONLY | os.O_NOCTTY)
+        fd = os.open(evdev, os.O_WRONLY | os.O_NONBLOCK)
         try:
-            for _ in range(3):
-                try:
-                    fcntl.ioctl(fd, KIOCSOUND, TONE)
-                except Exception:
-                    pass
-                try:
-                    os.write(fd, b"\a")
-                except Exception:
-                    pass
-                time.sleep(0.08)
-                try:
-                    fcntl.ioctl(fd, KIOCSOUND, 0)
-                except Exception:
-                    pass
-                time.sleep(0.08)
-            played = True
+            # EV_SND = 0x12, SND_TONE = 0x02
+            for i in range(COUNT):
+                event_on = struct.pack("llHHi", 0, 0, 0x12, 0x02, FREQ)
+                os.write(fd, event_on)
+                time.sleep(DURATION)
+                event_off = struct.pack("llHHi", 0, 0, 0x12, 0x02, 0)
+                os.write(fd, event_off)
+                if i < COUNT - 1:
+                    time.sleep(GAP)
+            success = True
+            os.close(fd)
             break
-        finally:
-            try:
-                fcntl.ioctl(fd, KIOCSOUND, 0)
-            except Exception:
-                pass
+        except Exception:
             os.close(fd)
     except Exception:
         continue
 
-sys.exit(0 if played else 1)
+# B. Try VT console ioctl (KIOCSOUND) on /dev/tty0, /dev/tty1, /dev/console
+if not success:
+    KIOCSOUND = 0x4B2F
+    for dev in ["/dev/tty0", "/dev/tty1", "/dev/console"]:
+        if not os.path.exists(dev):
+            continue
+        try:
+            fd = os.open(dev, os.O_WRONLY | os.O_NOCTTY)
+            try:
+                fcntl.ioctl(fd, KIOCSOUND, 0)
+                for i in range(COUNT):
+                    fcntl.ioctl(fd, KIOCSOUND, TONE)
+                    time.sleep(DURATION)
+                    fcntl.ioctl(fd, KIOCSOUND, 0)
+                    if i < COUNT - 1:
+                        time.sleep(GAP)
+                success = True
+                os.close(fd)
+                break
+            except Exception:
+                try:
+                    fcntl.ioctl(fd, KIOCSOUND, 0)
+                except Exception:
+                    pass
+                os.close(fd)
+        except Exception:
+            continue
+
+sys.exit(0 if success else 1)
 ' 2>/dev/null
 }
 
-# Helper: Play beeps using the standard beep utility
+# ------------------------------------------------------------------------------
+# Method 2: Standard beep package utility
+# ------------------------------------------------------------------------------
 play_beep_pkg() {
     if command -v beep >/dev/null 2>&1; then
-        beep -f 1200 -l 80 -D 80 -r 3 2>/dev/null && return 0
+        beep -f "$BEEP_FREQ" -l "$BEEP_DUR_MS" -D "$BEEP_GAP_MS" -r "$BEEP_COUNT" 2>/dev/null && return 0
     fi
     return 1
 }
 
-# Helper: Play beeps using ASCII Bell escape on consoles
+# ------------------------------------------------------------------------------
+# Method 3: ALSA Audio (Sound cards, Line Out, Internal Speaker, HDMI)
+# ------------------------------------------------------------------------------
+play_alsa_sound() {
+    if ! command -v aplay >/dev/null 2>&1 || [ ! -d /dev/snd ]; then
+        return 1
+    fi
+
+    # Unmute all ALSA volume controls across all detected sound cards to 100%
+    if command -v amixer >/dev/null 2>&1; then
+        for card in 0 1 2 3; do
+            [ -e "/proc/asound/card${card}" ] || continue
+            for ctrl in Master PCM Speaker Front Headphone Line "Internal Speaker" "Beep"; do
+                amixer -q -c "$card" sset "$ctrl" unmute 100% 2>/dev/null || \
+                amixer -q -c "$card" sset "$ctrl" 100% 2>/dev/null || true
+            done
+        done
+    fi
+
+    local wav_file="/tmp/micron_ready_long_beeps.wav"
+    # Generate high-amplitude 16-bit PCM WAV (880 Hz, 3 beeps @ 450ms, 180ms gaps)
+    python3 -c "
+import wave, math, struct
+s, f, t, g = 44100, $BEEP_FREQ, $BEEP_DUR_MS/1000.0, $BEEP_GAP_MS/1000.0
+samples = []
+for b in range($BEEP_COUNT):
+    n = int(s * t)
+    for i in range(n):
+        env = min(1.0, i / 200.0, (n - i) / 200.0)
+        samples.append(int(32767 * 0.98 * env * math.sin(2 * math.pi * f * (i / s))))
+    if b < $BEEP_COUNT - 1:
+        samples.extend([0] * int(s * g))
+
+with wave.open('$wav_file', 'w') as w:
+    w.setnchannels(1)
+    w.setsampwidth(2)
+    w.setframerate(s)
+    w.writeframes(struct.pack(f'<{len(samples)}h', *samples))
+" 2>/dev/null || return 1
+
+    if [ -f "$wav_file" ]; then
+        # Play across default and all detected ALSA cards
+        aplay -q "$wav_file" 2>/dev/null || \
+        aplay -q -D default "$wav_file" 2>/dev/null || \
+        aplay -q -D plughw:0,0 "$wav_file" 2>/dev/null || true
+        rm -f "$wav_file" 2>/dev/null || true
+        return 0
+    fi
+    return 1
+}
+
+# ------------------------------------------------------------------------------
+# Method 4: Virtual Terminal ASCII Bell fallback
+# ------------------------------------------------------------------------------
 play_bell_ttys() {
     local success=1
-    for dev in /dev/console /dev/tty0 /dev/tty1; do
+    for dev in /dev/tty0 /dev/tty1 /dev/console; do
         if [ -w "$dev" ]; then
-            for i in 1 2 3; do
+            for ((i=1; i<=BEEP_COUNT; i++)); do
                 printf '\a' > "$dev" 2>/dev/null || true
-                sleep 0.1
+                sleep 0.45
             done
             success=0
             break
@@ -83,28 +170,27 @@ play_bell_ttys() {
     return $success
 }
 
-# Helper: Play synthetic beeps via ALSA audio if soundcard is present
-play_alsa_sound() {
-    if command -v speaker-test >/dev/null 2>&1 && [ -d /dev/snd ]; then
-        for i in 1 2 3; do
-            timeout 0.15 speaker-test -t sine -f 1200 -l 1 >/dev/null 2>&1 || true
-            sleep 0.05
-        done
-        return 0
-    fi
-    return 1
-}
+# ------------------------------------------------------------------------------
+# Execution: Run hardware PC Speaker and ALSA audio in coordinated sequence
+# ------------------------------------------------------------------------------
+sound_played=0
 
-# Execute beep tiers with fallbacks
-if play_ioctl_beeps; then
-    exit 0
+if play_pcspkr_hardware; then
+    sound_played=1
 elif play_beep_pkg; then
-    exit 0
-elif play_bell_ttys; then
-    exit 0
-elif play_alsa_sound; then
-    exit 0
+    sound_played=1
 fi
 
-# Exit cleanly even if no audio hardware exists
+# Always attempt ALSA audio output as well (many mini-PC firewall boxes
+# have an internal audio codec rather than an old-style PIT pcspkr buzzer)
+if play_alsa_sound; then
+    sound_played=1
+fi
+
+# If neither PC speaker nor ALSA sounded, trigger virtual console bell
+if [ "$sound_played" -eq 0 ]; then
+    play_bell_ttys || true
+fi
+
 exit 0
+

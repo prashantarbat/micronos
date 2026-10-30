@@ -6,6 +6,7 @@ use Tests\Support\BaseTestCase;
 use CodeIgniter\Test\DatabaseTestTrait;
 use CodeIgniter\Test\FeatureTestTrait;
 use Config\Security as SecurityConfig;
+use Tests\Support\Libraries\FakeIpcClient;
 
 /**
  * Feature tests for OSPF Policy (prefix-lists & route-maps):
@@ -33,6 +34,8 @@ final class OspfPolicyTest extends BaseTestCase
     // Shared in-memory database, migrated once; policy rows are cleared per test.
     protected $refresh = false;
 
+    private const TEST_INTERFACE_ID = 'ospf_panel_iface_test';
+
     /** Permission keys the SuperAdmin-style session is granted. */
     private const PERMISSIONS = ['routing.table.view', 'routing.static.manage'];
 
@@ -45,11 +48,68 @@ final class OspfPolicyTest extends BaseTestCase
         $this->db->table('frr_ospf_distribute_lists')->emptyTable();
         $this->db->table('frr_ospf_area_filters')->emptyTable();
         $this->db->table('frr_ospf_settings')->emptyTable();
+        $this->db->table('interfaces')->where('id', self::TEST_INTERFACE_ID)->delete();
 
         // Prime cookie-based CSRF: Security reads the token from the cookie on
         // construction, so seed it before the service is first resolved.
         $_COOKIE[config(SecurityConfig::class)->cookieName] = bin2hex(random_bytes(16));
         Services::injectMock('security', new Security(config(SecurityConfig::class)));
+    }
+
+    protected function tearDown(): void
+    {
+        $this->db->table('interfaces')->where('id', self::TEST_INTERFACE_ID)->delete();
+        parent::tearDown();
+    }
+
+    public function testOspfPageReceivesConfiguredInterfacesForTheInterfaceSelector(): void
+    {
+        Services::injectMock('ipc', new FakeIpcClient([
+            'ospf.status' => ['result' => [
+                'sections' => [
+                    'general' => ['output' => 'General sample'],
+                    'neighbors' => ['output' => 'Neighbor sample'],
+                    'routes' => ['output' => 'Route sample'],
+                    'database' => ['output' => 'Database sample'],
+                    'router_database' => ['output' => 'Router database sample'],
+                    'interfaces' => ['output' => 'Interface sample'],
+                ],
+                'resources' => ['cpu_output' => 'CPU sample', 'memory_output' => 'Memory sample'],
+            ], 'error' => null],
+            'frr.status' => ['result' => ['running' => false, 'version' => '', 'uptime' => '', 'bgp_as' => '', 'router_id' => ''], 'error' => null],
+        ]));
+
+        $now = date('Y-m-d H:i:s');
+        $this->db->table('interfaces')->insert([
+            'id' => self::TEST_INTERFACE_ID,
+            'name' => 'OSPF Test Link',
+            'physical_device' => 'enp77s0',
+            'enabled' => 1,
+            'ip_assignment_type' => 'static',
+            'ipv4_address' => '10.77.0.1',
+            'ipv4_netmask' => 24,
+            'mtu' => 1500,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+
+        $response = $this->withSession($this->session())->get('routing/ospf');
+
+        $response->assertOK();
+        $html = $response->getBody();
+        $this->assertStringContainsString('OSPF Test Link (enp77s0)', $html);
+        foreach (['OSPF General', 'OSPF Neighbors', 'OSPF Routes', 'OSPF Database', 'OSPF Router Database', 'OSPF Interfaces', 'OSPF CPU Usage', 'OSPF Memory'] as $section) {
+            $this->assertStringContainsString($section, $html);
+        }
+        $this->assertStringContainsString('General sample', $html);
+        $this->assertStringContainsString('Memory sample', $html);
+    }
+
+    public function testLegacyOspfPathRedirectsToTheStandaloneOspfPage(): void
+    {
+        $result = $this->withSession($this->session())->get('ospf');
+
+        $result->assertRedirectTo(base_url('routing/ospf'));
     }
 
     // ------------------------------------------------------------------
@@ -59,18 +119,18 @@ final class OspfPolicyTest extends BaseTestCase
     public function testStoreBuildsRulesOrderedBySequence(): void
     {
         $this->post('routing/ospf/policy/prefix-lists/store', $this->csrf([
-            'name'        => 'Banking_Applications',
-            'description' => 'Banking hosts',
+            'name'        => 'PL_INTERNAL_NETS',
+            'description' => 'Internal test hosts',
             // Deliberately out of order to prove the builder sorts by seq.
             'pl_seq'      => [30, 10, 20],
             'pl_action'   => ['permit', 'permit', 'deny'],
-            'pl_prefix'   => ['10.29.3.51/32', '10.11.83.0/24', '10.0.0.0/8'],
+            'pl_prefix'   => ['192.168.100.51/32', '192.168.10.0/24', '172.16.0.0/16'],
             'pl_ge'       => ['', '', '24'],
             'pl_le'       => ['', '32', ''],
             'pl_desc'     => ['third', 'first', 'second'],
         ]))->assertRedirect();
 
-        $row = $this->db->table('frr_prefix_lists')->where('name', 'Banking_Applications')->get()->getRowArray();
+        $row = $this->db->table('frr_prefix_lists')->where('name', 'PL_INTERNAL_NETS')->get()->getRowArray();
         $this->assertNotNull($row, 'Prefix-list was not persisted.');
         $this->assertStringStartsWith('pl_', $row['id']);
         $this->assertSame(1, (int) $row['enabled']);
@@ -78,7 +138,7 @@ final class OspfPolicyTest extends BaseTestCase
         $rules = json_decode($row['rules'], true);
         $this->assertSame([10, 20, 30], array_column($rules, 'seq'), 'Rules must be stored in sequence order.');
 
-        $this->assertSame(['seq' => 10, 'action' => 'permit', 'prefix' => '10.11.83.0/24', 'ge' => null, 'le' => 32, 'description' => 'first'], $rules[0]);
+        $this->assertSame(['seq' => 10, 'action' => 'permit', 'prefix' => '192.168.10.0/24', 'ge' => null, 'le' => 32, 'description' => 'first'], $rules[0]);
         $this->assertSame('deny', $rules[1]['action']);
         $this->assertSame(24, $rules[1]['ge']);
         $this->assertNull($rules[1]['le']);
@@ -147,12 +207,12 @@ final class OspfPolicyTest extends BaseTestCase
 
     public function testStoreRejectsDuplicateName(): void
     {
-        $this->seedPrefixList('pl_existing', 'Banking_Applications', [
-            ['seq' => 10, 'action' => 'permit', 'prefix' => '10.11.83.0/24', 'ge' => null, 'le' => null, 'description' => 'original'],
+        $this->seedPrefixList('pl_existing', 'PL_INTERNAL_NETS', [
+            ['seq' => 10, 'action' => 'permit', 'prefix' => '192.168.10.0/24', 'ge' => null, 'le' => null, 'description' => 'original'],
         ]);
 
         $this->post('routing/ospf/policy/prefix-lists/store', $this->csrf([
-            'name'      => 'Banking_Applications',
+            'name'      => 'PL_INTERNAL_NETS',
             'pl_prefix' => ['10.99.0.0/16'],
         ]))->assertRedirect();
 
@@ -160,7 +220,7 @@ final class OspfPolicyTest extends BaseTestCase
         $this->assertCount(1, $rows, 'Duplicate name must not create a second prefix-list.');
 
         $rules = json_decode($rows[0]['rules'], true);
-        $this->assertSame('10.11.83.0/24', $rules[0]['prefix'], 'The existing prefix-list must be left untouched.');
+        $this->assertSame('192.168.10.0/24', $rules[0]['prefix'], 'The existing prefix-list must be left untouched.');
     }
 
     // ------------------------------------------------------------------
@@ -275,24 +335,24 @@ final class OspfPolicyTest extends BaseTestCase
     public function testStoreBuildsRouteMapRulesWithMatchAndSet(): void
     {
         $this->post('routing/ospf/policy/route-maps/store', $this->csrf([
-            'name'               => 'Banking_Applications',
-            'description'        => 'Permit banking prefixes',
+            'name'               => 'RM_INTERNAL_POLICY',
+            'description'        => 'Permit internal prefixes',
             'rm_seq'             => [20, 10],
             'rm_action'          => ['permit', 'permit'],
-            'rm_match_pl'        => ['IFTAS_EKUBER', 'Banking_Applications'],
+            'rm_match_pl'        => ['PL_PAYMENT_GW', 'PL_INTERNAL_NETS'],
             'rm_set_metric'      => ['', '100'],
             'rm_set_metric_type' => ['', 'type-1'],
             'rm_set_tag'         => ['7', ''],
             'rm_desc'            => ['second', 'first'],
         ]))->assertRedirect();
 
-        $row = $this->db->table('frr_route_maps')->where('name', 'Banking_Applications')->get()->getRowArray();
+        $row = $this->db->table('frr_route_maps')->where('name', 'RM_INTERNAL_POLICY')->get()->getRowArray();
         $this->assertNotNull($row, 'Route-map was not persisted.');
         $this->assertStringStartsWith('rm_', $row['id']);
 
         $rules = json_decode($row['rules'], true);
         $this->assertSame([10, 20], array_column($rules, 'seq'), 'Rules must be stored in sequence order.');
-        $this->assertSame('Banking_Applications', $rules[0]['match_prefix_list']);
+        $this->assertSame('PL_INTERNAL_NETS', $rules[0]['match_prefix_list']);
         $this->assertSame(100, $rules[0]['set_metric']);
         $this->assertSame('type-1', $rules[0]['set_metric_type']);
         $this->assertNull($rules[0]['set_tag']);
@@ -543,18 +603,18 @@ final class OspfPolicyTest extends BaseTestCase
 
     public function testSaveOspfSettingsAttachesKnownRouteMapToRedistribution(): void
     {
-        $this->seedRouteMap('rm_redist', 'Banking_Applications', [
-            ['seq' => 10, 'action' => 'permit', 'match_prefix_list' => 'Banking_Applications', 'set_metric' => null, 'set_metric_type' => null, 'set_tag' => null, 'description' => ''],
+        $this->seedRouteMap('rm_redist', 'RM_INTERNAL_POLICY', [
+            ['seq' => 10, 'action' => 'permit', 'match_prefix_list' => 'PL_INTERNAL_NETS', 'set_metric' => null, 'set_metric_type' => null, 'set_tag' => null, 'description' => ''],
         ]);
 
         $this->post('routing/ospf/settings/save', $this->csrf([
             'enabled'                => '1',
             'redistribute_static'    => '1',
-            'redistribute_static_rm' => 'Banking_Applications',
+            'redistribute_static_rm' => 'RM_INTERNAL_POLICY',
         ]))->assertRedirect();
 
         $row = $this->db->table('frr_ospf_settings')->where('id', 'default')->get()->getRowArray();
-        $this->assertSame('Banking_Applications', $row['redistribute_static_rm']);
+        $this->assertSame('RM_INTERNAL_POLICY', $row['redistribute_static_rm']);
     }
 
     public function testSaveOspfSettingsDropsUnknownRouteMap(): void
@@ -584,7 +644,7 @@ final class OspfPolicyTest extends BaseTestCase
         $prefixLists = [[
             'name' => 'PL_PREVIEW', 'description' => 'Preview list', 'enabled' => 1,
             'rules' => json_encode([
-                ['seq' => 10, 'action' => 'permit', 'prefix' => '10.11.83.0/24', 'ge' => null, 'le' => null],
+                ['seq' => 10, 'action' => 'permit', 'prefix' => '192.168.10.0/24', 'ge' => null, 'le' => null],
                 ['seq' => 20, 'action' => 'deny', 'prefix' => '10.0.0.0/8', 'ge' => 24, 'le' => 32],
             ]),
         ]];
@@ -599,7 +659,7 @@ final class OspfPolicyTest extends BaseTestCase
 
         $config = \App\Controllers\Routing::compileOspfPolicy($prefixLists, $routeMaps, $distributeLists, $areaFilters);
 
-        $this->assertStringContainsString('ip prefix-list PL_PREVIEW seq 10 permit 10.11.83.0/24', $config);
+        $this->assertStringContainsString('ip prefix-list PL_PREVIEW seq 10 permit 192.168.10.0/24', $config);
         $this->assertStringContainsString('ip prefix-list PL_PREVIEW seq 20 deny 10.0.0.0/8 ge 24 le 32', $config);
         $this->assertStringContainsString('route-map RM_PREVIEW permit 10', $config);
         $this->assertStringContainsString(' match ip address prefix-list PL_PREVIEW', $config);
@@ -724,6 +784,42 @@ final class OspfPolicyTest extends BaseTestCase
 
         $this->assertStringContainsString('! WARNING: prefix-list GONE_PL does not exist', $config);
         $this->assertStringContainsString('! WARNING: prefix-list GONE_DL does not exist', $config);
+    }
+
+    public function testOspfStatusSubtabRendersLiveState(): void
+    {
+        $res = $this->withSession($this->session())->get('routing?tab=ospf&sub=status');
+        $res->assertOK();
+        $body = $res->getBody();
+
+        $this->assertStringContainsString('id="ospf-sub-status"', $body);
+        $this->assertStringContainsString('OSPF General', $body);
+        $this->assertStringContainsString('OSPF Neighbors', $body);
+        $this->assertStringContainsString('OSPF Routes', $body);
+        $this->assertStringContainsString('OSPF Database', $body);
+        $this->assertStringContainsString('OSPF Router Database', $body);
+        $this->assertStringContainsString('OSPF Interfaces', $body);
+        $this->assertStringContainsString('Refresh Status', $body);
+        $this->assertStringContainsString('refreshOspfStatus', $body);
+    }
+
+    public function testOspfStatusJsonEndpointReturnsLiveDiagnostics(): void
+    {
+        $res = $this->withSession($this->session())->get('routing/ospf/status');
+        $res->assertOK();
+        $data = json_decode($res->getJSON(), true);
+
+        $this->assertIsArray($data);
+        $this->assertTrue($data['success'] ?? false);
+        $this->assertArrayHasKey('sections', $data);
+        $this->assertArrayHasKey('general', $data['sections']);
+        $this->assertArrayHasKey('neighbors', $data['sections']);
+        $this->assertArrayHasKey('routes', $data['sections']);
+        $this->assertArrayHasKey('database', $data['sections']);
+        $this->assertArrayHasKey('router_database', $data['sections']);
+        $this->assertArrayHasKey('interfaces', $data['sections']);
+        $this->assertArrayHasKey('resources', $data);
+        $this->assertArrayHasKey('live_neighbors', $data);
     }
 
     /** Returns the session array with the granted permission set. */

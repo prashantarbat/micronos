@@ -1,8 +1,8 @@
 <?php
 // Resolved by Auth::appearanceContext() — falls back to the dark defaults so the
 // page still renders if it is ever reached without those view vars.
-$_theme = $appTheme ?? 'dark';
-$_mode = $appMode ?? 'dark';
+$_theme = $appTheme ?? config('Appearance')->defaultTheme;
+$_mode = $appMode ?? (config('Appearance')->isLight($_theme) ? 'light' : 'dark');
 $_isLight = $appIsLight ?? false;
 $_logo = $_isLight ? 'logos/logo_bk.png' : 'logos/logo_wh.png';
 $_bannerOn = !empty($settings['webgui_login_banner_enabled']);
@@ -249,6 +249,7 @@ $_showDisclaimer = $_bannerOn && $_bannerText !== '';
       }
     }
   </style>
+<?= view('partials/app_footer', ['footerVariant' => 'standalone']) ?>
 </body>
 
 </html>

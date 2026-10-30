@@ -12,6 +12,7 @@ Verifies that safe_atomic_write and its wrappers:
 """
 import importlib.util
 import os
+import socket
 import stat
 import tempfile
 
@@ -100,8 +101,18 @@ def main():
             finally:
                 os.environ.pop("NOTIFY_SOCKET", None)
                 srv.close()
-        else:
-            check("notify_systemd executes cleanly without POSIX sockets", True)
+        # 8. Verify rpc_system_ssh_apply parameter validation
+        import asyncio
+        loop = asyncio.new_event_loop()
+        handler = micrond.RpcHandler(micrond.SafeTransactionManager(), loop)
+        try:
+            res_invalid_port = loop.run_until_complete(handler.rpc_system_ssh_apply({"port": 99999}))
+            check("rpc_system_ssh_apply validates port range", res_invalid_port.get("success") is False)
+
+            res_invalid_tries = loop.run_until_complete(handler.rpc_system_ssh_apply({"port": 2222, "max_auth_tries": 0}))
+            check("rpc_system_ssh_apply validates max_auth_tries", res_invalid_tries.get("success") is False)
+        finally:
+            loop.close()
 
     finally:
         import shutil

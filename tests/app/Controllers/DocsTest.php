@@ -56,6 +56,9 @@ final class DocsTest extends CIUnitTestCase
             'plugins'      => 'Navigation menus contributed by plugins',
             'connectors'   => 'Encrypted Secret Store',
             'threats'      => 'Assets &amp; Trust Boundaries',
+            'install'      => 'Run the installer',
+            'hardening'    => 'Management access',
+            'release-notes' => 'Preview features',
         ];
 
         foreach ($expectations as $slug => $needle) {
@@ -223,6 +226,9 @@ final class DocsTest extends CIUnitTestCase
             [
                 base_url('assets/js/micronos-scheduler.js') . '?v=' . filemtime(FCPATH . 'assets/js/micronos-scheduler.js'),
                 base_url('assets/js/micronos-table.js') . '?v=' . filemtime(FCPATH . 'assets/js/micronos-table.js'),
+                // the shared shell helpers (confirm dialog / toasts, command palette)
+                base_url('assets/js/micronos-ui.js') . '?v=' . filemtime(FCPATH . 'assets/js/micronos-ui.js'),
+                base_url('assets/js/micronos-palette.js') . '?v=' . filemtime(FCPATH . 'assets/js/micronos-palette.js'),
                 base_url('assets/vendor/marked.min.js') . '?v=' . filemtime(FCPATH . 'assets/vendor/marked.min.js'),
                 base_url('assets/vendor/highlight.min.js') . '?v=' . filemtime(FCPATH . 'assets/vendor/highlight.min.js'),
             ],

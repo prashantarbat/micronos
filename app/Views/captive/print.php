@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Voucher Print — <?= esc($rollId) ?></title>
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;800;900&family=JetBrains+Mono:wght@700&display=swap');
+    @import url('<?= base_url('assets/fonts/fonts.css') ?>'); /* self-hosted: the portal must render with no internet */
     *, *::before, *::after { box-sizing: border-box; }
     body {
       font-family: 'Inter', sans-serif;

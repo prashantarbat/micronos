@@ -9,7 +9,7 @@ echo "===> [MicronOS Hook] Configuring Apache2, PHP-FPM, and Permissions..."
 # Enable Apache modules. Deliberately NOT mod_ssl: enabling it makes Apache
 # honour Debian's stock `Listen 443` and bind 0.0.0.0:443, which is the port the
 # ZTNA Clientless Gateway reverse proxy (nginx) needs — see ports.conf below.
-a2enmod rewrite proxy_fcgi headers deflate
+a2enmod rewrite proxy proxy_fcgi proxy_wstunnel headers deflate
 # Idempotent cleanup for images/installs where mod_ssl was enabled before.
 a2dismod ssl 2>/dev/null || true
 
@@ -28,6 +28,18 @@ cat << 'EOF' > /etc/apache2/sites-available/micronos.conf
     <FilesMatch \.php$>
         SetHandler "proxy:unix:/run/php/php8.4-fpm.sock|fcgi://localhost"
     </FilesMatch>
+
+    # Web Terminal: the WebSocket goes to micron-terminald on 127.0.0.1:7681
+    # (never exposed directly). The service only accepts a one-time ticket the
+    # Web UI issued for this user, Origin and client address.
+    ProxyPass        "/terminal/ws" "ws://127.0.0.1:7681/ws"
+    ProxyPassReverse "/terminal/ws" "ws://127.0.0.1:7681/ws"
+
+    # Clientless Gateway viewer: guacd is not a WebSocket server, so the
+    # browser's Guacamole tunnel goes to micron-guacd-bridge on 127.0.0.1:4823,
+    # which checks the signed session token and relays to guacd.
+    ProxyPass        "/vpn/clientless-gateway/tunnel" "ws://127.0.0.1:4823/vpn/clientless-gateway/tunnel"
+    ProxyPassReverse "/vpn/clientless-gateway/tunnel" "ws://127.0.0.1:4823/vpn/clientless-gateway/tunnel"
 
     ErrorLog ${APACHE_LOG_DIR}/micron_error.log
     CustomLog ${APACHE_LOG_DIR}/micron_access.log combined
@@ -71,8 +83,18 @@ chmod -R 775 /usr/local/micron/writable /run/micron
 if [ -f /usr/local/micron/system/micrond.service ]; then
     install -m 0644 /usr/local/micron/system/micrond.service /etc/systemd/system/micrond.service
 fi
+if [ -f /usr/local/micron/system/micrond/micrond.py ]; then
+    chmod 0755 /usr/local/micron/system/micrond/micrond.py
+    ln -sf /usr/local/micron/system/micrond/micrond.py /usr/local/bin/micrond
+fi
 if [ -f /usr/local/micron/system/micron-network.service ]; then
     install -m 0644 /usr/local/micron/system/micron-network.service /etc/systemd/system/micron-network.service
+fi
+if [ -f /usr/local/micron/system/wireguard.service ]; then
+    install -m 0644 /usr/local/micron/system/wireguard.service /etc/systemd/system/wireguard.service
+fi
+if [ -f /usr/local/micron/system/micron-db-check.service ]; then
+    install -m 0644 /usr/local/micron/system/micron-db-check.service /etc/systemd/system/micron-db-check.service
 fi
 if [ -f /usr/local/micron/system/micron-network ]; then
     install -m 0755 /usr/local/micron/system/micron-network /usr/local/bin/micron-network
@@ -81,20 +103,92 @@ if [ -f /usr/local/micron/system/99-micron-routing.conf ]; then
     install -d /etc/sysctl.d
     install -m 0644 /usr/local/micron/system/99-micron-routing.conf /etc/sysctl.d/99-micron-routing.conf
 fi
+# Kernel, memory, conntrack, and network stack resilience configuration
+if [ -f /usr/local/micron/system/50-micron-resilience.conf ]; then
+    install -d /etc/sysctl.d
+    install -m 0644 /usr/local/micron/system/50-micron-resilience.conf /etc/sysctl.d/50-micron-resilience.conf
+fi
+# Systemd global watchdog & execution timeout bounds
+if [ -f /usr/local/micron/system/50-micron-watchdog.conf ]; then
+    install -d /etc/systemd/system.conf.d
+    install -m 0644 /usr/local/micron/system/50-micron-watchdog.conf /etc/systemd/system.conf.d/50-micron-watchdog.conf
+fi
+
+# Web management & PHP-FPM service resilience drop-ins (OOM killer immunity)
+install -d /etc/systemd/system/apache2.service.d
+cat << 'EOF' > /etc/systemd/system/apache2.service.d/50-micron-resilience.conf
+[Unit]
+StartLimitIntervalSec=60s
+StartLimitBurst=5
+
+[Service]
+Restart=always
+RestartSec=2s
+TimeoutStopSec=10s
+OOMScoreAdjust=-800
+EOF
+
+for php_ver in php8.4-fpm php8.3-fpm php8.2-fpm php-fpm; do
+    install -d "/etc/systemd/system/${php_ver}.service.d"
+    cat << 'EOF' > "/etc/systemd/system/${php_ver}.service.d/50-micron-resilience.conf"
+[Unit]
+StartLimitIntervalSec=60s
+StartLimitBurst=5
+
+[Service]
+Restart=always
+RestartSec=2s
+TimeoutStopSec=10s
+OOMScoreAdjust=-800
+EOF
+done
+
+# IPv6 is off by default on the live image and on installs made from it.
+if [ -f /usr/local/micron/system/60-micron-ipv6.conf ]; then
+    install -d /etc/sysctl.d
+    install -m 0644 /usr/local/micron/system/60-micron-ipv6.conf /etc/sysctl.d/60-micron-ipv6.conf
+fi
+# Browser terminal service + the unprivileged account standard shells run as.
+if [ -f /usr/local/micron/system/micron-terminald.service ]; then
+    install -m 0644 /usr/local/micron/system/micron-terminald.service /etc/systemd/system/micron-terminald.service
+    chmod 0755 /usr/local/micron/system/micron-terminald
+fi
+# WebSocket tunnel between the Clientless Gateway viewer and guacd.
+if [ -f /usr/local/micron/system/micron-guacd-bridge.service ]; then
+    install -m 0644 /usr/local/micron/system/micron-guacd-bridge.service /etc/systemd/system/micron-guacd-bridge.service
+    chmod 0755 /usr/local/micron/system/micron-guacd-bridge
+fi
+if ! getent passwd micron-term >/dev/null 2>&1; then
+    useradd --system --create-home --home-dir /var/lib/micron-term --shell /bin/bash \
+        --comment "Micron OS browser terminal (standard sessions)" micron-term || true
+fi
+install -d -m 0750 /var/log/micron
 if [ -f /usr/local/micron/system/micron-ready-beep.service ]; then
     install -m 0644 /usr/local/micron/system/micron-ready-beep.service /etc/systemd/system/micron-ready-beep.service
 fi
 if [ -f /usr/local/micron/system/micron-ready-beep ]; then
     install -m 0755 /usr/local/micron/system/micron-ready-beep /usr/local/bin/micron-ready-beep
 fi
+# Ensure pcspkr is not blacklisted by Debian default modprobe configs
+for f in /etc/modprobe.d/blacklist.conf \
+          /etc/modprobe.d/blacklist-oss.conf \
+          /etc/modprobe.d/blacklist-framebuffer.conf \
+          /etc/modprobe.d/*.conf; do
+    [ -f "$f" ] && sed -i '/blacklist pcspkr/d' "$f" 2>/dev/null || true
+done
 mkdir -p /etc/modules-load.d
 echo "pcspkr" > /etc/modules-load.d/pcspkr.conf 2>/dev/null || true
+
 systemctl enable php8.4-fpm || systemctl enable php-fpm || true
 systemctl enable apache2
 systemctl enable nftables
 systemctl enable micrond || true
+systemctl enable wireguard.service || true
 systemctl enable ssh || true
 systemctl enable micron-network.service || true
+systemctl enable micron-db-check.service || true
+systemctl enable micron-terminald.service || true
+systemctl enable micron-guacd-bridge.service || true
 systemctl enable micron-ready-beep.service || true
 
 # ---------------------------------------------------------------------------
@@ -131,11 +225,59 @@ EOF
     systemctl disable nginx 2>/dev/null || true
 fi
 
+# Guacamole Proxy Daemon (guacd) baseline configuration for Clientless Gateway
+# guacd is compiled from source by 00-micronos-extra-packages.hook.chroot.
+# Upstream guacd reads /etc/guacamole/guacd.conf; /etc/guacd is kept as an alias.
+install -d /etc/guacamole
+cat << 'EOF' > /etc/guacamole/guacd.conf
+[server]
+bind_host = 127.0.0.1
+bind_port = 4822
+
+[daemon]
+log_level = info
+EOF
+ln -sfn /etc/guacamole /etc/guacd
+systemctl enable guacd 2>/dev/null || true
+
+# netstat (net-tools) is part of the appliance's diagnostics toolset and the
+# installer copies this filesystem as-is, so fail the build if it went missing.
+if ! command -v netstat >/dev/null 2>&1; then
+    echo "ERROR: netstat is missing from the image; check net-tools in the package list" >&2
+    exit 1
+fi
+
+# strongSwan 6 manages tunnels through swanctl, run by strongswan.service
+# (charon-systemd). The legacy ipsec starter (strongswan-starter) runs a second
+# charon on the same UDP 500/4500, so it is masked whenever swanctl's daemon is
+# present: exactly one IKE daemon may own those ports.
+if [ -e /lib/systemd/system/strongswan.service ] || [ -e /usr/lib/systemd/system/strongswan.service ]; then
+    systemctl disable strongswan-starter.service 2>/dev/null || true
+    systemctl mask strongswan-starter.service 2>/dev/null || true
+    systemctl enable strongswan.service 2>/dev/null || true
+else
+    echo "ERROR: strongswan.service (charon-systemd) is missing; swanctl cannot load IPsec tunnels" >&2
+    exit 1
+fi
+
 # Configure systemd hardware watchdog defaults (30s ping, 60s reboot limit)
 if [ -f /etc/systemd/system.conf ]; then
     sed -i 's/^#*RuntimeWatchdogSec=.*/RuntimeWatchdogSec=30s/' /etc/systemd/system.conf || true
     sed -i 's/^#*RebootWatchdogSec=.*/RebootWatchdogSec=60s/' /etc/systemd/system.conf || true
+    sed -i 's/^#*DefaultTimeoutStopSec=.*/DefaultTimeoutStopSec=10s/' /etc/systemd/system.conf || true
 fi
+
+# Prevent networking.service (ifupdown DHCP release) or any hung service from hanging shutdown/reboot for 90s
+mkdir -p /etc/systemd/system/networking.service.d /etc/systemd/system.conf.d
+cat << 'EOF' > /etc/systemd/system/networking.service.d/timeout.conf
+[Service]
+TimeoutStopSec=5s
+EOF
+
+cat << 'EOF' > /etc/systemd/system.conf.d/timeout.conf
+[Manager]
+DefaultTimeoutStopSec=10s
+EOF
 
 # ---------------------------------------------------------------------------
 # A/B boot slot lifecycle assets
@@ -167,6 +309,187 @@ systemctl disable radvd || true
 systemctl disable squid || true
 systemctl disable suricata || true
 systemctl disable watchdog || true
+systemctl disable snmpd || true
+
+# ---------------------------------------------------------------------------
+# Deconflict Port 53: systemd-resolved must never block Unbound
+# ---------------------------------------------------------------------------
+systemctl disable systemd-resolved 2>/dev/null || true
+systemctl mask systemd-resolved 2>/dev/null || true
+if [ -L /etc/resolv.conf ]; then
+    rm -f /etc/resolv.conf
+    cat << 'EOF' > /etc/resolv.conf
+# MicronOS Baseline Resolver
+nameserver 127.0.0.1
+nameserver 1.1.1.1
+nameserver 8.8.8.8
+EOF
+fi
+
+# ---------------------------------------------------------------------------
+# Deconflict mDNS & Net-SNMP daemons
+# ---------------------------------------------------------------------------
+# Debian's mdns-reflector package installs mdns-reflector.service, which starts
+# with no configured interfaces and repeatedly fails on boot. Micron OS uses
+# its own mdns-repeater.service wrapper. Mask mdns-reflector.service.
+systemctl disable mdns-reflector 2>/dev/null || true
+systemctl mask mdns-reflector 2>/dev/null || true
+
+# Net-SNMP daemon: provide a clean IPv4-only baseline configuration so snmpd
+# never attempts to bind [::1] (IPv6 is disabled appliance-wide by 60-micron-ipv6.conf).
+mkdir -p /etc/snmp
+cat << 'SNMPEOF' > /etc/snmp/snmpd.conf
+# Micron OS — Net-SNMP daemon baseline configuration
+# SNMP is disabled by default; configure and enable via Services > SNMP.
+agentaddress udp:127.0.0.1:161
+SNMPEOF
+chmod 0600 /etc/snmp/snmpd.conf 2>/dev/null || true
+
+# ---------------------------------------------------------------------------
+# Unbound DNSSEC Trust Anchor & Baseline Configuration
+# ---------------------------------------------------------------------------
+mkdir -p /var/lib/unbound /etc/unbound/unbound.conf.d
+if command -v unbound-anchor >/dev/null 2>&1; then
+    unbound-anchor -a /var/lib/unbound/root.key 2>/dev/null || true
+elif [ -x /usr/sbin/unbound-anchor ]; then
+    /usr/sbin/unbound-anchor -a /var/lib/unbound/root.key 2>/dev/null || true
+fi
+
+# Fallback: seed root trust anchor if unbound-anchor could not run or lacked network
+if [ ! -s /var/lib/unbound/root.key ]; then
+    if [ -f /usr/share/dns/root.key ]; then
+        cp /usr/share/dns/root.key /var/lib/unbound/root.key
+    else
+        cat << 'EOF' > /var/lib/unbound/root.key
+. IN DS 20326 8 2 E06D44B80B8F1D39A95C0B0D7C65D08458E880409BBC683457104237C7F8EC8D
+EOF
+    fi
+fi
+chmod 0644 /var/lib/unbound/root.key 2>/dev/null || true
+
+# Provide a clean IPv4-only baseline configuration so Unbound never fails on [::1]
+cat << 'UNBOUNDEOF' > /etc/unbound/unbound.conf
+# ----------------------------------------------------------------------
+# Micron Firewall OS (MicronOS) — Baseline Unbound DNS Resolver
+# ----------------------------------------------------------------------
+server:
+    verbosity: 1
+    interface: 0.0.0.0
+    port: 53
+    do-ip4: yes
+    do-ip6: no
+    do-udp: yes
+    do-tcp: yes
+
+    # Access Control
+    access-control: 127.0.0.0/8 allow
+    access-control: 10.0.0.0/8 allow
+    access-control: 172.16.0.0/12 allow
+    access-control: 192.168.0.0/16 allow
+    access-control: 0.0.0.0/0 refuse
+
+    # Security & Hardening
+    hide-identity: yes
+    hide-version: yes
+    harden-glue: yes
+    harden-dnssec-stripped: yes
+    use-caps-for-id: yes
+    auto-trust-anchor-file: "/var/lib/unbound/root.key"
+    tls-cert-bundle: "/etc/ssl/certs/ca-certificates.crt"
+
+    # Performance & Memory
+    num-threads: 2
+    msg-cache-slabs: 4
+    rrset-cache-slabs: 4
+    infra-cache-slabs: 4
+    key-cache-slabs: 4
+    msg-cache-size: 64m
+    rrset-cache-size: 128m
+
+forward-zone:
+    name: "."
+    forward-tls-upstream: yes
+    # Cloudflare & Quad9 DNS over TLS (DoT)
+    forward-addr: 1.1.1.1@853#cloudflare-dns.com
+    forward-addr: 1.0.0.1@853#cloudflare-dns.com
+    forward-addr: 9.9.9.9@853#dns.quad9.net
+UNBOUNDEOF
+
+chown -R unbound:unbound /var/lib/unbound /etc/unbound 2>/dev/null || true
+
+# ---------------------------------------------------------------------------
+# Service Initializers: chrony, c-icap, FRR, Squid
+# ---------------------------------------------------------------------------
+systemctl disable systemd-timesyncd 2>/dev/null || true
+systemctl enable chrony 2>/dev/null || true
+
+if [ -f /etc/default/c-icap ]; then
+    sed -i 's/^START=.*/START=yes/' /etc/default/c-icap || echo "START=yes" >> /etc/default/c-icap
+fi
+
+mkdir -p /etc/frr
+cat << 'FRREOF' > /etc/frr/daemons
+zebra=yes
+bgpd=yes
+ospfd=yes
+ospf6d=yes
+ripd=yes
+ripngd=yes
+isisd=yes
+pimd=yes
+ldpd=no
+nhrpd=no
+eigrpd=no
+babeld=no
+sharpd=no
+pbrd=yes
+bfdd=yes
+fabricd=no
+vrrpd=no
+pathd=no
+
+vtysh_enable=yes
+zebra_options="  -A 127.0.0.1 -s 90000000"
+bgpd_options="   -A 127.0.0.1"
+ospfd_options="  -A 127.0.0.1"
+ospf6d_options=" -A ::1"
+ripd_options="   -A 127.0.0.1"
+ripngd_options=" -A ::1"
+isisd_options="  -A 127.0.0.1"
+pimd_options="   -A 127.0.0.1"
+pbrd_options="   -A 127.0.0.1"
+bfdd_options="   -A 127.0.0.1"
+FRREOF
+touch /etc/frr/frr.conf /etc/frr/vtysh.conf
+chown -R frr:frr /etc/frr 2>/dev/null || true
+chmod 640 /etc/frr/frr.conf /etc/frr/daemons 2>/dev/null || true
+systemctl enable frr 2>/dev/null || true
+
+mkdir -p /var/spool/squid /var/log/squid
+chown -R proxy:proxy /var/spool/squid /var/log/squid 2>/dev/null || true
+if command -v squid >/dev/null 2>&1; then
+    squid -z 2>/dev/null || true
+fi
+
+# ---------------------------------------------------------------------------
+# Custom Appliance Units: gateway-monitor & mdns-repeater
+# ---------------------------------------------------------------------------
+if [ -f /usr/local/micron/system/micron-sdwan-probe ]; then
+    install -m 0755 /usr/local/micron/system/micron-sdwan-probe /usr/local/bin/micron-sdwan-probe
+fi
+if [ -f /usr/local/micron/system/micron-sdwan-probe.service ]; then
+    install -m 0644 /usr/local/micron/system/micron-sdwan-probe.service /etc/systemd/system/micron-sdwan-probe.service
+    ln -sf micron-sdwan-probe.service /etc/systemd/system/gateway-monitor.service
+    systemctl enable gateway-monitor.service 2>/dev/null || true
+fi
+
+if [ -f /usr/local/micron/system/micron-mdns-repeater ]; then
+    install -m 0755 /usr/local/micron/system/micron-mdns-repeater /usr/local/bin/micron-mdns-repeater
+fi
+if [ -f /usr/local/micron/system/mdns-repeater.service ]; then
+    install -m 0644 /usr/local/micron/system/mdns-repeater.service /etc/systemd/system/mdns-repeater.service
+    systemctl enable mdns-repeater.service 2>/dev/null || true
+fi
 
 if [ -f /usr/local/micron/installer/micron-healthcheck.service ]; then
     install -m 0644 /usr/local/micron/installer/micron-healthcheck.service \
@@ -209,8 +532,12 @@ fi
 # ---------------------------------------------------------------------------
 echo "===> [MicronOS Hook] Creating ministrator user and configuring sudoers..."
 
-# Set root password to M1Cr0N (identical to Web GUI default)
-echo "root:M1Cr0N" | chpasswd
+# The live image has no usable OS password: root and ministrator are locked,
+# so nobody can sign in over SSH with a published password while the ISO is
+# booted. The console autologin below is the only way in. install.sh sets the
+# administrator's own password, sudo with password, a console login prompt and
+# no root SSH password login on the installed slots.
+passwd -l root
 
 # Configure live-config to adopt ministrator as default live user
 mkdir -p /etc/live/config.conf.d
@@ -224,9 +551,10 @@ EOF
 if ! id "ministrator" >/dev/null 2>&1; then
     useradd -m -s /bin/bash -G sudo,adm,systemd-journal ministrator
 fi
-echo "ministrator:M1Cr0N" | chpasswd
+passwd -l ministrator
 
-# Configure sudoers for ministrator (full sudo privilege)
+# Live session only: the locked account needs passwordless sudo to run the
+# installer. install.sh replaces this file on the installed system.
 mkdir -p /etc/sudoers.d
 cat << 'EOF' > /etc/sudoers.d/99-ministrator
 ministrator ALL=(ALL:ALL) NOPASSWD:ALL
@@ -237,12 +565,13 @@ chmod 0440 /etc/sudoers.d/99-ministrator
 mkdir -p /etc/ssh/sshd_config.d
 cat << 'EOF' > /etc/ssh/sshd_config.d/99-micronos.conf
 PasswordAuthentication yes
-PermitRootLogin yes
+PermitRootLogin prohibit-password
 Banner /etc/issue.net
 PrintMotd yes
 EOF
 
-# Configure systemd tty1 autologin for ministrator
+# Configure systemd tty1 autologin for ministrator (live session; install.sh
+# removes it so an installed appliance asks for a console login)
 mkdir -p /etc/systemd/system/getty@tty1.service.d
 cat << 'EOF' > /etc/systemd/system/getty@tty1.service.d/autologin.conf
 [Service]
@@ -259,7 +588,7 @@ EOF
 # disagree: 0.1.23 here, 0.1.31 in VERSION).
 echo "===> [Micron OS Hook] Branding operating system as Micron OS..."
 MICRON_VERSION="$(head -n1 /usr/local/micron/VERSION 2>/dev/null | tr -d '[:space:]')"
-[ -n "$MICRON_VERSION" ] || MICRON_VERSION="0.1.31"
+[ -n "$MICRON_VERSION" ] || MICRON_VERSION="0.1.44"
 MICRON_BUILD_ID="$(date -u +%Y%m%d)"
 cat << EOF > /etc/os-release
 PRETTY_NAME="Micron OS ${MICRON_VERSION} (amd64)"
@@ -350,6 +679,8 @@ chmod 0755 /etc/initramfs-tools/scripts/init-top/numlock
 if [ -d /usr/local/micron ] && command -v php >/dev/null 2>&1; then
     echo "===> [Micron OS Hook] Migrating and seeding SQLite database..."
     cd /usr/local/micron
+    # An appliance database: no development sample data (migration 119).
+    export MICRON_APPLIANCE=1
     php spark migrate --all || true
     php spark db:seed InitialApplianceSeeder || true
     php spark db:seed RolesPermissionsSeeder || true

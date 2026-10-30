@@ -1,0 +1,30 @@
+[Unit]
+Description=Micron OS browser terminal service (micron-terminald)
+After=network.target local-fs.target
+StartLimitIntervalSec=60s
+StartLimitBurst=5
+# Independent of the Web UI and of micrond: if it fails, only the Terminal
+# page is affected.
+
+[Service]
+Type=simple
+User=root
+Group=root
+ExecStart=/usr/bin/python3 /usr/local/micron/system/micron-terminald
+Restart=always
+RestartSec=2s
+OOMScoreAdjust=-200
+# Every shell is a child in this unit's cgroup: stopping or restarting the
+# service ends them all, and the caps below bound all sessions together.
+KillMode=control-group
+TimeoutStopSec=15s
+TasksMax=1024
+MemoryMax=1536M
+CPUWeight=50
+StandardOutput=journal
+StandardError=journal
+LogsDirectory=micron
+LogsDirectoryMode=0750
+
+[Install]
+WantedBy=multi-user.target

@@ -47,8 +47,11 @@ SLOT_SIZE="10G"
 # ------------------------------------------------------------------------------
 # 5. Administrative Credentials
 # ------------------------------------------------------------------------------
-# Unified password for Web GUI ('Ministrator') and OS ('root', 'ministrator')
-ADMIN_PW="M1Cr0N"
+# Unified password for Web GUI ('Ministrator') and OS ('root', 'ministrator').
+# There is no default. At least 8 characters; the published factory password
+# (M1Cr0N) is refused. Leave empty to generate a random password, which is
+# shown at the end of the install and saved to /etc/micron/initial-admin-password.
+ADMIN_PW=""
 
 # ------------------------------------------------------------------------------
 # 6. Automatic Reboot Behavior
@@ -60,7 +63,8 @@ REBOOT="yes"
 # ------------------------------------------------------------------------------
 # 7. Optional Initial Network Configuration
 # ------------------------------------------------------------------------------
-# Leave empty to keep interfaces unconfigured until interactive CLI Option 1 assignment.
+# Leave empty to auto-assign physical NIC 1 as WAN and NIC 2 as LAN at boot.
+# Additional physical ports remain independent and can be assigned as OPT interfaces.
 # Or pre-assign interfaces for instant headless web management access:
 #
 # --- Simple (single physical LAN port) ---
@@ -74,25 +78,3 @@ LAN_IF=""
 LAN_IP="10.10.10.10"
 LAN_NETMASK="255.255.255.0"
 
-# ------------------------------------------------------------------------------
-# 8. Layer 2 Switch Bridge (LAN Bridge) — Multi-Port Router / Appliance Mode
-# ------------------------------------------------------------------------------
-# Set LAN_IS_BRIDGE="yes" to create a Linux bridge (br0) and bundle all slave
-# physical interfaces into a single Layer 2 switch domain for the LAN.
-#
-# LAN_IF is ignored when LAN_IS_BRIDGE=yes — the bridge name "br0" is used.
-# LAN_IP still sets the management address on the bridge interface.
-#
-# BRIDGE_SLAVES is a space-separated list of physical ports to enslave.
-# STP (IEEE 802.1D spanning tree) is automatically enabled with a 2-second
-# forwarding delay.
-#
-# Example — 4-port appliance: eth0=WAN, eth1+eth2+eth3 bundled into br0 LAN:
-#   WAN_IF="eth0"
-#   LAN_IS_BRIDGE="yes"
-#   BRIDGE_SLAVES="eth1 eth2 eth3"
-#   LAN_IP="10.10.10.10"
-#
-# Leave LAN_IS_BRIDGE empty or "no" to use a single physical LAN port.
-LAN_IS_BRIDGE=""
-BRIDGE_SLAVES=""

@@ -15,7 +15,7 @@ use CodeIgniter\Database\Migration;
  *
  * Also extends frr_ospf_settings with per-source route-map columns so a
  * redistribution source (connected/static/bgp/rip) can be filtered through a
- * route-map, e.g. `redistribute static route-map Banking_Applications`.
+ * route-map, e.g. `redistribute static route-map RM_INTERNAL_STATIC`.
  */
 class CreateFrrPolicyTables extends Migration
 {

@@ -84,7 +84,7 @@ final class TerminalCliNamingTest extends CIUnitTestCase
      *
      * @var list<string>
      */
-    private const FOREIGN_CTL_TOOLS = ['systemctl', 'journalctl', 'networkctl', 'resolvectl', 'sysctl', 'swanctl', 'timedatectl', 'ioctl'];
+    private const FOREIGN_CTL_TOOLS = ['systemctl', 'journalctl', 'networkctl', 'resolvectl', 'sysctl', 'swanctl', 'timedatectl', 'ioctl', 'fcntl', 'smartctl'];
 
     /** §19.1 lists the console commands; a shrunken section must not pass vacuously. */
     private const MIN_DOCUMENTED_COMMANDS = 7;
@@ -164,6 +164,12 @@ final class TerminalCliNamingTest extends CIUnitTestCase
         $offenders = [];
 
         foreach ($this->shippedFiles() as $file) {
+            // A systemd enablement link points at its target's path on the
+            // appliance (/etc/systemd/...), which does not exist on a build host.
+            if (is_link($file)) {
+                continue;
+            }
+
             foreach ($this->foreignCtlNamesIn((string) file_get_contents($file)) as $name) {
                 $offenders[$name][] = $this->relativePath($file);
             }

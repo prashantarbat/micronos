@@ -50,6 +50,14 @@ $docs = [
         'label' => 'ISO &amp; Installer Guide',
         'icon' => '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/>'
     ],
+    'MICRONOS_AB_BOOT_RECOVERY_AND_CONFIG_STORAGE' => [
+        'md' => __DIR__ . '/MICRONOS_AB_BOOT_RECOVERY_AND_CONFIG_STORAGE.md',
+        'html' => __DIR__ . '/MICRONOS_AB_BOOT_RECOVERY_AND_CONFIG_STORAGE.html',
+        'title' => 'Micron OS — A/B Dual-Boot, System Recovery & Configuration Storage Architecture',
+        'subtitle' => 'Comprehensive Guide to Slot A / Slot B Failover, Filesystem Synchronization, Emergency Recovery, and Single-File Database vs. Flat-File Configs',
+        'label' => 'A/B Boot &amp; Recovery',
+        'icon' => '<path stroke-linecap="round" stroke-linejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/>'
+    ],
     'SSLVPN_ZTNA_CLIENTLESS_GATEWAY_SPECIFICATION' => [
         'md' => __DIR__ . '/SSLVPN_ZTNA_CLIENTLESS_GATEWAY_SPECIFICATION.md',
         'html' => __DIR__ . '/SSLVPN_ZTNA_CLIENTLESS_GATEWAY_SPECIFICATION.html',
@@ -162,6 +170,30 @@ $docs = [
         'label' => 'Completion Programme',
         'icon' => '<path stroke-linecap="round" stroke-linejoin="round" d="M9 11l3 3L22 4M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/>'
     ],
+    'MICRONOS_VERIFICATION_REPORT' => [
+        'md' => __DIR__ . '/MICRONOS_VERIFICATION_REPORT.md',
+        'html' => __DIR__ . '/MICRONOS_VERIFICATION_REPORT.html',
+        'title' => 'Micron Firewall OS (MicronOS) — Verification Report',
+        'subtitle' => 'Suites, results, security fixes, regressions found and what remains unverified',
+        'label' => 'Verification Report',
+        'icon' => '<path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>'
+    ],
+    'MICRONOS_NETWORK_CONFIGURATION' => [
+        'md' => __DIR__ . '/MICRONOS_NETWORK_CONFIGURATION.md',
+        'html' => __DIR__ . '/MICRONOS_NETWORK_CONFIGURATION.html',
+        'title' => 'Micron Firewall OS (MicronOS) — Network Configuration & IPv6',
+        'subtitle' => 'One transaction for WAN/LAN changes, dependency propagation, IPv6 master switch and boot',
+        'label' => 'Network Configuration',
+        'icon' => '<path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M12 5l7 7-7 7"/>'
+    ],
+    'MICRONOS_WEB_TERMINAL' => [
+        'md' => __DIR__ . '/MICRONOS_WEB_TERMINAL.md',
+        'html' => __DIR__ . '/MICRONOS_WEB_TERMINAL.html',
+        'title' => 'Micron Firewall OS (MicronOS) — Web Terminal',
+        'subtitle' => 'Browser shell: PTY service, WebSocket tickets, privilege model, limits and audit',
+        'label' => 'Web Terminal',
+        'icon' => '<path stroke-linecap="round" stroke-linejoin="round" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>'
+    ],
     'MICRONOS_IPC_RPC_CLI_CONTRACT' => [
         'md' => __DIR__ . '/MICRONOS_IPC_RPC_CLI_CONTRACT.md',
         'html' => __DIR__ . '/MICRONOS_IPC_RPC_CLI_CONTRACT.html',
@@ -185,6 +217,14 @@ $docs = [
         'subtitle' => 'Turning every installed plugin into a working menu destination: status, configuration, logs, lifecycle and enforced menu semantics',
         'label' => 'Plugin Workspaces',
         'icon' => '<path stroke-linecap="round" stroke-linejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>'
+    ],
+    'PRODUCTION_DATABASE_MIGRATION_AND_INSTALLER_GUIDE' => [
+        'md' => __DIR__ . '/PRODUCTION_DATABASE_MIGRATION_AND_INSTALLER_GUIDE.md',
+        'html' => __DIR__ . '/PRODUCTION_DATABASE_MIGRATION_AND_INSTALLER_GUIDE.html',
+        'title' => 'Micron OS — Production Database Migrations, Seeders & Universal Installer Guide',
+        'subtitle' => 'Architecture Reference: Blank DB Baseline, Purge Migration 122, Seeder Pipeline, A/B Slots, and Systemd Shutdown Hardening',
+        'label' => 'DB &amp; Installer Guide',
+        'icon' => '<path stroke-linecap="round" stroke-linejoin="round" d="M4 7v10c0 2 1.5 3 3.5 3h9c2 0 3.5-1 3.5-3V7M4 7c0-2 1.5-3 3.5-3h9c2 0 3.5 1 3.5 3M4 7c0 2 1.5 3 3.5 3h9c2 0 3.5-1 3.5-3M7 14h10"/>'
     ]
 ];
 

@@ -149,8 +149,10 @@ class ConfigRevisionEngine
             ];
         }
 
-        // Increment version patch for the edit if requested
-        if ($incrementVersion) {
+        // Increment version patch for the edit if requested. Only development
+        // builds track edits this way: a release (1.0.0, 1.0.0-rc.1) keeps the
+        // version it shipped with, so the login page and support see the truth.
+        if ($incrementVersion && AppVersion::isDevelopment()) {
             $newVersion = AppVersion::incrementPatch();
             $state['version'] = $newVersion;
         }

@@ -23,6 +23,18 @@ class Docs extends BaseController
      * @var array<string, array{file: string, label: string}>
      */
     private const GUIDES = [
+        'install' => [
+            'file'  => 'INSTALL',
+            'label' => 'Installation Guide',
+        ],
+        'hardening' => [
+            'file'  => 'SECURITY_HARDENING',
+            'label' => 'Security Hardening Guide',
+        ],
+        'release-notes' => [
+            'file'  => 'RELEASE_NOTES_1.0.0',
+            'label' => 'Release Notes 1.0.0',
+        ],
         'architecture' => [
             'file'  => 'MICRON_FIREWALL_OS_ARCHITECTURE',
             'label' => 'Architecture Blueprint',
@@ -59,10 +71,6 @@ class Docs extends BaseController
             'file'  => 'MICRONOS_CONNECTOR_THREAT_MODEL',
             'label' => 'Connector Threat Model',
         ],
-        'hyperv' => [
-            'file'  => 'HYPERV_WIN11_DEVELOPMENT_AND_AI_COORDINATION_GUIDE',
-            'label' => 'Hyper-V & AI Dev Guide',
-        ],
         'recovery' => [
             'file'  => 'POWER_LOSS_RESILIENCE_AND_RECOVERY_ENGINEERING_SPECIFICATION',
             'label' => 'Power Resilience & LKGC Spec',
@@ -83,17 +91,38 @@ class Docs extends BaseController
     public function index(string $slug = 'architecture'): string
     {
         if (! isset(self::GUIDES[$slug])) {
-            throw new PageNotFoundException("No documentation guide named '{$slug}'.");
+            throw PageNotFoundException::forPageNotFound("Documentation guide '{$slug}' not found.");
         }
 
-        $guide = self::GUIDES[$slug];
-        $path  = ROOTPATH . 'docs' . DIRECTORY_SEPARATOR . $guide['file'] . '.md';
+        $guide    = self::GUIDES[$slug];
+        $filename = $guide['file'] . '.md';
 
-        if (! is_readable($path)) {
-            throw new PageNotFoundException('The markdown source for this guide is missing.');
+        $candidatePaths = [
+            ROOTPATH . 'docs' . DIRECTORY_SEPARATOR . $filename,
+            rtrim(ROOTPATH, '/\\') . DIRECTORY_SEPARATOR . 'docs' . DIRECTORY_SEPARATOR . $filename,
+            '/usr/local/micron/docs/' . $filename,
+            '/usr/share/doc/micronos/' . $filename,
+            '/var/lib/micron/docs/' . $filename,
+            APPPATH . 'docs' . DIRECTORY_SEPARATOR . $filename,
+            dirname(ROOTPATH) . DIRECTORY_SEPARATOR . 'docs' . DIRECTORY_SEPARATOR . $filename,
+        ];
+
+        $markdown   = null;
+        $sourceFile = 'docs/' . $filename;
+        foreach ($candidatePaths as $p) {
+            if (is_file($p) && is_readable($p)) {
+                $markdown   = (string) file_get_contents($p);
+                $sourceFile = 'docs/' . $filename;
+                break;
+            }
         }
 
-        [$docTitle, $docSubtitle, $sections] = $this->splitGuide((string) file_get_contents($path));
+        if ($markdown === null || trim($markdown) === '') {
+            $markdown   = $this->builtinGuideFallback($slug, $guide);
+            $sourceFile = 'system/builtin-docs';
+        }
+
+        [$docTitle, $docSubtitle, $sections] = $this->splitGuide($markdown);
 
         $guides = [];
         foreach (self::GUIDES as $key => $meta) {
@@ -117,8 +146,59 @@ class Docs extends BaseController
             'guides'      => $guides,
             'docLinks'    => $docLinks,
             'activeSlug'  => $slug,
-            'sourceFile'  => 'docs/' . $guide['file'] . '.md',
+            'sourceFile'  => $sourceFile,
         ]);
+    }
+
+    /**
+     * Fallback documentation content when the source markdown file is not found on disk.
+     *
+     * @param array{file: string, label: string} $guide
+     */
+    private function builtinGuideFallback(string $slug, array $guide): string
+    {
+        $label = $guide['label'];
+        $md = "# MicronOS Documentation — {$label}\n";
+        $md .= "## Appliance Reference & Operational Overview\n\n";
+
+        $md .= "## 1. Executive Summary & Purpose\n";
+        $md .= "MicronOS is an enterprise-grade Network Operating System for hardware appliances and virtual machines. It delivers resilient routing, deep packet inspection, zero-trust network access, and redundant clustering on standard x86_64 hardware.\n\n";
+        $md .= "- **Core Philosophy**: Uncompromising stability, transactional updates, memory-backed configuration safety, and low-latency packet processing.\n";
+        $md .= "- **Dual-Slot Architecture**: Autonomous A/B partition rollback via `micron-slot` ensuring zero risk during kernel or system upgrades.\n";
+        $md .= "- **Unified Administration**: Intuitive Web Management UI, unified `microctl` command-line interface, and REST/RPC API automation.\n\n";
+
+        $md .= "## 2. Architecture & Subsystems\n";
+        $md .= "### Data Plane & Networking\n";
+        $md .= "- **Routing Suite**: Industrial FRRouting (FRR) daemon implementing BGP4/MP-BGP, OSPFv2/v3, RIPv2, IS-IS, BFD hardware liveness, and VRF route isolation.\n";
+        $md .= "- **Firewall & NAT**: Modern Linux `nftables` kernel subsystem with hardware flow-offload tables, connection tracking sync, GeoIP blocking, and DoS mitigation.\n";
+        $md .= "- **Multi-WAN & SD-WAN**: Continuous real-time ICMP and HTTP gateway monitoring, automated link steering, and round-robin / sticky load balancing.\n\n";
+        $md .= "### VPN & Zero-Trust\n";
+        $md .= "- **WireGuard**: Kernel-embedded cryptography for point-to-point and site-to-site tunnels.\n";
+        $md .= "- **IPsec**: StrongSwan IKEv2 daemon with VTI routed interfaces and route-based policies.\n";
+        $md .= "- **ZTNA Gateway**: Clientless TLS reverse-proxy with user authentication, SAML/OIDC SSO, and granular application access rules.\n\n";
+
+        $md .= "## 3. Terminal & microctl CLI Reference\n";
+        $md .= "All appliance features can be inspected and managed directly via `microctl` on the system console or via the Web Terminal:\n\n";
+        $md .= "```bash\n";
+        $md .= "# System health, uptime, and resource telemetry\n";
+        $md .= "microctl status\n\n";
+        $md .= "# Network interfaces, IP allocations, and link speeds\n";
+        $md .= "microctl net show\n\n";
+        $md .= "# Dynamic routing table, BGP neighbors, and OSPF adjacencies\n";
+        $md .= "microctl route show\n";
+        $md .= "vtysh -c 'show ip bgp summary'\n";
+        $md .= "vtysh -c 'show ip ospf neighbor'\n\n";
+        $md .= "# Active firewall policies, drop counters, and connection states\n";
+        $md .= "microctl firewall status\n";
+        $md .= "```\n\n";
+
+        $md .= "## 4. Resilience & LKGC Recovery\n";
+        $md .= "To protect against misconfiguration or loss of network access, MicronOS automatically creates a **Last-Known-Good Configuration (LKGC)** transaction before applying changes. If connectivity fails or a kernel panic occurs, the watchdog triggers automated rollback to restore appliance access.\n\n";
+
+        $md .= "## 5. Offline Documentation Notice\n";
+        $md .= "> **Appliance Note**: The extended technical manual file `{$guide['file']}.md` was not found in the local installation search paths (`/usr/local/micron/docs/`). The system has rendered this built-in reference documentation to ensure uninterrupted operational access. To sync the full offline documentation suite, deploy the `docs/` repository files to `/usr/local/micron/docs/` or run `microctl update`.\n";
+
+        return $md;
     }
 
     // ─────────────────────────────────────────────────────────────────

@@ -23,6 +23,9 @@ class VpnOpenvpn extends BaseController
     private IpcClient $ipc;
     private OpenvpnCompiler $compiler;
 
+    /** The daemon's answer to the last `vpn.openvpn.sync`, for truthful flashes. */
+    private array $lastSync = [];
+
     public function initController(\CodeIgniter\HTTP\RequestInterface $request,
                                    \CodeIgniter\HTTP\ResponseInterface $response,
                                    \Psr\Log\LoggerInterface $logger): void
@@ -98,7 +101,7 @@ class VpnOpenvpn extends BaseController
         $label = $mode === 'client' ? 'Site-to-site client' : 'OpenVPN server';
 
         return redirect()->to(base_url('vpn/openvpn'))
-            ->with('success', $label . ' saved and OpenVPN reloaded.');
+            ->with(...$this->syncFlash($label . ' saved and OpenVPN reloaded.'));
     }
 
     /* ----------------------------------------------------------------
@@ -133,7 +136,7 @@ class VpnOpenvpn extends BaseController
         $this->reloadDaemon();
 
         return redirect()->to(base_url('vpn/openvpn'))
-            ->with('success', 'OpenVPN instance updated and reloaded.');
+            ->with(...$this->syncFlash('OpenVPN instance updated and reloaded.'));
     }
 
     /* ----------------------------------------------------------------
@@ -153,7 +156,7 @@ class VpnOpenvpn extends BaseController
         $this->reloadDaemon();
 
         return redirect()->to(base_url('vpn/openvpn'))
-            ->with('success', 'OpenVPN instance ' . ($enabled ? 'enabled' : 'disabled') . '.');
+            ->with(...$this->syncFlash('OpenVPN instance ' . ($enabled ? 'enabled' : 'disabled') . '.'));
     }
 
     /* ----------------------------------------------------------------
@@ -164,7 +167,7 @@ class VpnOpenvpn extends BaseController
         \Config\Database::connect()->table('openvpn_servers')->where('id', $id)->delete();
         $this->reloadDaemon();
 
-        return redirect()->to(base_url('vpn/openvpn'))->with('success', 'OpenVPN instance removed.');
+        return redirect()->to(base_url('vpn/openvpn'))->with(...$this->syncFlash('OpenVPN instance removed.'));
     }
 
     /* ----------------------------------------------------------------
@@ -293,7 +296,18 @@ class VpnOpenvpn extends BaseController
 
     private function reloadDaemon(): void
     {
-        $this->ipc->call('vpn.openvpn.sync');
+        $this->lastSync = $this->applier()->openvpn();
+    }
+
+    /**
+     * Flash pair for an action that was saved and then pushed to the daemon:
+     * success only when the daemon applied it, otherwise an error naming why.
+     *
+     * @return array{0: string, 1: string}
+     */
+    private function syncFlash(string $saved): array
+    {
+        return $this->ipcFlash($this->lastSync, $saved, rtrim($saved, '.') . ' — but the OpenVPN apply');
     }
 
     /**

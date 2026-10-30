@@ -40,6 +40,19 @@ class Services extends BaseService
     }
 
     /**
+     * Control-socket client of the browser terminal service (micron-terminald).
+     * A service so tests can substitute it.
+     */
+    public static function terminalClient($getShared = true): \App\Libraries\TerminalClient
+    {
+        if ($getShared) {
+            return static::getSharedInstance('terminalClient');
+        }
+
+        return new \App\Libraries\TerminalClient();
+    }
+
+    /**
      * ACME / Let's Encrypt issuance and renewal (PKI module).
      *
      * Resolved from the container so the page, the public HTTP-01 endpoint and

@@ -3,6 +3,8 @@ Description=MicronOS System IPC Daemon (micrond)
 Documentation=https://github.com/micronos/micronos
 After=network.target local-fs.target
 Before=php8.4-fpm.service php-fpm.service php8.3-fpm.service apache2.service
+StartLimitIntervalSec=60s
+StartLimitBurst=5
 
 [Service]
 Type=notify
@@ -11,8 +13,11 @@ Group=root
 WorkingDirectory=/usr/local/micron/system/micrond
 ExecStart=/usr/bin/python3 /usr/local/micron/system/micrond/micrond.py
 Restart=always
-RestartSec=3s
+RestartSec=2s
 WatchdogSec=30s
+TimeoutStopSec=10s
+OOMScoreAdjust=-900
+LimitNOFILE=65536
 KillMode=process
 StandardOutput=journal
 StandardError=journal

@@ -9,3 +9,11 @@ else
     PS1='[MicronOS] \w # '
 fi
 export PS1
+
+# Ensure /sbin and /usr/sbin are in PATH for operator CLI tools (reboot, halt, ip, netstat, etc.)
+case ":$PATH:" in
+    *:/sbin:*) ;;
+    *) PATH="$PATH:/usr/local/sbin:/usr/sbin:/sbin" ;;
+esac
+export PATH
+

@@ -106,6 +106,13 @@ final class NavGroups
     /** Whether the parent named by $key owns the page at $path. */
     public static function owns(string $path, string $key): bool
     {
+        // An installed plugin's page is owned by the functional section it is
+        // integrated into (e.g. /plugins/lldpd → Network), not by Plugins.
+        $section = PluginNav::sectionForPath($path);
+        if ($section !== null) {
+            return $section === $key;
+        }
+
         foreach (self::all()[$key]['routes'] ?? [] as $prefix) {
             if (str_starts_with($path, $prefix)) {
                 return true;

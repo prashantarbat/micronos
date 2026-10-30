@@ -414,13 +414,6 @@ function closeModal()       { document.getElementById('svcModal').classList.remo
 function openImportModal()  { document.getElementById('csvImportModal').classList.add('active'); }
 function closeImportModal() { document.getElementById('csvImportModal').classList.remove('active'); }
 
-// Close on backdrop click
-document.getElementById('svcModal').addEventListener('click', function(e) {
-  if (e.target === this) closeModal();
-});
-document.getElementById('csvImportModal').addEventListener('click', function(e) {
-  if (e.target === this) closeImportModal();
-});
 </script>
 
 <?= $this->endSection() ?>

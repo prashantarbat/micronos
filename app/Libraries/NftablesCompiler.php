@@ -27,6 +27,14 @@ class NftablesCompiler
 
     protected ?BaseConnection $db;
 
+    /**
+     * Interface addressing for dynamic tokens ({lan:network}, {wan:address}),
+     * keyed by lower-case interface id and name.
+     *
+     * @var array<string, array{network: ?string, address: ?string}>
+     */
+    protected array $ifaceAddr = [];
+
     public function __construct(?BaseConnection $db = null)
     {
         $this->db = $db ?? \Config\Database::connect();
@@ -70,6 +78,7 @@ class NftablesCompiler
         // filter, DNAT and SNAT rules reference eth0 rather than the friendly
         // name "WAN" (which nftables would happily compile but never match).
         $deviceMap = $this->deviceMap($interfaces);
+        $this->ifaceAddr = $this->interfaceAddresses($interfaces);
 
         // Layer 4 DoS / DDoS attack mitigation policies (paused when their
         // schedule is disabled, time-restricted via meta day/hour otherwise)
@@ -103,16 +112,34 @@ class NftablesCompiler
                 $lanDevices[] = $dev;
             }
         }
-        // Fallback: any non-WAN interface is considered LAN
+        // Fallback: any non-WAN physical interface is considered LAN
         if (empty($lanDevices)) {
             foreach ($interfaces as $iface) {
                 $dev = $iface['physical_device'] ?? '';
-                if ($dev !== '' && !in_array($dev, $wanDevices, true)) {
+                if ($dev !== '' && empty($iface['is_vpn']) && !in_array($dev, $wanDevices, true)) {
                     $lanDevices[] = $dev;
                 }
             }
         }
         $lanDevices = array_values(array_unique(array_filter($lanDevices)));
+
+        $adminAccessByDevice = [];
+        foreach ($interfaces as $iface) {
+            if ((int) ($iface['enabled'] ?? 1) !== 1) {
+                continue;
+            }
+            $device = trim((string) ($iface['physical_device'] ?? ''));
+            if ($device === '') {
+                continue;
+            }
+            $access = $this->interfaceAdminAccess($iface);
+            if ($access !== []) {
+                $adminAccessByDevice[$device] = array_values(array_unique(array_merge(
+                    $adminAccessByDevice[$device] ?? [],
+                    $access
+                )));
+            }
+        }
 
         // Master IPv6 switch (System > Networking). When off, no IPv6 packet is
         // ever accepted — the stack is considered completely disabled.
@@ -193,13 +220,93 @@ class NftablesCompiler
         $lines[] = '        iifname "lo" accept';
         $lines[] = '';
         $lines[] = '        # ICMP Rate Limiting';
-        $lines[] = '        ip protocol icmp icmp type { echo-request, destination-unreachable, time-exceeded } limit rate 50/second accept';
+        $lines[] = '        ip protocol icmp icmp type { destination-unreachable, time-exceeded } limit rate 50/second accept';
         if ($ipv6) {
-            $lines[] = '        ip6 nexthdr icmpv6 accept';
+            $lines[] = '        ip6 nexthdr icmpv6 icmpv6 type != echo-request accept';
         } else {
             $lines[] = '        meta nfproto ipv6 drop comment "IPv6 disabled system-wide"';
         }
         $lines[] = '';
+
+        $sysSettings  = $this->fetchSystemSettings();
+        $sshPort      = (int) ($sysSettings['ssh_port'] ?? 22);
+        if ($sshPort <= 0 || $sshPort > 65535) {
+            $sshPort = 22;
+        }
+        $webguiPort   = (int) ($sysSettings['webgui_port'] ?? 443);
+        if ($webguiPort <= 0 || $webguiPort > 65535) {
+            $webguiPort = 443;
+        }
+        $webguiProto  = strtolower((string) ($sysSettings['webgui_protocol'] ?? 'https'));
+        $redirectHttp = (int) ($sysSettings['webgui_redirect_http'] ?? 1);
+
+        // Per-interface administrative access. These explicit accepts precede
+        // the WAN drop below, so a selected WAN service is opt-in, not exposed
+        // by the default policy.
+        foreach ($adminAccessByDevice as $device => $access) {
+            $tcpPorts = [];
+            if (in_array('http', $access, true)) {
+                $tcpPorts[] = 80;
+                if ($webguiProto === 'http') {
+                    $tcpPorts[] = $webguiPort;
+                }
+            }
+            if (in_array('https', $access, true)) {
+                $tcpPorts[] = 443;
+                $tcpPorts[] = 8443;
+                if ($webguiProto === 'https') {
+                    $tcpPorts[] = $webguiPort;
+                }
+            }
+            if (in_array('ssh', $access, true)) {
+                $tcpPorts[] = $sshPort;
+            }
+            $tcpPorts = array_values(array_unique($tcpPorts));
+            sort($tcpPorts);
+            if ($tcpPorts !== []) {
+                $ports = count($tcpPorts) === 1 ? (string) $tcpPorts[0] : '{ ' . implode(', ', $tcpPorts) . ' }';
+                $lines[] = '        iifname "' . $device . '" tcp dport ' . $ports . ' accept comment "Administrative access: ' . implode(',', $access) . '"';
+            }
+            if (in_array('snmp', $access, true)) {
+                $lines[] = '        iifname "' . $device . '" udp dport 161 accept comment "Administrative access: SNMP"';
+            }
+            if (in_array('ping', $access, true)) {
+                $lines[] = '        iifname "' . $device . '" ip protocol icmp icmp type echo-request limit rate 50/second accept comment "Administrative access: PING"';
+                if ($ipv6) {
+                    $lines[] = '        iifname "' . $device . '" ip6 nexthdr icmpv6 icmpv6 type echo-request accept comment "Administrative access: IPv6 PING"';
+                }
+            }
+        }
+        if ($adminAccessByDevice !== []) {
+            $lines[] = '';
+        }
+
+        // In-Browser Clientless Gateway (ZTNA) Settings
+        $ztnaSettings = $this->fetchZtnaSettings();
+        $ztnaEnabled  = (bool) ((int) ($ztnaSettings['enabled'] ?? 0) === 1);
+        $ztnaPort     = (int) ($ztnaSettings['external_port'] ?? 443);
+        if ($ztnaPort <= 0 || $ztnaPort > 65535) {
+            $ztnaPort = 443;
+        }
+        // Let's Encrypt validates the gateway hostname over plain HTTP on port 80.
+        // WAN tcp/80 is redirected to the gateway's own ACME listener (see the
+        // nat prerouting chain), never to the management UI on :80.
+        $ztnaAcme = $ztnaEnabled && (int) ($ztnaSettings['acme_enabled'] ?? 0) === 1;
+
+        // Gateway access "controlled by firewall rules": instead of a blanket
+        // accept, every interface's traffic to the gateway port is checked
+        // against the operator's This-Firewall policies in the ztna_gateway
+        // chain, which ends in a logged default deny. The jump sits before the
+        // WAN catch-all drop, so WAN sources can be allowed by policy.
+        $ztnaControlled = $ztnaEnabled && ($ztnaSettings['access_mode'] ?? 'open') === 'firewall';
+        $ztnaChain = $ztnaControlled
+            ? $this->compileZtnaGatewayChain($fwRules, $ztnaPort, $addresses, $addrGroups, $services, $serviceGroups, $deviceMap, $schedules)
+            : [];
+        if ($ztnaControlled) {
+            $lines[] = '        # Clientless Gateway (ZTNA): access decided by firewall policies (chain ztna_gateway)';
+            $lines[] = '        tcp dport ' . $ztnaPort . ' jump ztna_gateway comment "ZTNA Clientless Gateway access policy"';
+            $lines[] = '';
+        }
 
         // WAN Security & Services
         if (!empty($wanDevices)) {
@@ -207,38 +314,129 @@ class NftablesCompiler
             $lines[] = '        # Allow DHCP client on WAN (incoming offer/ack from upstream modem/ISP)';
             $lines[] = '        iifname ' . $wanIifs . ' udp dport 68 accept comment "WAN DHCP Client Reply"';
             $lines[] = '';
+
+            // If ZTNA Clientless Gateway is enabled, permit inbound connections from WAN to gateway port
+            if ($ztnaEnabled) {
+                $lines[] = '        # Clientless Gateway (ZTNA) In-Browser Remote Access';
+                if (!$ztnaControlled) {
+                    $lines[] = '        iifname ' . $wanIifs . ' tcp dport ' . $ztnaPort . ' accept comment "ZTNA Clientless Gateway (WAN Ingress)"';
+                }
+                if ($ztnaAcme) {
+                    // Only connections the prerouting redirect produced: port 8480
+                    // itself is not opened on WAN.
+                    $lines[] = '        iifname ' . $wanIifs . ' tcp dport ' . ZtnaCompiler::ACME_PORT . ' ct status dnat accept comment "ZTNA Gateway Let\'s Encrypt HTTP-01 (WAN tcp/80)"';
+                }
+                $lines[] = '';
+            }
+
             $lines[] = '        # WAN Security: Drop all unauthorized management probes and port scans from WAN';
-            $lines[] = '        iifname ' . $wanIifs . ' tcp dport { 80, 443, 8443, 22, 23 } counter drop comment "Stealth Rule: Drop WAN Management Probing"';
+            $baseStealth = [80, 443, 8443, 22, 23];
+            $extraStealth = [];
+            if ($sshPort !== 22 && $sshPort > 0 && $sshPort <= 65535) {
+                $extraStealth[] = $sshPort;
+            }
+            if ($webguiPort !== 443 && $webguiPort !== 8443 && $webguiPort !== 80 && $webguiPort > 0 && $webguiPort <= 65535) {
+                $extraStealth[] = $webguiPort;
+            }
+            $stealthPorts = array_values(array_unique(array_merge($baseStealth, $extraStealth)));
+            if (!empty($stealthPorts)) {
+                $lines[] = '        iifname ' . $wanIifs . ' tcp dport { ' . implode(', ', $stealthPorts) . ' } counter drop comment "Stealth Rule: Drop WAN Management Probing"';
+            }
             $lines[] = '        iifname ' . $wanIifs . ' counter drop comment "WAN Security: Drop unsolicited inbound WAN traffic"';
             $lines[] = '';
         }
 
-        // LAN Management Services: Web GUI (80/443/8443) & SSH (22) from LAN ONLY
+        // Core Network Services: DNS and DHCP remain LAN-only regardless of
+        // Administrative Access selections.
         if (!empty($lanDevices)) {
             $lanIifs = count($lanDevices) === 1 ? '"' . reset($lanDevices) . '"' : '{ "' . implode('", "', $lanDevices) . '" }';
-            $lines[] = '        # System Management Services (Web GUI 80/443 & SSH 22) - ALLOWED ON LAN ONLY';
-            $lines[] = '        iifname ' . $lanIifs . ' tcp dport { 80, 443, 8443, 22 } accept comment "Allow WebGUI and SSH from LAN only"';
-            $lines[] = '';
             $lines[] = '        # Core Network Services (DHCP server, DNS) - ALLOWED ON LAN ONLY';
             $lines[] = '        iifname ' . $lanIifs . ' udp dport { 53, 67 } accept comment "Allow DNS and DHCPv4 from LAN only"';
             $lines[] = '        iifname ' . $lanIifs . ' tcp dport 53 accept comment "Allow DNS TCP from LAN only"';
             $lines[] = '';
+            foreach ($this->pluginServicePorts() as $port => $label) {
+                $lines[] = '        iifname ' . $lanIifs . ' tcp dport ' . $port . ' accept comment "' . $label . ' (LAN only)"';
+            }
+            if ($this->pluginServicePorts() !== []) {
+                $lines[] = '';
+            }
         } else {
             // Fallback when interface roles are not yet differentiated
-            $lines[] = '        # System Management Services (Web GUI 80/443 & SSH 22)';
-            $lines[] = '        tcp dport { 80, 443, 8443, 22 } accept comment "Admin UI & SSH"';
             $lines[] = '        udp dport { 53, 67 } accept comment "DNS & DHCPv4"';
             $lines[] = '        tcp dport 53 accept comment "DNS TCP"';
+            foreach ($this->pluginServicePorts() as $port => $label) {
+                $lines[] = '        tcp dport ' . $port . ' accept comment "' . $label . '"';
+            }
             $lines[] = '';
         }
 
         $lines[] = '        # VPN Daemons (WireGuard, strongSwan IPsec IKEv2, OpenVPN)';
-        $lines[] = '        udp dport 51820 accept comment "WireGuard wg0"';
+        $wgPorts = $this->fetchWireguardPorts();
+        if (count($wgPorts) === 1 && $wgPorts[0] === 51820) {
+            $lines[] = '        udp dport 51820 accept comment "WireGuard wg0"';
+        } elseif (count($wgPorts) === 1) {
+            $lines[] = '        udp dport ' . $wgPorts[0] . ' accept comment "WireGuard VPN Daemon"';
+        } else {
+            $lines[] = '        udp dport { ' . implode(', ', $wgPorts) . ' } accept comment "WireGuard VPN Daemons"';
+        }
         $lines[] = '        udp dport { 500, 4500 } accept comment "strongSwan IKEv2 / NAT-T"';
         $lines[] = '        ip protocol esp accept comment "IPsec ESP Encapsulation"';
-        $lines[] = '        udp dport 1194 accept comment "OpenVPN Server"';
+        $ovpnServices = $this->fetchOpenvpnPorts();
+        if (count($ovpnServices) === 1 && $ovpnServices[0]['port'] === 1194 && $ovpnServices[0]['proto'] === 'udp') {
+            $lines[] = '        udp dport 1194 accept comment "OpenVPN Server"';
+            foreach ($ovpnServices as $ovpn) {
+                $lines[] = '        ' . $ovpn['proto'] . ' dport ' . $ovpn['port'] . ' accept comment "OpenVPN Server"';
+            }
+        }
+
+        if ($ztnaEnabled && !$ztnaControlled) {
+            $lines[] = '        # Zero-Trust Clientless Gateway (HTML5 RDP/SSH/VNC & Web Reverse Proxy)';
+            $lines[] = '        tcp dport ' . $ztnaPort . ' accept comment "ZTNA Clientless Gateway Reverse Proxy"';
+        }
+
+        $lines[] = '';
+        $lines[] = '        # Dynamic Routing Protocols (FRRouting OSPF, BGP, RIP, BFD)';
+        $lines[] = '        ip protocol ospf accept comment "Routing: OSPFv2 (Protocol 89)"';
+        if ($ipv6) {
+            $lines[] = '        ip6 nexthdr ospf accept comment "Routing: OSPFv3 (Protocol 89)"';
+        }
+        $lines[] = '        tcp dport 179 accept comment "Routing: BGP (TCP 179)"';
+        $lines[] = '        udp dport 520 accept comment "Routing: RIP (UDP 520)"';
+        if ($ipv6) {
+            $lines[] = '        udp dport 521 accept comment "Routing: RIPng (UDP 521)"';
+        }
+        $lines[] = '        udp dport { 3784, 3785, 4784 } accept comment "Routing: BFD"';
+
+        // User-Defined Firewall Policies (Local Appliance Ingress / Input)
+        $inputPolicies = [];
+        foreach ($fwRules as $rule) {
+            $compiled = $this->compileInputFirewallRule($rule, $addresses, $addrGroups, $services, $serviceGroups, $deviceMap, $schedules);
+            if (!empty($compiled)) {
+                if (is_array($compiled)) {
+                    foreach ($compiled as $l) {
+                        $inputPolicies[] = '        ' . $l;
+                    }
+                } else {
+                    $inputPolicies[] = '        ' . $compiled;
+                }
+            }
+        }
+        if ($inputPolicies !== []) {
+            $lines[] = '';
+            $lines[] = '        # User-Defined Firewall Policies (Local Appliance / Input)';
+            foreach ($inputPolicies as $l) {
+                $lines[] = $l;
+            }
+        }
         $lines[] = '    }';
         $lines[] = '';
+
+        if ($ztnaControlled) {
+            foreach ($ztnaChain as $l) {
+                $lines[] = $l;
+            }
+            $lines[] = '';
+        }
 
         // Forward Chain
         $lines[] = '    chain forward {';
@@ -255,11 +453,7 @@ class NftablesCompiler
         if (! $ipv6) {
             $lines[] = '        meta nfproto ipv6 drop comment "IPv6 disabled system-wide"';
         }
-        $lines[] = '';
-        $lines[] = '        # WireGuard VPN tunnel interfaces';
-        $lines[] = '        iifname "wg+" accept comment "WireGuard Tunnel Ingress"';
-        $lines[] = '        oifname "wg+" accept comment "WireGuard Tunnel Egress"';
-        $lines[] = '';
+
 
         // Plug-and-Play Router: Default allow routed outbound traffic from LAN
         if (!empty($lanDevices)) {
@@ -299,6 +493,12 @@ class NftablesCompiler
 
         $lines[] = '        # User-Defined Firewall Rules & Policies';
         foreach ($fwRules as $rule) {
+            // "This Firewall" policies govern traffic *to* the appliance (input
+            // chain / ztna_gateway); nothing is forwarded to an interface
+            // called "local".
+            if (in_array(strtolower(trim((string) ($rule['dst_interface'] ?? ''))), ['local', 'self'], true)) {
+                continue;
+            }
             $compiled = $this->compileFirewallRule($rule, $addresses, $addrGroups, $services, $serviceGroups, $deviceMap, $dnatRules, $schedules);
             if (is_array($compiled)) {
                 foreach ($compiled as $line) {
@@ -308,6 +508,23 @@ class NftablesCompiler
                 $lines[] = '        ' . $compiled;
             }
         }
+        $lines[] = '';
+        $lines[] = '        # WireGuard & VPN tunnel interfaces (fallback after explicit user policies)';
+        $lines[] = '        iifname "wg+" accept comment "WireGuard Tunnel Ingress"';
+        $lines[] = '        oifname "wg+" accept comment "WireGuard Tunnel Egress"';
+        $lines[] = '        iifname "tun+" accept comment "OpenVPN TUN Ingress"';
+        $lines[] = '        oifname "tun+" accept comment "OpenVPN TUN Egress"';
+        $lines[] = '        iifname "tap+" accept comment "OpenVPN TAP Ingress"';
+        $lines[] = '        oifname "tap+" accept comment "OpenVPN TAP Egress"';
+        $lines[] = '        iifname "vti+" accept comment "IPsec VTI Tunnel Ingress"';
+        $lines[] = '        oifname "vti+" accept comment "IPsec VTI Tunnel Egress"';
+        $lines[] = '        iifname "ipsec+" accept comment "IPsec Tunnel Ingress"';
+        $lines[] = '        oifname "ipsec+" accept comment "IPsec Tunnel Egress"';
+        $lines[] = '        iifname "xfrm+" accept comment "IPsec XFRM Tunnel Ingress"';
+        $lines[] = '        oifname "xfrm+" accept comment "IPsec XFRM Tunnel Egress"';
+        $lines[] = '        iifname "ppp+" accept comment "PPP Road Warrior Ingress"';
+        $lines[] = '        oifname "ppp+" accept comment "PPP Road Warrior Egress"';
+        $lines[] = '        meta secpath exists accept comment "IPsec Policy-Based Decrypted Traffic"';
         $lines[] = '';
         $lines[] = '        # Cleanup Rule: Catch-all rulebase terminator (Zero Trust Deny All by Default)';
         $lines[] = '        counter drop comment "Default Deny All / Cleanup Rule"';
@@ -344,6 +561,13 @@ class NftablesCompiler
             $lines[] = '        ' . $this->compileDnatRule($dnat, $deviceMap, $schedules);
         }
 
+        // After the operator's own port forwards, so a forward of WAN tcp/80
+        // keeps working (Let's Encrypt validation then fails and says so).
+        if ($ztnaAcme && !empty($wanDevices)) {
+            $acmeIifs = count($wanDevices) === 1 ? '"' . reset($wanDevices) . '"' : '{ "' . implode('", "', $wanDevices) . '" }';
+            $lines[] = '        iifname ' . $acmeIifs . ' tcp dport 80 redirect to :' . ZtnaCompiler::ACME_PORT . ' comment "ZTNA Gateway Let\'s Encrypt HTTP-01"';
+        }
+
         // NPTv6 — stateless IPv6 prefix translation (RFC 6296), inbound half
         foreach ($natNptv6 as $npt) {
             if (empty($npt['internal_prefix']) || empty($npt['external_prefix'])) {
@@ -367,7 +591,7 @@ class NftablesCompiler
                 $dnatDev = $this->resolveDevice($dnat['interface_id'] ?? '', $deviceMap);
                 foreach ($this->internalDevices($interfaces, $dnatDev) as $dev) {
                     $target = 'dnat to ' . $dnat['mapped_ip'] . (!empty($dnat['mapped_port']) ? ':' . (int) $dnat['mapped_port'] : '');
-                    $lines[] = '        iifname "' . $dev . '" ip daddr ' . $dnat['external_ip'] . ' ' . $this->dnatPortClause($dnat) . $target . ' comment "NAT reflection: ' . addslashes($dnat['name']) . '"';
+                    $lines[] = '        iifname "' . $dev . '" ' . $this->dnatDaddr((string) $dnat['external_ip']) . ' ' . $this->dnatPortClause($dnat) . $target . ' comment "NAT reflection: ' . addslashes($dnat['name']) . '"';
                 }
             }
         }
@@ -388,7 +612,14 @@ class NftablesCompiler
             if (empty($dnat['bidirectional']) || empty($dnat['external_ip']) || empty($dnat['mapped_ip'])) {
                 continue;
             }
-            $lines[] = '        ip saddr ' . $dnat['mapped_ip'] . ' snat to ' . $dnat['external_ip'] . ' comment "DNAT 1:1 return: ' . addslashes($dnat['name']) . '"';
+            $ext = (string) $dnat['external_ip'];
+            if ($this->isToken($ext) && $this->resolveToken($ext) === null) {
+                $dnatDev = $this->resolveDevice($dnat['interface_id'] ?? '', $deviceMap);
+                $lines[] = '        ' . ($dnatDev !== '' && $dnatDev !== 'any' ? 'oifname "' . $dnatDev . '" ' : '')
+                    . 'ip saddr ' . $dnat['mapped_ip'] . ' masquerade comment "DNAT 1:1 return: ' . addslashes($dnat['name']) . '"';
+                continue;
+            }
+            $lines[] = '        ip saddr ' . $dnat['mapped_ip'] . ' snat to ' . ($this->isToken($ext) ? $this->resolveToken($ext) : $ext) . ' comment "DNAT 1:1 return: ' . addslashes($dnat['name']) . '"';
         }
 
         // Hairpin return path: traffic to a reflected rule is masqueraded so the
@@ -417,17 +648,29 @@ class NftablesCompiler
             if (empty($rule['nat_enabled'])) {
                 continue;
             }
-            $dev = $this->resolveDevice($rule['dst_interface'] ?? '', $deviceMap);
-            if ($dev === '' || $dev === 'any') {
+            $srcDev = $this->resolveDevice($rule['src_interface'] ?? '', $deviceMap);
+            $dstDev = $this->resolveDevice($rule['dst_interface'] ?? '', $deviceMap);
+
+            $matchParts = [];
+            if ($dstDev !== '' && $dstDev !== 'any' && $dstDev !== 'all') {
+                $matchParts[] = 'oifname "' . $dstDev . '"';
+            } elseif ($srcDev !== '' && $srcDev !== 'any' && $srcDev !== 'all') {
+                $matchParts[] = 'iifname "' . $srcDev . '"';
+            }
+
+            // If neither interface was specified, cannot formulate a targeted NAT rule
+            if (empty($matchParts)) {
                 continue;
             }
+
+            $prefix = '        ' . implode(' ', $matchParts);
             $name = $rule['name'] ?? ('Rule #' . ($rule['id'] ?? ''));
             $snatPoolName = trim((string) ($rule['snat_pool_name'] ?? ''));
-            if ($snatPoolName !== '' && isset($snatPoolMap[$snatPoolName])) {
-                $lines[] = '        oifname "' . $dev . '" snat to ' . $this->snatPoolRange($snatPoolMap[$snatPoolName])
+            if ($snatPoolName !== '' && isset($snatPoolMap[$snatPoolName]) && $this->snatPoolRange($snatPoolMap[$snatPoolName]) !== '') {
+                $lines[] = $prefix . ' snat to ' . $this->snatPoolRange($snatPoolMap[$snatPoolName])
                     . ' comment "Policy NAT (SNAT pool ' . addslashes($snatPoolName) . '): ' . addslashes($name) . '"';
             } else {
-                $lines[] = "        oifname \"{$dev}\" masquerade comment \"Policy NAT: " . addslashes($name) . '"';
+                $lines[] = $prefix . ' masquerade comment "Policy NAT: ' . addslashes($name) . '"';
             }
         }
 
@@ -648,6 +891,224 @@ class NftablesCompiler
     }
 
     /**
+     * Compiles a firewall policy rule for the input chain (traffic terminating on the router).
+     *
+     * Applies to rules where dst_interface is 'any' or refers to a local router interface,
+     * and destination address matches local router or 'all'/'any'.
+     */
+    /**
+     * The ztna_gateway chain: policies whose Outgoing Interface is This
+     * Firewall (`local`) and whose service covers the gateway port, in policy
+     * order, then a logged default deny.
+     *
+     * Destination addresses and the destination interface are not matched
+     * here: the jump already selected traffic to the gateway itself. Only the
+     * source side (interface, addresses, schedule) and the action carry over.
+     *
+     * @return list<string>
+     */
+    protected function compileZtnaGatewayChain(
+        array $fwRules,
+        int $port,
+        array $addresses,
+        array $addrGroups,
+        array $services,
+        array $serviceGroups,
+        array $deviceMap,
+        array $schedules
+    ): array {
+        $gatewaySvc = '__ztna_gateway_' . $port;
+        $svcWithGateway = array_merge($services, [[
+            'name' => $gatewaySvc, 'protocol' => 'TCP', 'tcp_port' => (string) $port, 'udp_port' => '',
+        ]]);
+
+        $lines   = [];
+        $lines[] = '    chain ztna_gateway {';
+        $lines[] = '        # Policies with Outgoing Interface "This Firewall" covering tcp/' . $port . ', in order';
+        foreach ($fwRules as $rule) {
+            if (! in_array(strtolower(trim((string) ($rule['dst_interface'] ?? ''))), ['local', 'self'], true)) {
+                continue;
+            }
+            if (! $this->servicesCoverTcpPort($rule['services'] ?? null, $services, $serviceGroups, $port)) {
+                continue;
+            }
+
+            $scoped = $rule;
+            $scoped['dst_interface'] = 'any';
+            $scoped['destinations']  = '[]';
+            $scoped['services']      = json_encode([$gatewaySvc]);
+
+            $compiled = $this->compileInputFirewallRule($scoped, $addresses, $addrGroups, $svcWithGateway, $serviceGroups, $deviceMap, $schedules);
+            foreach ((array) $compiled as $l) {
+                if (is_string($l) && $l !== '') {
+                    $lines[] = '        ' . $l;
+                }
+            }
+        }
+        $lines[] = '        log prefix "MICRON-ZTNA-DENY: " level info counter drop comment "ZTNA Gateway: default deny (no policy allowed this source)"';
+        $lines[] = '    }';
+
+        return $lines;
+    }
+
+    /** Whether a policy's services (or service groups) include TCP $port, or ALL. */
+    protected function servicesCoverTcpPort($items, array $services, array $serviceGroups, int $port): bool
+    {
+        if (is_string($items)) {
+            $decoded = json_decode($items, true);
+            $items = is_array($decoded) ? $decoded : [$items];
+        }
+        if (! is_array($items) || $items === []) {
+            return false;
+        }
+
+        $svcMap = array_column($services, null, 'name');
+        $grpMap = array_column($serviceGroups, null, 'name');
+
+        $names = [];
+        foreach ($items as $item) {
+            $item = trim((string) $item);
+            if (isset($grpMap[$item])) {
+                $members = $grpMap[$item]['members'] ?? [];
+                $members = is_string($members) ? (json_decode($members, true) ?: []) : (array) $members;
+                array_push($names, ...array_map('strval', $members));
+            } else {
+                $names[] = $item;
+            }
+        }
+
+        foreach ($names as $name) {
+            if (strtoupper($name) === 'ALL') {
+                return true;
+            }
+            $svc = $svcMap[$name] ?? null;
+            if ($svc === null) {
+                continue;
+            }
+            $proto = strtoupper((string) ($svc['protocol'] ?? 'TCP'));
+            if ($proto === 'IP') {
+                return true;
+            }
+            if (! in_array($proto, ['TCP', 'TCP/UDP'], true)) {
+                continue;
+            }
+            foreach (preg_split('/[\s,]+/', (string) ($svc['tcp_port'] ?? ''), -1, PREG_SPLIT_NO_EMPTY) as $spec) {
+                [$lo, $hi] = array_pad(explode('-', $spec, 2), 2, null);
+                $lo = (int) $lo;
+                $hi = $hi === null ? $lo : (int) $hi;
+                if ($port >= $lo && $port <= $hi) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    protected function compileInputFirewallRule(
+        array $r,
+        array $addresses = [],
+        array $addrGroups = [],
+        array $services = [],
+        array $serviceGroups = [],
+        array $deviceMap = [],
+        array $schedules = []
+    ) {
+        $dstIf = strtolower(trim((string) ($r['dst_interface'] ?? 'any')));
+        $named = static fn ($v): bool => ! in_array(strtolower(trim((string) $v)), ['', 'any', 'all'], true);
+
+        // If an explicit non-local egress interface is requested (e.g. 'wan'), it belongs in forward only
+        if ($named($dstIf)) {
+            $resolvedDst = $this->resolveDevice($dstIf, $deviceMap);
+            if (!isset($this->ifaceAddr[$dstIf]) && !isset($this->ifaceAddr[$resolvedDst]) && $dstIf !== 'local' && $dstIf !== 'self') {
+                return null;
+            }
+        }
+
+        $parts = [];
+
+        // Source interface match
+        $srcIf = $this->resolveDevice($r['src_interface'] ?? 'any', $deviceMap);
+        if (!empty($srcIf) && $srcIf !== 'any') {
+            $parts[] = "iifname \"{$srcIf}\"";
+        }
+
+        // Resolve Source Addresses
+        $srcIps = $this->resolveAddressValues($r['sources'] ?? null, $addresses, $addrGroups);
+        if (in_array('@unresolved', $srcIps, true)) {
+            return null;
+        }
+        if (!empty($srcIps) && !in_array('0.0.0.0/0', $srcIps, true) && !in_array('all', $srcIps, true)) {
+            $cleanIps = array_values(array_filter($srcIps, static fn ($v) => $v !== '@local'));
+            if ($cleanIps !== []) {
+                $parts[] = count($cleanIps) === 1 ? "ip saddr {$cleanIps[0]}" : "ip saddr { " . implode(', ', $cleanIps) . " }";
+            }
+        }
+
+        // Resolve Destination Addresses
+        $dstIps = $this->resolveAddressValues($r['destinations'] ?? null, $addresses, $addrGroups);
+        if (in_array('@unresolved', $dstIps, true)) {
+            return null;
+        }
+        if (!empty($dstIps) && !in_array('0.0.0.0/0', $dstIps, true) && !in_array('all', $dstIps, true)) {
+            $local = in_array('@local', $dstIps, true);
+            $cleanIps = array_values(array_filter($dstIps, static fn ($v) => $v !== '@local'));
+            if ($cleanIps === [] && $local) {
+                $parts[] = "fib daddr type local";
+            } elseif ($cleanIps !== []) {
+                $parts[] = count($cleanIps) === 1 ? "ip daddr {$cleanIps[0]}" : "ip daddr { " . implode(', ', $cleanIps) . " }";
+            }
+        }
+
+        // Schedule
+        $schedClause = trim($this->compileScheduleClause($r['schedule'] ?? null, $schedules));
+        if (!empty($schedClause)) {
+            $parts[] = $schedClause;
+        }
+
+        // Services
+        $svcMatches = $this->resolveServiceMatches($r['services'] ?? null, $services, $serviceGroups);
+
+        $action = strtolower($r['action'] ?? 'accept');
+        if (in_array($action, ['pass', 'accept', 'allow'])) {
+            $actionStr = 'accept';
+        } elseif (in_array($action, ['block', 'deny', 'drop'])) {
+            $actionStr = 'drop';
+        } elseif ($action === 'reject') {
+            $actionStr = 'reject';
+        } else {
+            $actionStr = 'drop';
+        }
+
+        $logPart = '';
+        if (!empty($r['log_traffic']) && $r['log_traffic'] !== 'none') {
+            $logPart = 'log prefix "MICRON-FW: " level info ';
+        }
+
+        $commentName = !empty($r['name']) ? $r['name'] : (!empty($r['description']) ? $r['description'] : '');
+        $comment = $commentName !== '' ? ' comment "' . addslashes($commentName) . '"' : '';
+
+        // If there are no interface or address or service constraints, don't emit an unconditional catch-all in input
+        if (empty($parts) && empty($svcMatches)) {
+            return null;
+        }
+
+        if (!empty($svcMatches)) {
+            $ruleLines = [];
+            foreach ($svcMatches as $svcMatch) {
+                $ruleParts = $parts;
+                if (!empty($svcMatch)) {
+                    $ruleParts[] = $svcMatch;
+                }
+                $ruleLines[] = implode(' ', array_filter($ruleParts)) . ' ' . $logPart . $actionStr . $comment;
+            }
+            return $ruleLines;
+        }
+
+        return implode(' ', array_filter($parts)) . ' ' . $logPart . $actionStr . $comment;
+    }
+
+    /**
      * Compiles a single firewall rule or policy into nftables rule(s)
      */
     protected function compileFirewallRule(
@@ -664,7 +1125,15 @@ class NftablesCompiler
 
         // A structured policy carries interface / object references; a legacy
         // flat rule only carries addresses and ports.
-        $isPolicy = !empty($r['sources']) || !empty($r['destinations']) || !empty($r['src_interface']) || !empty($r['dst_interface']);
+        //
+        // `src_interface` / `dst_interface` default to 'any' in the schema, so
+        // 'any' alone does not make a row a policy: treating it as one dropped
+        // the legacy source/destination/port matchers and turned a flat rule
+        // (e.g. the factory "LAN → Web GUI on 443") into an unconditional
+        // accept.
+        $named = static fn ($v): bool => ! in_array(strtolower(trim((string) $v)), ['', 'any', 'all'], true);
+        $isPolicy = !empty($r['sources']) || !empty($r['destinations'])
+            || $named($r['src_interface'] ?? '') || $named($r['dst_interface'] ?? '');
 
         if ($isPolicy) {
             // Source & Destination Interfaces (resolved to kernel devices)
@@ -680,14 +1149,22 @@ class NftablesCompiler
 
             // Resolve Source Addresses
             $srcIps = $this->resolveAddressValues($r['sources'] ?? null, $addresses, $addrGroups);
-            if (!empty($srcIps) && !in_array('0.0.0.0/0', $srcIps, true) && !in_array('all', $srcIps, true)) {
-                $parts[] = count($srcIps) === 1 ? "ip saddr {$srcIps[0]}" : "ip saddr { " . implode(', ', $srcIps) . " }";
-            }
-
-            // Resolve Destination Addresses
             $dstIps = $this->resolveAddressValues($r['destinations'] ?? null, $addresses, $addrGroups);
-            if (!empty($dstIps) && !in_array('0.0.0.0/0', $dstIps, true) && !in_array('all', $dstIps, true)) {
-                $parts[] = count($dstIps) === 1 ? "ip daddr {$dstIps[0]}" : "ip daddr { " . implode(', ', $dstIps) . " }";
+            foreach (['saddr' => $srcIps, 'daddr' => $dstIps] as $side => $ips) {
+                if (in_array('@unresolved', $ips, true)) {
+                    return '# skipped: ' . addslashes((string) ($r['name'] ?? $r['id'] ?? 'policy'))
+                        . ' — an interface subnet it references has no static address yet';
+                }
+                if (empty($ips) || in_array('0.0.0.0/0', $ips, true) || in_array('all', $ips, true)) {
+                    continue;
+                }
+                $local = in_array('@local', $ips, true);
+                $ips   = array_values(array_filter($ips, static fn ($v) => $v !== '@local'));
+                if ($ips === [] && $local) {
+                    $parts[] = "fib {$side} type local";
+                    continue;
+                }
+                $parts[] = count($ips) === 1 ? "ip {$side} {$ips[0]}" : "ip {$side} { " . implode(', ', $ips) . " }";
             }
 
             // A Destination NAT policy must match the *mapped* (post-DNAT)
@@ -757,14 +1234,17 @@ class NftablesCompiler
             $parts[] = "ip protocol {$proto}";
         }
 
-        $saddr = $r['source_address'] ?? ($r['source_value'] ?? ($r['source_ip'] ?? ''));
-        if (!empty($saddr) && $saddr !== 'any' && $saddr !== '0.0.0.0/0') {
-            $parts[] = "ip saddr {$saddr}";
-        }
-
-        $daddr = $r['destination_address'] ?? ($r['dest_value'] ?? ($r['dest_ip'] ?? ''));
-        if (!empty($daddr) && $daddr !== 'any' && $daddr !== '0.0.0.0/0') {
-            $parts[] = "ip daddr {$daddr}";
+        $saddr = (string) ($r['source_address'] ?? ($r['source_value'] ?? ($r['source_ip'] ?? '')));
+        $daddr = (string) ($r['destination_address'] ?? ($r['dest_value'] ?? ($r['dest_ip'] ?? '')));
+        foreach (['saddr' => $saddr, 'daddr' => $daddr] as $side => $value) {
+            $match = $this->addressMatch($side, $value);
+            if ($match === null) {
+                return '# skipped: ' . addslashes((string) ($r['description'] ?? $r['id'] ?? 'rule'))
+                    . ' — ' . $value . ' has no static address yet';
+            }
+            if ($match !== '') {
+                $parts[] = $match;
+            }
         }
 
         $dport = $r['dest_port'] ?? '';
@@ -822,6 +1302,11 @@ class NftablesCompiler
             if ($item === 'all' || $item === 'any') {
                 return ['all'];
             }
+            if ($this->isToken($item)) {
+                $resolved[] = $this->resolveToken($item)
+                    ?? (str_ends_with($item, ':address}') ? '@local' : '@unresolved');
+                continue;
+            }
 
             // Check if it's an address group
             if (isset($grpMap[$item])) {
@@ -857,6 +1342,9 @@ class NftablesCompiler
                     foreach (InternetService::keys($val) as $key) {
                         $resolved[] = '@' . InternetService::setName($key);
                     }
+                } elseif (!empty($val) && $this->isToken($val)) {
+                    $resolved[] = $this->resolveToken($val)
+                        ?? (str_ends_with($val, ':address}') ? '@local' : '@unresolved');
                 } elseif (!empty($val)) {
                     $resolved[] = $val;
                 }
@@ -979,8 +1467,20 @@ class NftablesCompiler
         $schedClause = $this->compileScheduleClause($dnat['schedule'] ?? null, $schedules);
         $target = 'dnat to ' . $dnat['mapped_ip'] . (!empty($dnat['mapped_port']) ? ':' . (int) $dnat['mapped_port'] : '');
 
-        return $iface . $schedClause . 'ip daddr ' . $dnat['external_ip'] . ' ' . $this->dnatPortClause($dnat)
+        return $iface . $schedClause . $this->dnatDaddr((string) $dnat['external_ip']) . ' ' . $this->dnatPortClause($dnat)
             . $target . ' comment "DNAT: ' . addslashes($dnat['name']) . '"';
+    }
+
+    /**
+     * Destination match for a DNAT external address. `{wan:address}` follows
+     * the interface; on a DHCP/PPPoE interface (no static address) it matches
+     * any address of this firewall instead of a stale literal.
+     */
+    protected function dnatDaddr(string $external): string
+    {
+        $m = $this->addressMatch('daddr', $external);
+
+        return ($m === null || $m === '') ? 'fib daddr type local' : $m;
     }
 
     /**
@@ -1018,6 +1518,76 @@ class NftablesCompiler
     }
 
     /**
+     * Static IPv4 addressing per interface, for dynamic tokens.
+     *
+     * @return array<string, array{network: ?string, address: ?string}>
+     */
+    protected function interfaceAddresses(array $interfaces): array
+    {
+        $map = [];
+        foreach ($interfaces as $iface) {
+            $entry = ['network' => null, 'address' => null];
+            if (($iface['ip_assignment_type'] ?? '') === 'static' && ! empty($iface['ipv4_address'])) {
+                $c = \App\Libraries\Network\NetworkPlan::cidr($iface['ipv4_address'] . '/' . \App\Libraries\Network\NetworkPlan::prefix($iface['ipv4_netmask'] ?? 24));
+                if ($c !== null) {
+                    $entry = ['network' => $c[0] . '/' . $c[1], 'address' => $c[2]];
+                }
+            }
+            foreach ([$iface['id'] ?? '', $iface['name'] ?? ''] as $key) {
+                $key = strtolower(trim((string) $key));
+                if ($key !== '') {
+                    $map[$key] = $entry;
+                }
+            }
+        }
+
+        return $map;
+    }
+
+    /** True when $value is a {iface:network|address} token. */
+    protected function isToken(string $value): bool
+    {
+        return preg_match(\App\Libraries\Network\NetworkPlan::TOKEN_RE, trim($value)) === 1;
+    }
+
+    /**
+     * Resolve a dynamic token to the interface's current subnet or address.
+     * Null when the interface has no static IPv4 address (DHCP / PPPoE) —
+     * callers then fall back to a match that needs no literal address.
+     */
+    protected function resolveToken(string $value): ?string
+    {
+        if (! preg_match(\App\Libraries\Network\NetworkPlan::TOKEN_RE, trim($value), $m)) {
+            return null;
+        }
+
+        return $this->ifaceAddr[strtolower($m[1])][$m[2]] ?? null;
+    }
+
+    /**
+     * nft match for one address side (saddr/daddr) of a value that may be a
+     * token. Returns null when the rule must be skipped (an unresolvable
+     * subnet token), '' for "no match needed".
+     */
+    protected function addressMatch(string $side, string $value): ?string
+    {
+        $value = trim($value);
+        if ($value === '' || $value === 'any' || $value === '0.0.0.0/0') {
+            return '';
+        }
+        if ($this->isToken($value)) {
+            $resolved = $this->resolveToken($value);
+            if ($resolved !== null) {
+                return "ip {$side} {$resolved}";
+            }
+            // A dynamic address is still "an address of this firewall".
+            return str_ends_with($value, ':address}') ? "fib {$side} type local" : null;
+        }
+
+        return "ip {$side} {$value}";
+    }
+
+    /**
      * Builds a lowercase lookup of interface id/name to kernel device.
      *
      * @return array<string,string>
@@ -1052,7 +1622,7 @@ class NftablesCompiler
         if ($lower === 'any') {
             return 'any';
         }
-        return $deviceMap[$lower] ?? $ref;
+        return $deviceMap[$lower] ?? $lower;
     }
 
     /**
@@ -1062,6 +1632,12 @@ class NftablesCompiler
     {
         $start = trim((string) ($snatPool['start_ip'] ?? ''));
         $end   = trim((string) ($snatPool['end_ip'] ?? ''));
+        // A pool that is "the interface address" follows it; with no static
+        // address the caller falls back to masquerade (empty range).
+        if ($this->isToken($start)) {
+            $start = (string) $this->resolveToken($start);
+            $end   = $this->isToken($end) ? (string) $this->resolveToken($end) : $end;
+        }
         return ($end !== '' && $end !== $start) ? $start . '-' . $end : $start;
     }
 
@@ -1199,23 +1775,115 @@ class NftablesCompiler
 
     /**
      * Whether IPv6 is enabled appliance-wide (System > Networking).
-     * Defaults to true so the compiler still works when the setting table is
-     * unavailable (e.g. isolated unit tests).
+     * IPv6 is off unless an administrator switched it on, so a missing row
+     * or setting compiles the IPv4-only ruleset.
      */
     protected function ipv6Enabled(): bool
     {
         try {
             $row = $this->db->table('system_settings')->where('id', 1)->get()->getRowArray();
-            return (int) ($row['ipv6_enabled'] ?? 1) === 1;
+            return (int) ($row['ipv6_enabled'] ?? 0) === 1;
         } catch (\Throwable $e) {
-            return true;
+            return false;
         }
+    }
+
+    protected function fetchSystemSettings(): array
+    {
+        try {
+            if ($this->db && $this->db->tableExists('system_settings')) {
+                $row = $this->db->table('system_settings')->where('id', 1)->get()->getRowArray();
+                if (is_array($row)) {
+                    return $row;
+                }
+            }
+        } catch (\Throwable) {}
+
+        return [
+            'ssh_port'             => 22,
+            'webgui_port'          => 443,
+            'webgui_protocol'      => 'https',
+            'webgui_redirect_http' => 1,
+            'ssh_enabled'          => 1,
+        ];
+    }
+
+    private function interfaceAdminAccess(array $interface): array
+    {
+        $configured = $interface['admin_access'] ?? null;
+        if (is_array($configured)) {
+            $access = $configured;
+        } elseif (is_string($configured) && trim($configured) !== '') {
+            $decoded = json_decode($configured, true);
+            $access = is_array($decoded) ? $decoded : [];
+        } else {
+            $id = strtolower((string) ($interface['id'] ?? ''));
+            $name = strtolower((string) ($interface['name'] ?? ''));
+            if (str_starts_with($id, 'lan') || str_starts_with($name, 'lan')) {
+                $access = ['http', 'https', 'ping', 'ssh'];
+            } elseif (str_starts_with($id, 'opt') || str_starts_with($name, 'opt')) {
+                $access = ['http', 'https', 'ping'];
+            } elseif (str_starts_with($id, 'wan') || str_starts_with($name, 'wan')) {
+                $access = ['ping'];
+            } else {
+                $access = [];
+            }
+        }
+
+        $allowed = ['http', 'https', 'ping', 'ssh', 'snmp'];
+        $access = array_map(static fn ($service): string => strtolower((string) $service), $access);
+
+        return array_values(array_unique(array_intersect($allowed, $access)));
+    }
+
+    protected function fetchWireguardPorts(): array
+    {
+        $ports = [];
+        try {
+            if ($this->db && $this->db->tableExists('wireguard_tunnels')) {
+                $rows = $this->db->table('wireguard_tunnels')->where('enabled', 1)->select('listen_port')->get()->getResultArray();
+                foreach ($rows as $r) {
+                    $p = (int) ($r['listen_port'] ?? 0);
+                    if ($p > 0 && $p <= 65535) {
+                        $ports[] = $p;
+                    }
+                }
+            }
+        } catch (\Throwable) {}
+        if (empty($ports)) {
+            $ports = [51820];
+        }
+        return array_values(array_unique($ports));
+    }
+
+    protected function fetchOpenvpnPorts(): array
+    {
+        $ports = [];
+        try {
+            if ($this->db && $this->db->tableExists('openvpn_servers')) {
+                $rows = $this->db->table('openvpn_servers')->where('enabled', 1)->select('listen_port, protocol')->get()->getResultArray();
+                foreach ($rows as $r) {
+                    $p = (int) ($r['listen_port'] ?? 0);
+                    $proto = strtolower(trim((string) ($r['protocol'] ?? 'udp')));
+                    if (!in_array($proto, ['udp', 'tcp'], true)) {
+                        $proto = 'udp';
+                    }
+                    if ($p > 0 && $p <= 65535) {
+                        $ports[] = ['port' => $p, 'proto' => $proto];
+                    }
+                }
+            }
+        } catch (\Throwable) {}
+        if (empty($ports)) {
+            $ports = [['port' => 1194, 'proto' => 'udp']];
+        }
+        return $ports;
     }
 
     protected function fetchInterfaces(): array
     {
         try {
-            return $this->db->table('interfaces')->get()->getResultArray();
+            return \App\Libraries\VpnInterfaceProvider::getUnifiedInterfaces($this->db);
         } catch (\Throwable $e) {
             return [
                 ['id' => 'WAN', 'physical_device' => 'eth0', 'enabled' => 1],
@@ -1908,6 +2576,45 @@ class NftablesCompiler
     }
 
     /**
+     * Management web ports opened by enabled plugins (darkstat's own web UI,
+     * default 666). A plugin records its listening port in `plugin_settings`
+     * (`setting_key = web_port`) when its settings are applied; the port is
+     * opened on the LAN side only — the WAN drop rules come first — and only
+     * while the plugin's row is enabled, so removing the plugin closes it.
+     *
+     * @return array<int, string> port => rule comment
+     */
+    protected function pluginServicePorts(): array
+    {
+        if (! $this->db || ! $this->db->tableExists('plugin_settings') || ! $this->db->tableExists('plugins')) {
+            return [];
+        }
+
+        try {
+            $rows = $this->db->table('plugin_settings')->where('setting_key', 'web_port')->get()->getResultArray();
+        } catch (\Throwable $e) {
+            return [];
+        }
+
+        $reserved = [22, 53, 67, 80, 443, 8443];
+        $ports    = [];
+        foreach ($rows as $row) {
+            $id   = (string) ($row['plugin_id'] ?? '');
+            $port = (int) ($row['value'] ?? 0);
+            if ($id === '' || preg_match('/^[a-z0-9][a-z0-9-]{0,63}$/', $id) !== 1) {
+                continue;
+            }
+            if ($port < 1 || $port > 65535 || in_array($port, $reserved, true) || ! $this->pluginEnabled($id)) {
+                continue;
+            }
+            $ports[$port] = $id . ' web UI (plugin)';
+        }
+        ksort($ports);
+
+        return $ports;
+    }
+
+    /**
      * Whether an installed plugin is enabled. Reads the same `plugins` row the
      * plugin UI writes; an absent table (a compiler run outside the app
      * database) means no plugin is enabled rather than a broken ruleset.
@@ -2166,6 +2873,24 @@ class NftablesCompiler
      *
      * @return list<array<string, mixed>>
      */
+    /**
+     * Zero Trust Network Access / Clientless Gateway settings.
+     *
+     * @return array<string, mixed>
+     */
+    protected function fetchZtnaSettings(): array
+    {
+        try {
+            $db = $this->db ?? \Config\Database::connect();
+            if (!$db->tableExists('ztna_settings')) {
+                return [];
+            }
+            return $db->table('ztna_settings')->where('id', 1)->get()->getRowArray() ?: [];
+        } catch (\Throwable $e) {
+            return [];
+        }
+    }
+
     /**
      * Suricata IDS/IPS engine settings, used to decide whether the inline
      * NFQUEUE diversion table is emitted and how it behaves under failure.

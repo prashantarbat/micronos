@@ -8,6 +8,8 @@ use App\Models\BondModel;
 use App\Models\BridgeModel;
 use App\Models\InterfaceModel;
 use App\Models\WirelessModel;
+use App\Libraries\NetworkHardware;
+use App\Libraries\Network\NetworkTransaction;
 
 /**
  * Interfaces Controller — Network Interface configuration, 802.1Q VLAN virtual interfaces,
@@ -15,6 +17,8 @@ use App\Models\WirelessModel;
  */
 class Interfaces extends BaseController
 {
+    private const ADMIN_ACCESS_OPTIONS = ['http', 'https', 'ping', 'ssh', 'snmp'];
+
     private IpcClient $ipc;
     private InterfaceModel $model;
 
@@ -30,6 +34,13 @@ class Interfaces extends BaseController
     public function index(): string
     {
         $db = \Config\Database::connect();
+
+        // A confirm-window change the daemon rolled back (timeout, reboot)
+        // leaves the database ahead of the OS; bring it back in line first.
+        $reconciled = (new NetworkTransaction($this->ipc))->reconcile();
+        if ($reconciled !== null) {
+            session()->setFlashdata('warning', $reconciled);
+        }
         $dbIfaces = $db->table('interfaces')->orderBy('interface_type', 'ASC')->orderBy('name', 'ASC')->get()->getResultArray();
 
         // Get live runtime state from micrond (or mock on Windows)
@@ -37,24 +48,66 @@ class Interfaces extends BaseController
         $liveByDev = [];
         $detectedHardware = [];
 
-        if (! empty($liveState['interfaces'])) {
-            foreach ($liveState['interfaces'] as $item) {
-                $dev = $item['device'] ?? $item['name'] ?? '';
-                if ($dev !== '') {
-                    $liveByDev[$dev] = $item;
-                    $liveByDev[$item['name'] ?? ''] = $item;
-                    // Detect if this is a physical port (e.g. eth0, eth1, enp3s0, not a VLAN like eth0.10)
-                    if (! str_contains($dev, '.') && ! str_contains($dev, ':')) {
-                        $detectedHardware[$dev] = $item;
+        // Live runtime state. On an appliance `interface.list` is `ip -j addr`
+        // (ifname / operstate / address / addr_info); the development client
+        // answers in the page's own shape. Both are normalised here.
+        foreach ((array) ($liveState['interfaces'] ?? []) as $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+            $dev = (string) ($item['device'] ?? $item['ifname'] ?? $item['name'] ?? '');
+            if ($dev === '') {
+                continue;
+            }
+            if (isset($item['ifname'])) {
+                $ip = '';
+                foreach ((array) ($item['addr_info'] ?? []) as $a) {
+                    if (($a['family'] ?? '') === 'inet') {
+                        $ip = (string) ($a['local'] ?? '');
+                        break;
                     }
                 }
+                $item = [
+                    'device' => $dev,
+                    'name'   => $dev,
+                    'status' => strtoupper((string) ($item['operstate'] ?? '')) === 'UP'
+                        || in_array('LOWER_UP', (array) ($item['flags'] ?? []), true) ? 'up' : 'down',
+                    'ip'     => $ip,
+                    'mac'    => (string) ($item['address'] ?? ''),
+                ];
             }
+            $liveByDev[$dev] = $item;
         }
 
-        // Standard fallback NICs if none detected
-        if (empty($detectedHardware)) {
-            foreach (['eth0', 'eth1', 'eth2', 'eth3', 'eth4'] as $fallbackDev) {
-                $detectedHardware[$fallbackDev] = ['device' => $fallbackDev, 'status' => 'down'];
+        // The physical ports this machine has (Ethernet + Wi-Fi), with their
+        // real kernel names. Nothing is invented when the daemon is silent.
+        $hardware = new NetworkHardware($this->ipc);
+        foreach ($hardware->nics() ?? [] as $nic) {
+            $detectedHardware[$nic['name']] = $nic;
+        }
+        $wirelessRadios = $hardware->wirelessNames();
+
+        // Live counters, MAC and speed for every kernel device (appliance only;
+        // the development client already answers with them).
+        $kernelDevices = null;
+        if (! $this->ipc->isMock()) {
+            $health = $this->ipc->call('system.health')['result'] ?? null;
+            if (is_array($health) && is_array($health['interfaces'] ?? null)) {
+                $kernelDevices = [];
+                foreach ($health['interfaces'] as $k) {
+                    $name = (string) ($k['name'] ?? '');
+                    if ($name === '') {
+                        continue;
+                    }
+                    $kernelDevices[$name] = true;
+                    $liveByDev[$name] = array_merge($liveByDev[$name] ?? ['device' => $name, 'name' => $name], [
+                        'rx_bytes' => (int) ($k['rx_bytes'] ?? 0),
+                        'tx_bytes' => (int) ($k['tx_bytes'] ?? 0),
+                        'mac'      => (string) ($k['mac'] ?? ($liveByDev[$name]['mac'] ?? '')),
+                        'speed'    => ! empty($k['speed_mbps']) ? $k['speed_mbps'] . ' Mb/s' : '',
+                        'status'   => ($k['operstate'] ?? '') === 'up' || (! empty($k['carrier']) && ($k['operstate'] ?? '') === 'unknown') ? 'up' : 'down',
+                    ]);
+                }
             }
         }
 
@@ -74,15 +127,19 @@ class Interfaces extends BaseController
             $dev  = $iface['physical_device'] ?? '';
             $live = $liveByDev[$dev] ?? null;
 
-            $isUp = $live ? ($live['status'] === 'up') : ((bool) ($iface['enabled'] ?? 1));
+            // On an appliance a device the kernel does not have is "not present",
+            // never "up" because its row happens to be enabled.
+            $present = $kernelDevices === null ? true : isset($kernelDevices[$dev]);
+            $isUp    = $live ? ($live['status'] === 'up') : ($present && $kernelDevices === null && (bool) ($iface['enabled'] ?? 1));
+            $iface['present'] = $present;
             $iface['is_up']        = $isUp;
             $iface['rx_bytes']     = $live['rx_bytes'] ?? 0;
             $iface['tx_bytes']     = $live['tx_bytes'] ?? 0;
             $iface['rx_human']     = $this->formatBytes((int) $iface['rx_bytes']);
             $iface['tx_human']     = $this->formatBytes((int) $iface['tx_bytes']);
             $iface['current_ip']   = ! empty($live['ip']) ? $live['ip'] : ($iface['ipv4_address'] ?? ($iface['ip_assignment_type'] === 'dhcp' ? 'DHCP Pending' : 'None'));
-            $iface['mac']          = ! empty($iface['mac_override']) ? $iface['mac_override'] : ($live['mac'] ?? '52:54:00:12:34:56');
-            $iface['speed']        = ! empty($iface['speed_duplex']) && $iface['speed_duplex'] !== 'auto' ? $iface['speed_duplex'] : ($live['speed'] ?? '1000 Mbps Full Duplex');
+            $iface['mac']          = ! empty($iface['mac_override']) ? $iface['mac_override'] : (($live['mac'] ?? '') !== '' ? $live['mac'] : '—');
+            $iface['speed']        = ! empty($iface['speed_duplex']) && $iface['speed_duplex'] !== 'auto' ? $iface['speed_duplex'] : (($live['speed'] ?? '') !== '' ? $live['speed'] : '—');
             $iface['type_label']   = strtoupper((string) ($iface['interface_type'] ?? 'physical'));
 
             // The discovered peer is inventory, not configuration: it comes and
@@ -151,15 +208,18 @@ class Interfaces extends BaseController
         $wirelessList = $wirelessModel->orderBy('interface', 'ASC')->findAll();
         $wirelessWithStatus = [];
         foreach ($wirelessList as $w) {
-            $wStatus = $this->ipc->wirelessStatus($w['interface']);
+            $wStatus = in_array($w['interface'], $wirelessRadios, true)
+                ? $this->ipc->wirelessStatus($w['interface'])
+                : ['success' => false, 'status' => 'absent', 'message' => 'No wireless adapter named ' . $w['interface'] . ' is installed.'];
             $w['live'] = $wStatus;
             $wirelessWithStatus[] = $w;
         }
 
-        // Ensure at least one eligible parent device exists for VLAN creation
-        if (empty($parentDevices)) {
-            $parentDevices['eth0'] = 'WAN (eth0)';
-            $parentDevices['eth1'] = 'LAN (eth1)';
+        // A VLAN can also ride on any detected port that is not assigned yet.
+        foreach (array_keys($detectedHardware) as $hDev) {
+            if (! isset($parentDevices[$hDev]) && empty($detectedHardware[$hDev]['wireless'])) {
+                $parentDevices[$hDev] = $hDev . ' (unassigned port)';
+            }
         }
 
         $summary = [
@@ -183,6 +243,9 @@ class Interfaces extends BaseController
             'bonds'            => $bonds,
             'bridges'          => $bridges,
             'wireless'         => $wirelessWithStatus,
+            'wirelessRadios'   => $wirelessRadios,
+            'hasWireless'      => $wirelessRadios !== [],
+            'hardwareNics'     => $detectedHardware,
             'allPhysicalDevs'  => array_keys($detectedHardware),
             'isMock'           => $this->ipc->isMock(),
         ]);
@@ -299,6 +362,7 @@ class Interfaces extends BaseController
             'name'                 => $name,
             'physical_device'      => $physicalDevice,
             'enabled'              => $this->request->getPost('enabled') ? 1 : 0,
+            'admin_access'         => $this->normaliseAdminAccess(),
             'interface_type'       => $interfaceType,
             'vlan_parent'          => $vlanParent,
             'vlan_tag'             => $vlanTag,
@@ -335,12 +399,13 @@ class Interfaces extends BaseController
             }
         }
 
-        $db->table('interfaces')->insert($data);
-
         $this->audit('interfaces.create', $id, "Created interface '{$name}' ({$physicalDevice}, type: {$interfaceType})");
 
-        return redirect()->to(base_url('interfaces'))
-            ->with('success', "Interface '{$name}' created successfully. Remember to Apply Changes.");
+        return $this->commitNetwork(static function ($db) use ($data) {
+            $db->table('interfaces')->insert($data);
+
+            return null;
+        }, "Interface '{$name}' created", false);
     }
 
     public function edit(string $id): string|\CodeIgniter\HTTP\RedirectResponse
@@ -352,23 +417,166 @@ class Interfaces extends BaseController
             return redirect()->to(base_url('interfaces'))->with('error', 'Interface not found.');
         }
 
-        // Get candidate parent devices for VLANs
+        if (empty($iface['admin_access'])) {
+            $iface['admin_access'] = json_encode($this->defaultAdminAccess($iface), JSON_THROW_ON_ERROR);
+        }
+
+        // Hardware NICs detected
+        $hardware = new NetworkHardware($this->ipc);
+        $hardwareNics = [];
+        foreach ($hardware->nics() ?? [] as $nic) {
+            $hardwareNics[$nic['name']] = $nic;
+        }
+
+        // Candidate parent devices for VLANs
         $parentDevices = [];
         $dbPhysical = $db->table('interfaces')->where('interface_type', 'physical')->get()->getResultArray();
         foreach ($dbPhysical as $p) {
             $dev = $p['physical_device'];
             $parentDevices[$dev] = $p['name'] . " ({$dev})";
         }
+        foreach ((new BondModel())->getBondsWithDetails() as $bond) {
+            $parentDevices[$bond['id']] = $bond['name'] . ' (' . $bond['id'] . ' LACP Trunk)';
+        }
+        foreach ((new BridgeModel())->getBridgesWithDetails() as $bridge) {
+            $parentDevices[$bridge['id']] = $bridge['name'] . ' (' . $bridge['id'] . ' Bridge)';
+        }
         if (empty($parentDevices)) {
             $parentDevices['eth0'] = 'WAN (eth0)';
             $parentDevices['eth1'] = 'LAN (eth1)';
         }
 
+        // Live telemetry for this interface
+        $liveState = $this->ipc->getInterfaces();
+        $liveByDev = [];
+        foreach ((array) ($liveState['interfaces'] ?? []) as $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+            $dev = (string) ($item['device'] ?? $item['ifname'] ?? $item['name'] ?? '');
+            if ($dev === '') {
+                continue;
+            }
+            if (isset($item['ifname'])) {
+                $ip = '';
+                foreach ((array) ($item['addr_info'] ?? []) as $a) {
+                    if (($a['family'] ?? '') === 'inet') {
+                        $ip = (string) ($a['local'] ?? '');
+                        break;
+                    }
+                }
+                $item = [
+                    'device' => $dev,
+                    'name'   => $dev,
+                    'status' => strtoupper((string) ($item['operstate'] ?? '')) === 'UP'
+                        || in_array('LOWER_UP', (array) ($item['flags'] ?? []), true) ? 'up' : 'down',
+                    'ip'     => $ip,
+                    'mac'    => (string) ($item['address'] ?? ''),
+                ];
+            }
+            $liveByDev[$dev] = $item;
+        }
+
+        $dev = $iface['physical_device'] ?? '';
+        $live = $liveByDev[$dev] ?? null;
+        $lldpPeers = $this->lldpPeersByDevice();
+        $peer = $lldpPeers[$dev] ?? null;
+
+        $iface['live_status'] = $live['status'] ?? ((bool) ($iface['enabled'] ?? 1) ? 'up' : 'down');
+        $iface['live_ip']     = ! empty($live['ip']) ? $live['ip'] : ($iface['ipv4_address'] ?? 'None');
+        $iface['live_mac']    = ! empty($iface['mac_override']) ? $iface['mac_override'] : (($live['mac'] ?? '') !== '' ? $live['mac'] : '—');
+        $iface['live_speed']  = ! empty($iface['speed_duplex']) && $iface['speed_duplex'] !== 'auto' ? $iface['speed_duplex'] : (($live['speed'] ?? '') !== '' ? $live['speed'] : '—');
+        $iface['rx_human']    = $this->formatBytes((int) ($live['rx_bytes'] ?? 0));
+        $iface['tx_human']    = $this->formatBytes((int) ($live['tx_bytes'] ?? 0));
+        $iface['lldp_peer_label'] = $peer !== null ? $this->lldpPeerLabel($peer) : '';
+
+        $assignedDevicesMap = [];
+        foreach ($dbPhysical as $p) {
+            $pDev = trim((string) ($p['physical_device'] ?? ''));
+            if ($pDev !== '') {
+                $assignedDevicesMap[$pDev] = [
+                    'id'   => $p['id'],
+                    'name' => $p['name'],
+                ];
+            }
+        }
+        $availableDevices = array_values(array_filter(
+            array_keys($hardwareNics),
+            static fn (string $device): bool => ! isset($assignedDevicesMap[$device]) || ($assignedDevicesMap[$device]['id'] === $id)
+        ));
+
+        $systemSettings = (new \App\Models\SystemSettingsModel())->getSettings();
+
         return view('interfaces/edit', [
-            'title'         => "Configure Interface: {$iface['name']} — MicronOS",
-            'breadcrumb'    => 'Edit Interface',
-            'iface'         => $iface,
-            'parentDevices' => $parentDevices,
+            'title'              => "Configure Interface: {$iface['name']} — MicronOS",
+            'breadcrumb'         => 'Edit Interface',
+            'iface'              => $iface,
+            'isNew'              => false,
+            'parentDevices'      => $parentDevices,
+            'hardwareNics'       => $hardwareNics,
+            'availableDevices'   => $availableDevices,
+            'assignedDevicesMap' => $assignedDevicesMap,
+            'allPhysicalDevs'    => array_keys($hardwareNics),
+            'systemSettings'     => $systemSettings,
+            'isMock'             => $this->ipc->isMock(),
+        ]);
+    }
+
+    public function create(): string
+    {
+        $db = \Config\Database::connect();
+        $hardwareNics = [];
+        foreach ((new NetworkHardware($this->ipc))->nics() ?? [] as $nic) {
+            $hardwareNics[$nic['name']] = $nic;
+        }
+
+        $assignedDevices = array_column(
+            $db->table('interfaces')->where('interface_type', 'physical')->get()->getResultArray(),
+            'physical_device'
+        );
+        $availableDevices = array_values(array_filter(
+            array_keys($hardwareNics),
+            static fn (string $device): bool => ! in_array($device, $assignedDevices, true)
+        ));
+
+        $parentDevices = [];
+        foreach ($db->table('interfaces')->where('interface_type', 'physical')->get()->getResultArray() as $physical) {
+            $device = (string) ($physical['physical_device'] ?? '');
+            if ($device !== '') {
+                $parentDevices[$device] = $physical['name'] . " ({$device})";
+            }
+        }
+        foreach ((new BondModel())->getBondsWithDetails() as $bond) {
+            $parentDevices[$bond['id']] = $bond['name'] . ' (' . $bond['id'] . ' LACP Trunk)';
+        }
+        foreach ((new BridgeModel())->getBridgesWithDetails() as $bridge) {
+            $parentDevices[$bridge['id']] = $bridge['name'] . ' (' . $bridge['id'] . ' Bridge)';
+        }
+
+        $now = date('Y-m-d H:i:s');
+        $iface = [
+            'id' => '', 'name' => '', 'physical_device' => '', 'enabled' => 1,
+            'admin_access' => json_encode(['https', 'ping'], JSON_THROW_ON_ERROR),
+            'interface_type' => 'physical', 'vlan_parent' => '', 'vlan_tag' => 100, 'vlan_priority' => 0,
+            'ip_assignment_type' => 'dhcp', 'ipv4_address' => '', 'ipv4_netmask' => 24, 'ipv4_gateway' => '',
+            'ipv6_assignment_type' => 'disabled', 'ipv6_address' => '', 'ipv6_prefix' => 64,
+            'mtu' => 1500, 'mss_clamp' => '', 'mac_override' => '', 'speed_duplex' => 'auto',
+            'description' => '', 'pppoe_username' => '', 'pppoe_password' => '', 'pppoe_service' => '',
+            'pppoe_ac_name' => '', 'pppoe_mtu' => 1492, 'pppoe_mru' => 1492, 'pppoe_idle_timeout' => 0,
+            'pppoe_default_route' => 1, 'created_at' => $now, 'updated_at' => $now,
+        ];
+
+        return view('interfaces/edit', [
+            'title'            => 'Add Interface — MicronOS',
+            'breadcrumb'       => 'Add Interface',
+            'iface'            => $iface,
+            'isNew'            => true,
+            'parentDevices'    => $parentDevices,
+            'hardwareNics'     => $hardwareNics,
+            'availableDevices' => $availableDevices,
+            'allPhysicalDevs'  => array_keys($hardwareNics),
+            'systemSettings'   => (new \App\Models\SystemSettingsModel())->getSettings(),
+            'isMock'           => $this->ipc->isMock(),
         ]);
     }
 
@@ -416,6 +624,7 @@ class Interfaces extends BaseController
         $data = [
             'name'                 => $name,
             'enabled'              => $this->request->getPost('enabled') ? 1 : 0,
+            'admin_access'         => $this->normaliseAdminAccess(),
             'ip_assignment_type'   => $assignmentType,
             'ipv4_address'         => $isStatic ? trim((string) $this->request->getPost('ipv4_address')) : null,
             'ipv4_netmask'         => $isStatic ? (int) ($this->request->getPost('ipv4_netmask') ?: 24) : null,
@@ -431,8 +640,20 @@ class Interfaces extends BaseController
             'updated_at'           => date('Y-m-d H:i:s'),
         ];
 
+        $isVlan = ($iface['interface_type'] ?? '') === 'vlan';
+        $physicalDevice = trim((string) $this->request->getPost('physical_device'));
+        if ($physicalDevice === '__custom__') {
+            $physicalDevice = trim((string) $this->request->getPost('physical_device_custom'));
+        }
+        if (! $isVlan && $physicalDevice !== '') {
+            if (! preg_match('/^[A-Za-z0-9][A-Za-z0-9_.:@-]{0,14}$/', $physicalDevice)) {
+                return redirect()->back()->withInput()->with('error', "Invalid physical hardware NIC name '{$physicalDevice}'.");
+            }
+            $data['physical_device'] = $physicalDevice;
+        }
+
         // Handle VLAN updates if applicable
-        if (($iface['interface_type'] ?? '') === 'vlan') {
+        if ($isVlan) {
             $vlanTag = (int) $this->request->getPost('vlan_tag');
             if ($vlanTag >= 1 && $vlanTag <= 4094) {
                 $data['vlan_tag'] = $vlanTag;
@@ -460,12 +681,44 @@ class Interfaces extends BaseController
             }
         }
 
-        $db->table('interfaces')->where('id', $id)->update($data);
-
         $this->audit('interfaces.update', $id, "Updated interface '{$name}'");
 
-        return redirect()->to(base_url('interfaces'))
-            ->with('success', "Interface '{$name}' configuration updated. Remember to Apply Changes.");
+        // Only an address / mode / state change can cut off the browser: those
+        // on the interface this session reaches the appliance through are
+        // applied with a confirmation window and roll back on their own.
+        $addressing = ['enabled', 'ip_assignment_type', 'ipv4_address', 'ipv4_netmask', 'ipv4_gateway', 'mtu'];
+        $changesAddressing = false;
+        foreach ($addressing as $col) {
+            if ((string) ($iface[$col] ?? '') !== (string) ($data[$col] ?? '')) {
+                $changesAddressing = true;
+            }
+        }
+        $changesDevice = ! $isVlan && $physicalDevice !== '' && $physicalDevice !== ($iface['physical_device'] ?? '');
+        $confirm = ($changesAddressing || $changesDevice) && $this->isManagementInterface($iface);
+
+        return $this->commitNetwork(static function ($db) use ($id, $data, $isVlan, $physicalDevice) {
+            $before = $db->table('interfaces')->where('id', $id)->get()->getRowArray();
+            $oldDev = (string) ($before['physical_device'] ?? '');
+
+            // Conflict resolution & clean swap for physical devices
+            if (! $isVlan && $physicalDevice !== '' && $physicalDevice !== $oldDev) {
+                $conflict = $db->table('interfaces')->where('physical_device', $physicalDevice)->where('id !=', $id)->get()->getRowArray();
+                if ($conflict) {
+                    $db->table('interfaces')->where('id', $conflict['id'])->update([
+                        'physical_device' => $oldDev !== '' ? $oldDev : '',
+                        'updated_at'      => date('Y-m-d H:i:s'),
+                    ]);
+                }
+            }
+
+            $db->table('interfaces')->where('id', $id)->update($data);
+
+            if ($id === 'wan' || $id === 'lan' || (isset($conflict) && in_array($conflict['id'], ['wan', 'lan'], true))) {
+                \App\Commands\NetworkCommand::syncNetworkInitJson();
+            }
+
+            return ['before' => $before, 'after' => $db->table('interfaces')->where('id', $id)->get()->getRowArray()];
+        }, "Interface '{$name}' updated", $confirm, (bool) $this->request->getPost('keep_references'));
     }
 
     public function toggle(string $id): \CodeIgniter\HTTP\RedirectResponse
@@ -478,16 +731,46 @@ class Interfaces extends BaseController
         }
 
         $newState = ((int) ($iface['enabled'] ?? 1) === 1) ? 0 : 1;
-        $db->table('interfaces')->where('id', $id)->update([
-            'enabled'    => $newState,
-            'updated_at' => date('Y-m-d H:i:s'),
-        ]);
-
         $statusStr = $newState === 1 ? 'enabled' : 'disabled';
         $this->audit('interfaces.toggle', $id, "Interface '{$iface['name']}' {$statusStr}");
 
-        return redirect()->to(base_url('interfaces'))
-            ->with('success', "Interface '{$iface['name']}' has been {$statusStr}. Remember to Apply Changes.");
+        return $this->commitNetwork(static function ($db) use ($id, $newState) {
+            $db->table('interfaces')->where('id', $id)->update([
+                'enabled'    => $newState,
+                'updated_at' => date('Y-m-d H:i:s'),
+            ]);
+
+            return null;
+        }, "Interface '{$iface['name']}' {$statusStr}", $newState === 0 && $this->isManagementInterface($iface));
+    }
+
+    private function normaliseAdminAccess(): string
+    {
+        $requested = $this->request->getPost('admin_access');
+        if (! is_array($requested)) {
+            $requested = [];
+        }
+
+        $access = array_values(array_unique(array_intersect(self::ADMIN_ACCESS_OPTIONS, array_map('strval', $requested))));
+
+        return json_encode($access, JSON_THROW_ON_ERROR);
+    }
+
+    private function defaultAdminAccess(array $iface): array
+    {
+        $id = strtolower((string) ($iface['id'] ?? ''));
+        $name = strtolower((string) ($iface['name'] ?? ''));
+        if (str_starts_with($id, 'lan') || str_starts_with($name, 'lan')) {
+            return ['http', 'https', 'ping', 'ssh'];
+        }
+        if (str_starts_with($id, 'opt') || str_starts_with($name, 'opt')) {
+            return ['http', 'https', 'ping'];
+        }
+        if (str_starts_with($id, 'wan') || str_starts_with($name, 'wan')) {
+            return ['ping'];
+        }
+
+        return [];
     }
 
     public function delete(string $id): \CodeIgniter\HTTP\RedirectResponse
@@ -550,30 +833,118 @@ class Interfaces extends BaseController
                 ->with('error', "Cannot delete interface '{$iface['name']}': It is actively referenced by {$depStr}. Please reassign or delete these references first.");
         }
 
-        $db->table('interfaces')->where('id', $id)->delete();
-
         $this->audit('interfaces.delete', $id, "Deleted interface '{$iface['name']}' ({$iface['physical_device']})");
 
-        return redirect()->to(base_url('interfaces'))
-            ->with('success', "Interface '{$iface['name']}' has been removed. Remember to Apply Changes.");
+        return $this->commitNetwork(static function ($db) use ($id) {
+            $db->table('interfaces')->where('id', $id)->delete();
+
+            return null;
+        }, "Interface '{$iface['name']}' removed", $this->isManagementInterface($iface));
     }
 
     public function apply(): \CodeIgniter\HTTP\RedirectResponse
     {
-        try {
-            $resp = $this->ipc->call('network.apply', ['reload_dhcp' => true]);
-            $msg = $resp['message'] ?? 'Network interface configurations applied to kernel.';
+        $this->audit('interfaces.apply', 'network', 'Re-applied the committed network configuration');
 
-            // The dynamic half of the DNS Server Override: pick up any DHCP/PPP/
-            // OpenVPN-assigned resolvers the links now hold and merge (or drop)
-            // them in the appliance stub resolver.
-            $msg .= $this->reconcileApplianceResolver($this->ipc);
+        return $this->commitNetwork(null, 'Network configuration re-applied', false);
+    }
 
-            $this->audit('interfaces.apply', 'network', 'Applied network interface changes to kernel');
-            return redirect()->to(base_url('interfaces'))->with('success', $msg);
-        } catch (\Throwable $e) {
-            return redirect()->to(base_url('interfaces'))->with('error', 'Failed to apply: ' . $e->getMessage());
+    /**
+     * Confirm a pending (confirm-window) network change from the new address.
+     */
+    public function confirmNetwork(): \CodeIgniter\HTTP\RedirectResponse
+    {
+        $r = (new NetworkTransaction($this->ipc))->confirm((string) $this->request->getPost('tx'));
+        $this->audit('interfaces.confirm', 'network', $r['message']);
+
+        return redirect()->to(base_url('interfaces'))->with($r['ok'] ? 'success' : 'error', $r['message']);
+    }
+
+    /** Roll a pending network change back now. */
+    public function rollbackNetwork(): \CodeIgniter\HTTP\RedirectResponse
+    {
+        $r = (new NetworkTransaction($this->ipc))->rollback();
+        $this->audit('interfaces.rollback', 'network', $r['message']);
+
+        return redirect()->to(base_url('interfaces'))->with($r['ok'] ? 'success' : 'error', $r['message']);
+    }
+
+    /** JSON: committed plan vs kernel, pending change, last result (for the page and the CLI). */
+    public function networkStatus(): \CodeIgniter\HTTP\ResponseInterface
+    {
+        $tx = new NetworkTransaction($this->ipc);
+        $tx->reconcile();
+        $st = $this->ipc->call('network.status')['result'] ?? null;
+
+        return $this->response->setJSON([
+            'ok'      => is_array($st),
+            'plan'    => (new \App\Libraries\Network\NetworkPlan())->build(),
+            'status'  => $st,
+        ]);
+    }
+
+    /**
+     * Apply a network change through the one shared transaction (database +
+     * dependent settings + plan + firewall + DHCP → micrond → verify → commit
+     * or roll everything back) and report exactly what happened.
+     *
+     * @param callable|null $mutate see NetworkTransaction::apply()
+     */
+    private function commitNetwork(?callable $mutate, string $what, bool $confirm, bool $keepReferences = false): \CodeIgniter\HTTP\RedirectResponse
+    {
+        $r = (new NetworkTransaction($this->ipc))->apply($mutate, [
+            'confirm'           => $confirm,
+            'update_references' => ! $keepReferences,
+            'actor'             => (string) (session('username') ?? 'admin'),
+            'reason'            => $what,
+        ]);
+
+        $detail = [
+            'status'   => $r['status'],
+            'tx'       => $r['tx'] ?? null,
+            'updated'  => $r['updated'],
+            'review'   => $r['review'],
+            'warnings' => $r['warnings'],
+            'errors'   => $r['errors'],
+        ];
+        if (! $r['ok']) {
+            // Nothing was committed: the dependent updates were rolled back too.
+            $detail['updated'] = [];
+            $detail['review']  = [];
         }
+        $redirect = redirect()->to(base_url('interfaces'))->with('net_result', $detail);
+        if (! $r['ok']) {
+            return $redirect->with('error', $what . ' — not applied. ' . $r['message']);
+        }
+        if (($r['status'] ?? '') === 'pending_confirm') {
+            return $redirect->with('warning', $what . '. ' . $r['message']);
+        }
+
+        // DHCP/PPP-assigned resolvers on the links feed the appliance's own
+        // stub resolver (DNS Server Override); refresh it after a change.
+        $dns = '';
+        try {
+            $dns = $this->reconcileApplianceResolver($this->ipc);
+        } catch (\Throwable) {
+        }
+
+        return $redirect->with('success', $what . ' and applied. ' . $r['message'] . $dns);
+    }
+
+    /**
+     * Whether this browser session reaches the appliance through $iface: its
+     * current address is the one the request arrived on.
+     */
+    private function isManagementInterface(array $iface): bool
+    {
+        $addr = trim((string) ($iface['ipv4_address'] ?? ''));
+        if ($addr === '') {
+            return false;
+        }
+        $server = (string) ($this->request->getServer('SERVER_ADDR') ?? '');
+        $host   = strtolower((string) parse_url('http://' . ($this->request->getServer('HTTP_HOST') ?? ''), PHP_URL_HOST));
+
+        return $server === $addr || $host === $addr;
     }
 
     private function audit(string $action, string $target, string $desc): void
@@ -711,7 +1082,7 @@ class Interfaces extends BaseController
         $mtu      = (int) ($this->request->getPost('mtu') ?: 1500);
 
         if (! preg_match('/^bond[0-9]+$/', $id)) {
-            return redirect()->to(base_url('interfaces?tab=bonds'))->withInput()->with('error', 'Bond identifier must follow bond0, bond1 naming format.');
+            return redirect()->to(base_url('interfaces'))->withInput()->with('error', 'Bond identifier must follow bond0, bond1 naming format.');
         }
 
         if ($name === '') {
@@ -721,7 +1092,7 @@ class Interfaces extends BaseController
         // Filter and sanitize member slave interfaces
         $slaves = array_values(array_filter(array_map('trim', $slaves), static fn ($s) => $s !== ''));
         if (empty($slaves)) {
-            return redirect()->to(base_url('interfaces?tab=bonds'))->withInput()->with('error', 'At least one member network interface must be selected for the bond aggregation.');
+            return redirect()->to(base_url('interfaces'))->withInput()->with('error', 'At least one member network interface must be selected for the bond aggregation.');
         }
 
         $bondData = [
@@ -779,7 +1150,7 @@ class Interfaces extends BaseController
         ];
         $this->ipc->bondApply($ipcData);
 
-        return redirect()->to(base_url('interfaces?tab=bonds'))->with('success', "Bond interface {$id} ({$mode}) successfully created and applied to Micron OS kernel.");
+        return redirect()->to(base_url('interfaces'))->with('success', "Bond interface {$id} ({$mode}) successfully created and applied to Micron OS kernel.");
     }
 
     /**
@@ -792,7 +1163,7 @@ class Interfaces extends BaseController
 
         $bond = $bondModel->find($id);
         if (! $bond) {
-            return redirect()->to(base_url('interfaces?tab=bonds'))->with('error', "Bond '{$id}' does not exist.");
+            return redirect()->to(base_url('interfaces'))->with('error', "Bond '{$id}' does not exist.");
         }
 
         $bondModel->delete($id);
@@ -803,7 +1174,7 @@ class Interfaces extends BaseController
         // Release slaves and delete link via micrond
         $this->ipc->bondDelete($id);
 
-        return redirect()->to(base_url('interfaces?tab=bonds'))->with('success', "Bond link {$id} deleted and member physical ports released.");
+        return redirect()->to(base_url('interfaces'))->with('success', "Bond link {$id} deleted and member physical ports released.");
     }
 
     /**
@@ -829,19 +1200,32 @@ class Interfaces extends BaseController
         $txPower         = (int) ($this->request->getPost('tx_power') ?: 20);
         $enabled         = (int) ($this->request->getPost('enabled') !== '0' ? 1 : 0);
 
+        // Wi-Fi can only be configured on a radio this machine actually has.
+        $radios = (new NetworkHardware($this->ipc))->wirelessNames();
+        if ($radios === []) {
+            return redirect()->to(base_url('interfaces'))->with('error', 'No wireless network adapter is installed on this appliance, so Wi-Fi cannot be configured.');
+        }
         if ($iface === '') {
-            $iface = 'wlan0';
+            $iface = $radios[0];
+        }
+        if (! in_array($iface, $radios, true)) {
+            return redirect()->to(base_url('interfaces'))->withInput()->with('error', "'{$iface}' is not a wireless adapter on this appliance. Installed radios: " . implode(', ', $radios) . '.');
         }
         if ($id === '') {
             $id = $iface;
         }
 
         if ($ssid === '') {
-            return redirect()->to(base_url('interfaces?tab=wireless'))->withInput()->with('error', 'Wireless SSID network name is required.');
+            return redirect()->to(base_url('interfaces'))->withInput()->with('error', 'Wireless SSID network name is required.');
+        }
+
+        // The edit dialog never receives the stored passphrase; blank keeps it.
+        if ($passphrase === '') {
+            $passphrase = (string) (($wirelessModel->find($id) ?? [])['passphrase'] ?? '');
         }
 
         if ($security !== 'open' && strlen($passphrase) < 8) {
-            return redirect()->to(base_url('interfaces?tab=wireless'))->withInput()->with('error', 'Wireless security passphrase must be at least 8 characters long.');
+            return redirect()->to(base_url('interfaces'))->withInput()->with('error', 'Wireless security passphrase must be at least 8 characters long.');
         }
 
         if ($name === '') {
@@ -894,14 +1278,21 @@ class Interfaces extends BaseController
         // Apply via micrond
         $this->ipc->wirelessApply($wData);
 
-        return redirect()->to(base_url('interfaces?tab=wireless'))->with('success', "Wireless interface {$iface} ({$mode}) configuration saved and daemon updated.");
+        return redirect()->to(base_url('interfaces'))->with('success', "Wireless interface {$iface} ({$mode}) configuration saved and daemon updated.");
     }
 
     /**
      * Return live status and connected clients for a Wi-Fi interface.
      */
-    public function wirelessStatus(string $interface = 'wlan0'): \CodeIgniter\HTTP\ResponseInterface
+    public function wirelessStatus(string $interface = ''): \CodeIgniter\HTTP\ResponseInterface
     {
+        if (! in_array($interface, (new NetworkHardware($this->ipc))->wirelessNames(), true)) {
+            return $this->response->setStatusCode(404)->setJSON([
+                'success' => false,
+                'status'  => 'absent',
+                'message' => 'No wireless adapter with that name is installed on this appliance.',
+            ]);
+        }
         $status = $this->ipc->wirelessStatus($interface);
         return $this->response->setJSON($status);
     }
@@ -923,7 +1314,7 @@ class Interfaces extends BaseController
         $description  = trim((string) $this->request->getPost('description'));
 
         if (! preg_match('/^[a-zA-Z0-9_-]{2,15}$/', $id)) {
-            return redirect()->to(base_url('interfaces?tab=bridges'))->withInput()->with('error', 'Bridge identifier must be alphanumeric (e.g. br0, br-lan).');
+            return redirect()->to(base_url('interfaces'))->withInput()->with('error', 'Bridge identifier must be alphanumeric (e.g. br0, br-lan).');
         }
 
         if ($name === '') {
@@ -932,7 +1323,7 @@ class Interfaces extends BaseController
 
         $slaves = array_values(array_filter(array_map('trim', $slaves), static fn ($s) => $s !== ''));
         if (empty($slaves)) {
-            return redirect()->to(base_url('interfaces?tab=bridges'))->withInput()->with('error', 'At least one member port must be selected for the bridge.');
+            return redirect()->to(base_url('interfaces'))->withInput()->with('error', 'At least one member port must be selected for the bridge.');
         }
 
         $bridgeData = [
@@ -987,7 +1378,7 @@ class Interfaces extends BaseController
         ];
         $this->ipc->bridgeApply($ipcData);
 
-        return redirect()->to(base_url('interfaces?tab=bridges'))->with('success', "Bridge interface {$id} successfully created and applied to Micron OS kernel.");
+        return redirect()->to(base_url('interfaces'))->with('success', "Bridge interface {$id} successfully created and applied to Micron OS kernel.");
     }
 
     /**
@@ -1000,7 +1391,7 @@ class Interfaces extends BaseController
 
         $bridge = $bridgeModel->find($id);
         if (! $bridge) {
-            return redirect()->to(base_url('interfaces?tab=bridges'))->with('error', "Bridge '{$id}' does not exist.");
+            return redirect()->to(base_url('interfaces'))->with('error', "Bridge '{$id}' does not exist.");
         }
 
         $bridgeModel->delete($id);
@@ -1011,6 +1402,109 @@ class Interfaces extends BaseController
         // Release member ports and delete in kernel via micrond
         $this->ipc->bridgeDelete($id);
 
-        return redirect()->to(base_url('interfaces?tab=bridges'))->with('success', "Bridge interface {$id} deleted and member ports released.");
+        return redirect()->to(base_url('interfaces'))->with('success', "Bridge interface {$id} deleted and member ports released.");
+    }
+
+    /**
+     * Reassign physical network devices to WAN, LAN and other interfaces.
+     */
+    public function assign(): \CodeIgniter\HTTP\RedirectResponse
+    {
+        $wanDev = trim((string) $this->request->getPost('wan_device'));
+        $lanDev = trim((string) $this->request->getPost('lan_device'));
+        $optInput = (array) ($this->request->getPost('opt') ?? []);
+
+        if (! preg_match('/^[A-Za-z0-9][A-Za-z0-9_.:@-]{0,14}$/', $wanDev)
+            || ($lanDev !== '' && strtolower($lanDev) !== 'none' && ! preg_match('/^[A-Za-z0-9][A-Za-z0-9_.:@-]{0,14}$/', $lanDev))) {
+            return redirect()->to(base_url('interfaces'))->with('error', 'Valid physical network devices must be selected for WAN and LAN.');
+        }
+
+        $lanDev = strtolower($lanDev) === 'none' ? '' : $lanDev;
+        if ($lanDev !== '' && $lanDev === $wanDev) {
+            return redirect()->to(base_url('interfaces'))->with('error', 'WAN and LAN must use different physical network devices.');
+        }
+
+        $optDevices = [];
+        foreach ($optInput as $optId => $dev) {
+            $dev = trim((string) $dev);
+            if ($dev !== '') {
+                if (! preg_match('/^[A-Za-z0-9][A-Za-z0-9_.:@-]{0,14}$/', $dev)) {
+                    return redirect()->to(base_url('interfaces'))->with('error', "Invalid device name '{$dev}' for interface {$optId}.");
+                }
+                if ($dev === $wanDev || $dev === $lanDev || in_array($dev, $optDevices, true)) {
+                    return redirect()->to(base_url('interfaces'))->with('error', "Device '{$dev}' is assigned to multiple interfaces.");
+                }
+                $optDevices[$optId] = $dev;
+            }
+        }
+
+        $now = date('Y-m-d H:i:s');
+        $actor = 'web:' . (session()->get('username') ?: 'admin');
+
+        $result = (new NetworkTransaction($this->ipc))->apply(static function ($db) use ($wanDev, $lanDev, $optDevices, $now) {
+            $wanBefore = $db->table('interfaces')->where('id', 'wan')->get()->getRowArray();
+            $lanBefore = $db->table('interfaces')->where('id', 'lan')->get()->getRowArray();
+
+            if (! $wanBefore || ! $lanBefore) {
+                throw new \RuntimeException('WAN and LAN interface rows must exist in database.');
+            }
+
+            // 1. Clear physical_device across ALL interfaces that currently hold wanDev, lanDev,
+            // or any of the target opt devices, preventing any duplicate-device collision during assignment or swap.
+            $claimed = array_unique(array_filter(array_merge([$wanDev, $lanDev], array_values($optDevices))));
+            $db->table('interfaces')
+                ->where('interface_type', 'physical')
+                ->whereIn('physical_device', $claimed)
+                ->update([
+                    'physical_device' => '',
+                    'updated_at'      => $now,
+                ]);
+
+            // 2. Set WAN physical device while preserving addressing
+            $db->table('interfaces')->where('id', 'wan')->update([
+                'physical_device' => $wanDev,
+                'enabled'         => 1,
+                'updated_at'      => $now,
+            ]);
+
+            // 3. Set LAN physical device while preserving addressing
+            if ($lanDev === '') {
+                $db->table('interfaces')->where('id', 'lan')->update([
+                    'physical_device' => null,
+                    'enabled'         => 0,
+                    'updated_at'      => $now,
+                ]);
+            } else {
+                $db->table('interfaces')->where('id', 'lan')->update([
+                    'physical_device' => $lanDev,
+                    'enabled'         => 1,
+                    'updated_at'      => $now,
+                ]);
+            }
+
+            // 4. Set OPT physical devices if provided
+            foreach ($optDevices as $optId => $dev) {
+                $db->table('interfaces')->where('id', $optId)->update([
+                    'physical_device' => $dev,
+                    'updated_at'      => $now,
+                ]);
+            }
+
+            \App\Commands\NetworkCommand::syncNetworkInitJson($wanDev, $lanDev !== '' ? $lanDev : null);
+
+            return ['before' => $lanBefore, 'after' => $db->table('interfaces')->where('id', 'lan')->get()->getRowArray()];
+        }, [
+            'actor' => $actor,
+            'reason' => "WebUI assign WAN={$wanDev} LAN=" . ($lanDev !== '' ? $lanDev : 'none'),
+            'confirm' => false,
+        ]);
+
+        if (! empty($result['ok'])) {
+            $this->audit('interfaces.assign', 'wan,lan', "Reassigned physical interfaces: WAN -> {$wanDev}, LAN -> " . ($lanDev ?: 'none'));
+
+            return redirect()->to(base_url('interfaces'))->with('success', "Interfaces assigned successfully: WAN &rarr; {$wanDev}, LAN &rarr; " . ($lanDev ?: 'none'));
+        }
+
+        return redirect()->to(base_url('interfaces'))->with('error', $result['message'] ?? 'Could not apply interface assignment.');
     }
 }

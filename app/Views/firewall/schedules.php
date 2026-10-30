@@ -855,13 +855,7 @@ function closeEditModal() {
   document.getElementById('editSchedModal').classList.remove('active');
 }
 
-// Backdrop and ESC key close
-document.querySelectorAll('.mno-modal-backdrop').forEach(modal => {
-  modal.addEventListener('click', (e) => {
-    if (e.target === modal) modal.classList.remove('active');
-  });
-});
-document.addEventListener('keydown', (e) => {
+// ESC key close
   if (e.key === 'Escape') {
     closeCreateModal();
     closeEditModal();

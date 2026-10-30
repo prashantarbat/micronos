@@ -70,7 +70,7 @@ class Siem extends BaseController
         $db->table('siem_settings')->where('id', 1)->update($data);
 
         // Dispatch IPC to reconfigure rsyslog / syslog-ng daemon
-        $response = $this->ipc->call('siem.reconfigure', $data);
+        $response = $this->applier()->siem();
         $this->auditLog("siem.update_settings", "Updated SIEM collector parameters to {$data['server_host']}:{$data['server_port']} ({$data['log_format']})");
 
         [$key, $message] = $this->ipcFlash($response, 'SIEM log shipping configuration updated and service reloaded.', 'Saved, but the SIEM reload');
@@ -160,8 +160,25 @@ class Siem extends BaseController
         $ipcRes = $this->ipc->call('siem.get_logs', ['lines' => 30]);
         $stream = [];
 
-        if (!empty($ipcRes['events']) && is_array($ipcRes['events'])) {
-            $stream = $ipcRes['events'];
+        $read        = $this->ipcRead($ipcRes);
+        $unavailable = null;
+        if ($read !== null) {
+            $prio = ['EMERG', 'ALERT', 'CRIT', 'ERROR', 'WARN', 'NOTICE', 'INFO', 'DEBUG'];
+            foreach ((array) ($read['events'] ?? []) as $ev) {
+                $stream[] = [
+                    'timestamp' => (string) ($ev['time'] ?? ''),
+                    'subsystem' => (string) ($ev['source'] ?? 'system'),
+                    'action'    => $prio[(int) ($ev['priority'] ?? 6)] ?? 'INFO',
+                    'src'       => (string) ($ev['host'] ?? ''),
+                    'dst'       => $enabled ? "{$host}:{$port}" : '—',
+                    'proto'     => strtoupper((string) $proto),
+                    'rule'      => (string) ($ev['message'] ?? ''),
+                    'status'    => $enabled ? 'QUEUED' : 'LOCAL ONLY',
+                    'raw'       => (string) ($ev['message'] ?? ''),
+                ];
+            }
+        } elseif (! $this->ipc->isMock()) {
+            $unavailable = (string) ($ipcRes['error']['message'] ?? $ipcRes['result']['message'] ?? 'the daemon did not answer');
         } else {
             $now = time();
             $isoDate = date('c');
@@ -244,6 +261,8 @@ class Siem extends BaseController
             'target'    => "{$proto}://{$host}:{$port}",
             'format'    => $format,
             'events'    => $stream,
+            'unavailable' => $unavailable,
+            'mock'      => $this->ipc->isMock(),
             'timestamp' => date('Y-m-d H:i:s'),
         ]);
     }

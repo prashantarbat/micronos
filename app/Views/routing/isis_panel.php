@@ -322,7 +322,13 @@ $isisRmSelect = function (string $field) use ($is, $routeMaps): string {
       </tr></thead>
       <tbody>
         <?php if (empty($isisInterfaces)): ?>
-          <tr><td colspan="8" style="text-align:center; padding:32px; color:var(--text-muted);">No IS-IS interfaces configured. Enable IS-IS on an interface to form adjacencies.</td></tr>
+          <tr><td colspan="8" style="text-align:center; padding:28px; color:var(--text-muted);">
+              <div style="display:flex; flex-direction:column; align-items:center; gap:6px;">
+                <svg width="28" height="28" fill="none" viewBox="0 0 24 24" stroke="var(--color-red)" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"/></svg>
+                <p style="font-size:0.88rem; color:var(--text-secondary); margin:0;">No IS-IS interfaces configured.</p>
+                <p style="font-size:0.8rem; color:var(--text-muted); margin:0; max-width:400px;">IS-IS only runs on interfaces you explicitly enable here — adding one starts hello packets and lets the router form adjacencies on that circuit. Set the circuit type and network type to match the neighbouring router, and make sure a NET address is configured on the General tab first.</p>
+              </div>
+            </td></tr>
         <?php else: ?>
           <?php foreach ($isisInterfaces as $i): ?>
             <tr>
@@ -371,7 +377,7 @@ $isisRmSelect = function (string $field) use ($is, $routeMaps): string {
     <div class="card" style="padding:16px;">
       <div style="font-size:0.72rem; color:var(--text-muted); text-transform:uppercase; font-weight:700;">Area Tag / NET</div>
       <div style="font-size:1.05rem; font-weight:700; color:var(--color-blue, #3b82f6); margin-top:4px;"><?= esc($is['area_tag'] ?? 'DEFAULT') ?></div>
-      <div style="font-size:0.72rem; font-family:var(--font-mono); color:var(--text-muted); margin-top:2px;"><?= esc($is['net'] ?: 'no NET configured') ?></div>
+      <div style="font-size:0.72rem; font-family:var(--font-mono); color:var(--text-muted); margin-top:2px;"><?= esc(($is['net'] ?? '') ?: 'no NET configured') ?></div>
     </div>
     <div class="card" style="padding:16px;">
       <div style="font-size:0.72rem; color:var(--text-muted); text-transform:uppercase; font-weight:700;">Level / Metric</div>
@@ -399,9 +405,9 @@ $isisRmSelect = function (string $field) use ($is, $routeMaps): string {
             <tr>
               <td><span class="rt-chip rt-chip-cyan"><?= strtoupper(substr(md5($i['interface']), 0, 4)) ?>.<?= strtoupper(substr(md5($i['interface']), 4, 4)) ?>.<?= strtoupper(substr(md5($i['interface']), 8, 4)) ?></span></td>
               <td><span class="rt-chip"><?= esc($i['interface']) ?></span></td>
-              <td><span class="badge badge-info" style="font-size:0.65rem;"><?= $i['circuit_type'] === 'level-1' ? 'L1' : ($i['circuit_type'] === 'level-2-only' ? 'L2' : 'L1/L2') ?></span></td>
+              <td><span class="badge badge-info" style="font-size:0.65rem;"><?= ($i['circuit_type'] ?? '') === 'level-1' ? 'L1' : (($i['circuit_type'] ?? '') === 'level-2-only' ? 'L2' : 'L1/L2') ?></span></td>
               <td><span class="badge badge-success" style="font-size:0.65rem;">Up</span></td>
-              <td style="font-family:var(--font-mono); font-size:0.78rem; color:var(--color-emerald);"><?= (int)($i['hello_interval'] * $i['hello_multiplier']) ?>s</td>
+              <td style="font-family:var(--font-mono); font-size:0.78rem; color:var(--color-emerald);"><?= (int)(($i['hello_interval'] ?? 10) * ($i['hello_multiplier'] ?? 3)) ?>s</td>
             </tr>
           <?php endforeach; ?>
         <?php endif; ?>

@@ -134,3 +134,28 @@ _modules/*
 
 /results/
 /phpunit.xml
+
+# ---------------------------------------------------------------------------
+# Development state and tooling (never ship)
+# ---------------------------------------------------------------------------
+# writable/ holds runtime state (databases, sessions, backups, transfer
+# archives, the config revision repo). Only the directory skeleton and the
+# bundled threat-intel lists are tracked.
+/writable/*
+!/writable/.htaccess
+!/writable/index.html
+!/writable/cache/
+!/writable/logs/
+!/writable/session/
+!/writable/uploads/
+!/writable/debugbar/
+!/writable/connectors/
+!/writable/isdb/
+/graphify-out/
+/.agents/
+/.freebuff/
+/.pytest_cache/
+/MORNING_RESUMPTION_CHECKPOINT.md
+/test_nat_render.html
+__pycache__/
+*.pyc

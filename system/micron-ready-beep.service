@@ -1,28 +1,23 @@
 [Unit]
-Description=Micron OS System Ready Audible Indicator (3 Short Beeps)
+Description=Micron OS System Ready Audible Indicator (3 Long & Loud Beeps)
 Documentation=https://github.com/micronos/micronos
-# Fire after the health check confirms the slot is good — this guarantees
-# the beep is only heard when the appliance has fully and successfully booted.
-# Changing from After=apache2 prevents the beep unit from being held back
-# by an apache2 failure during the first-boot retry cycle.
-After=network.target network-online.target micron-network.service micrond.service micron-healthcheck.service systemd-user-sessions.service
-Wants=micron-network.service
+# Fire after local filesystems, micrond, and health check confirm operational status.
+# Note: network-online.target is intentionally omitted so beeps sound reliably
+# even when the appliance boots offline or without an active WAN uplink.
+After=local-fs.target micrond.service micron-healthcheck.service
+Wants=micrond.service
 
 [Service]
 Type=oneshot
-# Must run as root: KIOCSOUND ioctl on /dev/console requires CAP_SYS_TTY_CONFIG,
-# and the 'beep' package requires write access to /dev/input event devices.
 User=root
 Group=root
-# Explicitly load pcspkr before the script runs.
-# Debian 13 Trixie blacklists pcspkr by default; the installer removes
-# the blacklist entry, but modprobe here is a belt-and-braces fallback.
 ExecStartPre=-/sbin/modprobe pcspkr
+ExecStartPre=-/sbin/modprobe snd_pcm
 ExecStart=/usr/local/bin/micron-ready-beep
 RemainAfterExit=true
 StandardOutput=journal
 StandardError=journal
-TimeoutStartSec=15
+TimeoutStartSec=30
 
 [Install]
 WantedBy=multi-user.target

@@ -7,8 +7,8 @@ $_validThemes  = $_themes->ids();
 // shared light-mode overrides in micronos.css apply to all of them.
 $_lightThemes  = $_themes->lightIds();
 $_validLayouts = $_themes->layoutIds();
-$_appTheme  = in_array($_sysCfg['theme'] ?? '', $_validThemes, true) ? $_sysCfg['theme'] : 'dark';
-$_appLayout = ($_sysCfg['layout'] ?? 'sidebar') === 'topnav' ? 'topnav' : 'sidebar';
+$_appTheme  = $_themes->resolveTheme($_sysCfg['theme'] ?? null);
+$_appLayout = $_themes->resolveLayout($_sysCfg['layout'] ?? null);
 // Allow URL ?_theme=xxx and ?_layout=xxx for quick previews (session-stored)
 if (isset($_GET['_theme']) && in_array($_GET['_theme'], $_validThemes, true)) {
     session()->set('ui_theme', $_GET['_theme']);
@@ -91,8 +91,13 @@ if ($_stickyFg !== '') { $_stickyStyle .= '--dsb-fg:' . $_stickyFg . ';'; }
        rather than assembled as HTML strings, and a wire value can only ever
        reach a cell as text. -->
   <script src="<?= base_url('assets/js/micronos-table.js') ?>?v=<?= @filemtime(FCPATH . 'assets/js/micronos-table.js') ?: '1' ?>"></script>
+  <!-- Shared shell helpers: confirmation dialog, toasts, and the Ctrl/⌘+K
+       command palette (built from this page's own navigation). -->
+  <script src="<?= base_url('assets/js/micronos-ui.js') ?>?v=<?= @filemtime(FCPATH . 'assets/js/micronos-ui.js') ?: '1' ?>" defer></script>
+  <script src="<?= base_url('assets/js/micronos-palette.js') ?>?v=<?= @filemtime(FCPATH . 'assets/js/micronos-palette.js') ?: '1' ?>" defer></script>
 </head>
 <body class="<?= $_stickyShow ? 'has-device-bar' : '' ?>">
+<a class="skip-link" href="#pageMain">Skip to main content</a>
   <!-- One connection-lost banner for the whole appliance, painted by the
        scheduler. Present in the markup (rather than built in JS) so it is
        styled by the stylesheet and exists for a page's first failed request. -->
@@ -159,6 +164,30 @@ if (! function_exists('mnNavGroupOpen')) {
     }
 }
 
+if (! function_exists('mnPluginLinks')) {
+    /**
+     * Installed plugins' pages that belong in one functional rail section
+     * (PluginNav::SECTIONS). Rendered inside that section's menu so an
+     * operator finds, say, LLDP neighbours under Network — the Plugins group
+     * still lists every plugin for installation and troubleshooting.
+     */
+    function mnPluginLinks(string $section, array $menu, string $path, bool $topnav = false): string
+    {
+        $out = '';
+        foreach (\App\Libraries\PluginNav::entriesFor($section, $menu) as $pm) {
+            $href   = esc(base_url(ltrim((string) $pm['path'], '/')), 'attr');
+            $active = str_starts_with($path, (string) $pm['path']) ? 'active' : '';
+            $icon   = '<path stroke-linecap="round" stroke-linejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>';
+            $label  = esc((string) $pm['label']);
+            $out   .= $topnav
+                ? '<a href="' . $href . '" class="topnav-dropdown-item ' . $active . '"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">' . $icon . '</svg>' . $label . ' <span class="nav-badge-sm nav-tag-amber">Plugin</span></a>' . "\n"
+                : '<li class="nav-item"><a href="' . $href . '" class="nav-link ' . $active . '"><svg class="nav-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">' . $icon . '</svg>' . $label . ' <span class="nav-tag nav-tag-amber">Plugin</span></a></li>' . "\n";
+        }
+
+        return $out;
+    }
+}
+
 ?>
 <div class="app-shell">
 
@@ -182,6 +211,14 @@ if (! function_exists('mnNavGroupOpen')) {
           <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
           Dashboard
         </a>
+
+        <?php $_canTerm = session('is_superadmin') || in_array('terminal.access', (array) (session('permissions') ?? []), true); ?>
+        <?php if ($_canTerm): ?>
+        <!-- Terminal / Console (single link) -->
+        <a href="<?= base_url('terminal') ?>" class="topnav-group-btn <?= mnIsActive($_path, '/terminal') ?>" aria-label="Terminal" title="Terminal" style="border-bottom:2px solid <?= mnIsActive($_path,'/terminal') ? 'var(--color-cyan)':'transparent' ?>; text-decoration:none;">
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+        </a>
+        <?php endif; ?>
 
         <!-- Network -->
         <div class="topnav-group <?= mnIsActive($_path, ['/interfaces','/dhcp','/dns','/routing','/ha','/pppoe','/multicast','/captive','/services/captive']) ?>">
@@ -214,11 +251,11 @@ if (! function_exists('mnNavGroupOpen')) {
             </a>
             <div class="topnav-divider"></div>
             <div class="topnav-dropdown-label">Routing</div>
-            <a href="<?= base_url('routing') ?>" class="topnav-dropdown-item <?= mnIsActive($_path,'/routing') ?>">
+            <a href="<?= base_url('routing/static') ?>" class="topnav-dropdown-item <?= mnIsActive($_path,'/routing/static') ?>">
               <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
               Static Routes
             </a>
-            <a href="<?= base_url('routing') ?>?tab=bgp" class="topnav-dropdown-item">
+            <a href="<?= base_url('routing') ?>" class="topnav-dropdown-item <?= (($_path === '/routing' || str_starts_with($_path, '/routing')) && $_path !== '/routing/static' && !str_starts_with($_path, '/routing/sdwan')) ? 'active' : '' ?>">
               <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M17 8l4 4m0 0l-4 4m4-4H3"/></svg>
               Dynamic Routing <span class="nav-badge-sm nav-tag-purple">FRR</span>
             </a>
@@ -238,6 +275,8 @@ if (! function_exists('mnNavGroupOpen')) {
               <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0"/></svg>
               Captive Portal <span class="nav-badge-sm nav-tag-amber">Hotspot</span>
             </a>
+            <?= mnPluginLinks('network', $_pluginMenu, $_path, true) ?>
+            <?= mnPluginLinks('routing', $_pluginMenu, $_path, true) ?>
           </div>
         </div>
 
@@ -322,6 +361,7 @@ if (! function_exists('mnNavGroupOpen')) {
               <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9"/></svg>
               Clientless Gateway <span class="nav-badge-sm nav-tag-indigo">ZTNA</span>
             </a>
+            <?= mnPluginLinks('vpn', $_pluginMenu, $_path, true) ?>
           </div>
         </div>
 
@@ -361,6 +401,11 @@ if (! function_exists('mnNavGroupOpen')) {
               <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
               Threat Intel Feeds <span class="nav-badge-sm nav-tag-rose">IoC</span>
             </a>
+            <a href="<?= base_url('security/cve') ?>" class="topnav-dropdown-item <?= mnIsActive($_path,['/security/cve', '/cve']) ?>">
+              <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+              CVEs Security Advisories <span class="nav-badge-sm nav-tag-amber">NVD</span>
+            </a>
+            <?= mnPluginLinks('security', $_pluginMenu, $_path, true) ?>
           </div>
         </div>
 
@@ -390,6 +435,7 @@ if (! function_exists('mnNavGroupOpen')) {
             <a href="<?= base_url('system/updates') ?>" class="topnav-dropdown-item <?= mnIsActive($_path,'/system/updates') ?>"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>System Updates</a>
             <a href="<?= base_url('system') ?>" class="topnav-dropdown-item <?= $_path === '/system' ? 'active' : '' ?>"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"/></svg>System Settings</a>
             <a href="<?= base_url('docs') ?>" class="topnav-dropdown-item <?= mnIsActive($_path,'/docs') ?>"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/></svg>Documentation</a>
+            <?= mnPluginLinks('admin', $_pluginMenu, $_path, true) ?>
           </div>
         </div>
 
@@ -475,6 +521,16 @@ if (! function_exists('mnNavGroupOpen')) {
             Dashboard
           </a>
         </li>
+        <?php if (session('is_superadmin') || in_array('terminal.access', (array) (session('permissions') ?? []), true)): ?>
+        <li class="nav-item">
+          <a href="<?= base_url('terminal') ?>" class="nav-link <?= str_starts_with(current_url(true)->getPath(), '/terminal') ? 'active' : '' ?>">
+            <svg class="nav-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+            </svg>
+            Terminal
+          </a>
+        </li>
+        <?php endif; ?>
       </ul>
 
       <!-- Network -->
@@ -504,6 +560,7 @@ if (! function_exists('mnNavGroupOpen')) {
               <span class="nav-tag nav-tag-amber">Hotspot</span>
             </a>
           </li>
+          <?= mnPluginLinks('network', $_pluginMenu, $_path) ?>
         </ul>
       </div>
 
@@ -610,9 +667,9 @@ if (! function_exists('mnNavGroupOpen')) {
               <span class="nav-tag nav-tag-amber">VRRP</span>
             </a>
           </li>
-          <!-- Static Routes & FIB -->
+          <!-- Static Routes -->
           <li class="nav-item">
-            <a href="<?= base_url('routing') ?>" class="nav-link <?= (current_url(true)->getPath() === '/routing' && in_array($_GET['tab'] ?? '', ['static','fib',''], true)) ? 'active' : '' ?>">
+            <a href="<?= base_url('routing/static') ?>" class="nav-link <?= str_starts_with(current_url(true)->getPath(), '/routing/static') ? 'active' : '' ?>">
               <svg class="nav-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/>
               </svg>
@@ -621,7 +678,7 @@ if (! function_exists('mnNavGroupOpen')) {
           </li>
           <!-- Dynamic Routing (FRR) -->
           <li class="nav-item">
-            <a href="<?= base_url('routing') ?>?tab=bgp" class="nav-link <?= (str_starts_with(current_url(true)->getPath(), '/routing') && in_array($_GET['tab'] ?? '', ['bgp','ospf','bfd'])) ? 'active' : '' ?>">
+            <a href="<?= base_url('routing') ?>" class="nav-link <?= (str_starts_with(current_url(true)->getPath(), '/routing') && !str_starts_with(current_url(true)->getPath(), '/routing/static') && !str_starts_with(current_url(true)->getPath(), '/routing/sdwan')) ? 'active' : '' ?>">
               <svg class="nav-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M17 8l4 4m0 0l-4 4m4-4H3"/>
               </svg>
@@ -689,6 +746,7 @@ if (! function_exists('mnNavGroupOpen')) {
               DNS
             </a>
           </li>
+          <?= mnPluginLinks('routing', $_pluginMenu, $_path) ?>
         </ul>
       </div>
 
@@ -738,6 +796,7 @@ if (! function_exists('mnNavGroupOpen')) {
               <span class="nav-tag nav-tag-indigo">ZTNA</span>
             </a>
           </li>
+          <?= mnPluginLinks('vpn', $_pluginMenu, $_path) ?>
         </ul>
       </div>
 
@@ -810,6 +869,17 @@ if (! function_exists('mnNavGroupOpen')) {
               <span class="nav-tag nav-tag-rose">IoC</span>
             </a>
           </li>
+          <!-- CVEs Security Advisories -->
+          <li class="nav-item">
+            <a href="<?= base_url('security/cve') ?>" class="nav-link <?= str_starts_with(current_url(true)->getPath(), '/security/cve') || str_starts_with(current_url(true)->getPath(), '/cve') ? 'active' : '' ?>">
+              <svg class="nav-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+              </svg>
+              CVEs Security Advisories
+              <span class="nav-tag nav-tag-amber">NVD</span>
+            </a>
+          </li>
+          <?= mnPluginLinks('security', $_pluginMenu, $_path) ?>
         </ul>
       </div>
 
@@ -941,6 +1011,7 @@ if (! function_exists('mnNavGroupOpen')) {
               <span class="nav-tag nav-tag-cyan">Guides</span>
             </a>
           </li>
+          <?= mnPluginLinks('admin', $_pluginMenu, $_path) ?>
         </ul>
       </div>
 
@@ -1036,7 +1107,7 @@ if (! function_exists('mnNavGroupOpen')) {
       <div class="topbar-badge-group">
         <a href="<?= base_url('system/revisions') ?>" class="topbar-version-pill" title="Current Version & Channel">
           <span>v<?= esc(\App\Libraries\AppVersion::getVersion()) ?></span>
-          <span class="badge <?= (\App\Libraries\AppVersion::isDevelopment()) ? 'badge-warning' : 'badge-success' ?> topbar-version-badge">
+          <span class="badge <?= \App\Libraries\AppVersion::isDevelopment() ? 'badge-warning' : (\App\Libraries\AppVersion::isReleaseCandidate() ? 'badge-info' : 'badge-success') ?> topbar-version-badge">
             <?= esc(\App\Libraries\AppVersion::getChannel()) ?>
           </span>
         </a>
@@ -1078,33 +1149,17 @@ if (! function_exists('mnNavGroupOpen')) {
       </div>
     </div>
 
-    <!-- Flash Messages -->
+    <!-- Flash Messages (escaped; see partials/flash.php) -->
     <div style="padding: 16px 28px 0;">
-      <?php if (session()->has('error')): ?>
-        <div class="alert alert-error animate-in">
-          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-          <span><?= session('error') ?></span>
-        </div>
-      <?php endif; ?>
-      <?php if (session()->has('success')): ?>
-        <div class="alert alert-success animate-in">
-          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-          <span><?= session('success') ?></span>
-        </div>
-      <?php endif; ?>
-      <?php if (session()->has('info')): ?>
-        <div class="alert alert-info animate-in">
-          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-          <span><?= session('info') ?></span>
-        </div>
-      <?php endif; ?>
+      <?= view('partials/flash') ?>
     </div>
 
     <!-- Page Content -->
-    <main class="page-content">
+    <main class="page-content" id="pageMain" tabindex="-1">
       <?= $this->renderSection('content') ?>
     </main>
 
+    <?= view('partials/app_footer', ['footerVariant' => 'app']) ?>
   </div><!-- /main-content -->
 </div><!-- /app-shell -->
 
@@ -1305,8 +1360,8 @@ document.addEventListener('DOMContentLoaded', checkCommitStatus);
 <script>
 /* ── State ─────────────────────────────────────────────────── */
 const _html         = document.documentElement;
-let   _pendingTheme  = _html.dataset.theme  || 'dark';
-let   _pendingLayout = _html.dataset.layout || 'sidebar';
+let   _pendingTheme  = _html.dataset.theme  || '<?= esc($_themes->defaultTheme, 'js') ?>';
+let   _pendingLayout = _html.dataset.layout || '<?= esc($_themes->defaultLayout, 'js') ?>';
 /* Themes that render on a light base (source: Config\Appearance) */
 const LIGHT_THEMES = <?= json_encode(array_values($_lightThemes)) ?>;
 const ALL_THEMES   = <?= json_encode(array_values($_validThemes)) ?>;
@@ -1317,8 +1372,8 @@ function toggleThemeSwitcher() {
     if (!pop) return;
     const isOpen = pop.classList.toggle('open');
     if (isOpen) {
-        _pendingTheme  = _html.dataset.theme  || 'dark';
-        _pendingLayout = _html.dataset.layout || 'sidebar';
+        _pendingTheme  = _html.dataset.theme  || '<?= esc($_themes->defaultTheme, 'js') ?>';
+        _pendingLayout = _html.dataset.layout || '<?= esc($_themes->defaultLayout, 'js') ?>';
         syncSwatches();
         // Close if user clicks outside
         setTimeout(() => {
@@ -1606,6 +1661,43 @@ document.addEventListener('DOMContentLoaded', syncSwatches);
     if (e.target && e.target.tagName === 'SELECT') noteCommitted(e.target);
   });
 })();
+
+// Global MicronOS Modal Helpers
+window.openModal = function(id) {
+  var el = document.getElementById(id);
+  if (!el) {
+    console.warn('openModal: element #' + id + ' not found in DOM.');
+    return;
+  }
+  el.classList.add('active');
+  document.body.classList.add('modal-open');
+};
+
+window.closeModal = function(id) {
+  var el = document.getElementById(id);
+  if (el) el.classList.remove('active');
+  if (!document.querySelector('.rt-modal-backdrop.active, .modal-backdrop.active')) {
+    document.body.classList.remove('modal-open');
+  }
+};
+
+document.addEventListener('click', function(e) {
+  if (e.target && (e.target.classList.contains('rt-modal-backdrop') || e.target.classList.contains('modal-backdrop'))) {
+    e.target.classList.remove('active');
+    if (!document.querySelector('.rt-modal-backdrop.active, .modal-backdrop.active')) {
+      document.body.classList.remove('modal-open');
+    }
+  }
+});
+
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') {
+    document.querySelectorAll('.rt-modal-backdrop.active, .modal-backdrop.active').forEach(function(m) {
+      m.classList.remove('active');
+    });
+    document.body.classList.remove('modal-open');
+  }
+});
 </script>
 </body>
 

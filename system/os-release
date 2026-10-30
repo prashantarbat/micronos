@@ -1,14 +1,10 @@
-PRETTY_NAME="Micron OS 0.1.23 (amd64)"
+PRETTY_NAME="Micron OS 0.1.66 (amd64)"
 NAME="Micron OS"
-VERSION_ID="0.1.23"
-VERSION="0.1.23 (amd64)"
+VERSION_ID="0.1.66"
+VERSION="0.1.66 (amd64)"
 VERSION_CODENAME=trixie
 ID=micronos
 ID_LIKE=debian
 HOME_URL="https://micronos.local/"
 SUPPORT_URL="https://micronos.local/support"
 BUG_REPORT_URL="https://micronos.local/bugs"
-PRIVACY_POLICY_URL="https://micronos.local/privacy"
-BUILD_ID="20261011"
-VARIANT="Enterprise Linux Firewall & Network Appliance"
-VARIANT_ID="appliance"
