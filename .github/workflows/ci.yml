@@ -43,7 +43,11 @@ jobs:
           failed=0
           for t in tests/test_*.py; do
             echo "::group::$t"
-            if ! sudo -E env "PATH=$PATH" python3 "$t"; then echo "::error::$t failed"; failed=1; fi
+            if ! sudo -E env "PATH=$PATH" python3 "$t" > /tmp/out.txt 2>&1; then
+              failed=1
+              echo "::error title=$t::$(grep -v -i '^ *\(ok\|pass\)' /tmp/out.txt | tail -n 40 | sed -e 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"
+            fi
+            cat /tmp/out.txt
             echo "::endgroup::"
           done
           exit $failed
@@ -52,7 +56,12 @@ jobs:
           failed=0
           for t in tests/installer/*.sh; do
             echo "::group::$t"
-            if ! sudo -E env "PATH=$PATH" bash "$t"; then echo "::error::$t failed"; failed=1; fi
+            if ! sudo -E env "PATH=$PATH" bash "$t" > /tmp/out.txt 2>&1; then
+              failed=1
+              # Surface the tail as an annotation so it is readable without the log.
+              echo "::error title=$t::$(grep -v '^  ok' /tmp/out.txt | tail -n 40 | sed -e 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"
+            fi
+            cat /tmp/out.txt
             echo "::endgroup::"
           done
           exit $failed

@@ -159,3 +159,6 @@ _modules/*
 /test_nat_render.html
 __pycache__/
 *.pyc
+
+# The UI's offline vendor assets are shipped (the vendor/ rule above is for Composer).
+!/public/assets/vendor/
