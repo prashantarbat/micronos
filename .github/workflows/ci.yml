@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [main, "release/**"]
+    tags: ["v*"]
   pull_request:
 
 permissions:
@@ -21,15 +22,37 @@ jobs:
       - run: composer install --no-interaction --prefer-dist
       - run: vendor/bin/phpunit --no-coverage
 
-  python:
+  daemon-and-installer:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+      # Several harnesses drive bin/microctl and php spark, so PHP is needed here too.
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.4"
+          extensions: intl, mbstring, sqlite3, pdo_sqlite, curl, sodium
+          coverage: none
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"
+      - run: composer install --no-interaction --prefer-dist
       - name: Daemon harnesses
+        # The daemon runs as root on the appliance; its harnesses create
+        # sockets, users and files that need root too.
         run: |
+          failed=0
           for t in tests/test_*.py; do
-            echo "== $t"; python3 "$t" || exit 1
+            echo "::group::$t"
+            if ! sudo -E env "PATH=$PATH" python3 "$t"; then echo "::error::$t failed"; failed=1; fi
+            echo "::endgroup::"
           done
+          exit $failed
+      - name: Installer and console tests
+        run: |
+          failed=0
+          for t in tests/installer/*.sh; do
+            echo "::group::$t"
+            if ! sudo -E env "PATH=$PATH" bash "$t"; then echo "::error::$t failed"; failed=1; fi
+            echo "::endgroup::"
+          done
+          exit $failed
