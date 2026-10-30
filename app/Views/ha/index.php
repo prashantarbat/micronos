@@ -6,7 +6,6 @@
   <div class="page-header-content">
     <div style="display:flex; align-items:center; gap:10px;">
       <h1 class="page-title">High Availability &amp; Stateful Failover</h1>
-      <span class="badge badge-warning" style="font-size:0.75rem;" title="Configuration is not yet synchronised to the peer node">PREVIEW</span>
       <span class="badge badge-info" style="font-size:0.75rem;"><?= count($vips) ?> VIPs</span>
       <span class="badge <?= !empty($settings['enabled']) ? 'badge-success' : 'badge-muted' ?>" style="font-size:0.75rem;">
         <?= !empty($settings['enabled']) ? 'VRRP ACTIVE' : 'DISABLED' ?>
@@ -16,9 +15,9 @@
       </span>
     </div>
     <p class="page-subtitle">Active-Passive VRRP cluster redundancy, Virtual IP (VIP) sharing, and conntrackd state table replication</p>
-    <div class="alert alert-warning" style="margin-top:12px; font-size:0.82rem;">
-      <strong>Preview in 1.0:</strong> VRRP failover and state replication work, but firewall and service configuration is not yet copied to the peer.
-      Make the same configuration changes on both nodes (or restore the same backup on each) until configuration sync arrives in a later release.
+    <div class="alert alert-info" style="margin-top:12px; font-size:0.82rem;">
+      <strong>Sync to Peer</strong> copies firewall rules, NAT, address and service objects, schedules, Virtual IPs, local DNS records and administrators to the peer, which applies them.
+      Interface addresses, HA role and priority, certificates, DHCP, routing and VPNs stay per node. Both nodes need the same shared sync key and each other's address.
     </div>
   </div>
   <div class="page-header-actions">
@@ -32,7 +31,7 @@
 
     <form action="<?= base_url('ha/sync') ?>" method="POST" style="display:inline;">
       <?= csrf_field() ?>
-      <button type="submit" class="btn btn-ghost btn-sm" title="Push full cluster configuration to peer node">
+      <button type="submit" class="btn btn-ghost btn-sm" title="Copy the shared configuration to the peer node and apply it there">
         <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
           <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
         </svg>
@@ -680,13 +679,13 @@
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px; align-items:start;">
       <div class="card card-glass animate-in animate-in-delay-1" style="padding:20px;">
         <h3 style="font-size:0.95rem; font-weight:700; color:var(--text-primary); margin:0 0 16px; border-bottom:1px solid var(--color-border); padding-bottom:10px;">
-          Automated XML/JSON-RPC Peer Config Synchronization
+          Peer Configuration Synchronization
         </h3>
 
         <div style="background:var(--color-surface-2); border:1px solid var(--color-border); border-radius:var(--radius-sm); padding:12px 16px; margin-bottom:16px;">
           <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:0.875rem; color:var(--text-primary); margin:0;">
             <input type="checkbox" name="config_sync_enabled" value="1" <?= (!empty($settings['config_sync_enabled'])) ? 'checked' : '' ?> style="accent-color:var(--color-cyan); width:16px; height:16px;">
-            <span style="font-weight:600;">Enable Automated Synchronize Configuration to Peer Node</span>
+            <span style="font-weight:600;">Allow configuration sync with the peer node</span>
           </label>
         </div>
 
@@ -723,12 +722,13 @@
         <div style="display:flex; flex-direction:column; gap:8px;">
           <?php
             $syncItems = [
-              'Firewall Rules & Object Tables (Addresses, Groups)',
-              'NAT Rules & Port Forwarding Redirections',
-              'Dynamic Routing Engine (FRR OSPF & BGP Neighbors)',
-              'Traffic Shaper & Bufferbloat Policies (CAKE / FQ-CoDel)',
-              'IPsec, OpenVPN & WireGuard VPN Configurations',
-              'Certificate Authorities & Internal Appliance PKI',
+              // Mirrors App\Libraries\HaConfigSync::SYNC_TABLES.
+              'Firewall rules and schedules',
+              'Address and service objects and groups',
+              'NAT: port forwards, outbound, 1:1 and IP pools',
+              'Virtual IPs (VRRP)',
+              'Local DNS host records and domain overrides',
+              'Administrators, roles and permissions',
             ];
           ?>
           <?php foreach ($syncItems as $item): ?>

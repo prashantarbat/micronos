@@ -308,6 +308,12 @@ class NftablesCompiler
             $lines[] = '';
         }
 
+        // HA cluster: VRRP adverts, conntrackd state sync and config sync,
+        // each limited to the configured peer address.
+        foreach ($this->haClusterRules() as $rule) {
+            $lines[] = '        ' . $rule;
+        }
+
         // WAN Security & Services
         if (!empty($wanDevices)) {
             $wanIifs = count($wanDevices) === 1 ? '"' . reset($wanDevices) . '"' : '{ "' . implode('", "', $wanDevices) . '" }';
@@ -2573,6 +2579,49 @@ class NftablesCompiler
         }
 
         return $devices;
+    }
+
+    /**
+     * Input rules an enabled HA cluster needs: VRRP (IP protocol 112) for
+     * keepalived, conntrackd's UDP sync port from the state-sync peer, and
+     * HTTPS from the config-sync peer for `/ha/sync/receive`. Every rule is
+     * bound to the peer's address; nothing is opened while HA is off.
+     *
+     * @return list<string>
+     */
+    protected function haClusterRules(): array
+    {
+        if (! $this->db || ! $this->db->tableExists('ha_settings')) {
+            return [];
+        }
+        try {
+            $ha = $this->db->table('ha_settings')->get(1)->getRowArray();
+        } catch (\Throwable $e) {
+            return [];
+        }
+        if (! is_array($ha) || empty($ha['enabled'])) {
+            return [];
+        }
+
+        $family = static fn (string $ip): ?string => filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) !== false
+            ? 'ip' : (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) !== false ? 'ip6' : null);
+
+        $rules   = ['# High availability cluster (peer-bound)'];
+        $rules[] = 'ip protocol vrrp accept comment "HA VRRP advertisements"';
+
+        $statePeer = (string) ($ha['peer_sync_ip'] ?? '');
+        $statePort = (int) ($ha['peer_sync_port'] ?? 3780);
+        if (! empty($ha['conntrackd_enabled']) && ($f = $family($statePeer)) !== null && $statePort > 0 && $statePort < 65536) {
+            $rules[] = "{$f} saddr {$statePeer} udp dport {$statePort} accept comment \"HA conntrackd state sync\"";
+        }
+
+        $configPeer = (string) ($ha['config_sync_peer_ip'] ?? '');
+        if (! empty($ha['config_sync_enabled']) && ($f = $family($configPeer)) !== null) {
+            $rules[] = "{$f} saddr {$configPeer} tcp dport 443 accept comment \"HA config sync from peer\"";
+        }
+        $rules[] = '';
+
+        return $rules;
     }
 
     /**

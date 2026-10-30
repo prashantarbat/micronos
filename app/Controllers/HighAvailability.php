@@ -5,6 +5,7 @@ namespace App\Controllers;
 use App\Models\HaSettingsModel;
 use App\Models\HaVirtualIpModel;
 use App\Models\InterfaceModel;
+use App\Libraries\HaConfigSync;
 use App\Libraries\IpcClient;
 
 class HighAvailability extends BaseController
@@ -160,17 +161,65 @@ class HighAvailability extends BaseController
         return redirect()->to('/ha')->with($key, $message);
     }
 
+    /**
+     * Copy the shared configuration (rules, NAT, objects, VIPs, local DNS,
+     * administrators) to the HA peer, which imports and applies it.
+     */
     public function syncConfig()
     {
-        // This re-applies the local Keepalived configuration. Pushing the
-        // configuration to the peer node is not implemented; the message says
-        // exactly what happened.
-        [$key, $message] = $this->ipcFlash(
-            $this->applier()->haSync(),
-            'Keepalived configuration recompiled and re-applied on this node.',
-            'The HA re-apply'
+        $result = (new HaConfigSync())->push($this->haSettingsModel->getSettings());
+        log_message($result['ok'] ? 'info' : 'warning', 'HA config sync: {msg}', ['msg' => $result['message']]);
+
+        return redirect()->to('/ha')->with($result['ok'] ? 'success' : 'error', $result['message']);
+    }
+
+    /**
+     * Peer endpoint for `syncConfig()`. Not behind the session login: it is
+     * authenticated by the sealed payload (HMAC with the shared key, sender
+     * address, timestamp, replay check), see HaConfigSync::open().
+     */
+    public function receiveSync()
+    {
+        $sync     = new HaConfigSync();
+        $settings = $this->haSettingsModel->getSettings();
+        $opened   = $sync->open(
+            $settings,
+            (string) $this->request->getIPAddress(),
+            (string) $this->request->getBody(),
+            (string) $this->request->getHeaderLine('X-Micron-Sync-Time'),
+            (string) $this->request->getHeaderLine('X-Micron-Sync-Signature'),
         );
 
-        return redirect()->to('/ha')->with($key, $message);
+        if (! $opened['ok']) {
+            log_message('warning', 'HA config sync refused from {ip}: {msg}', ['ip' => $this->request->getIPAddress(), 'msg' => $opened['message']]);
+
+            return $this->response->setStatusCode($opened['status'])->setJSON(['ok' => false, 'message' => $opened['message']]);
+        }
+
+        try {
+            $written = $sync->import($opened['payload']);
+        } catch (\Throwable $e) {
+            log_message('error', 'HA config sync import failed: {msg}', ['msg' => $e->getMessage()]);
+
+            return $this->response->setStatusCode(500)->setJSON(['ok' => false, 'message' => 'import failed, nothing was changed']);
+        }
+
+        // Apply what changed on this node; report anything the daemon refused.
+        $failed  = [];
+        $applier = $this->applier();
+        foreach (['firewall' => fn () => $applier->firewall(), 'DNS' => fn () => $applier->dns(), 'VRRP' => fn () => $applier->haSync()] as $what => $apply) {
+            $outcome = $this->ipcOutcome($apply());
+            if (! $outcome['ok']) {
+                $failed[] = "{$what} ({$outcome['reason']})";
+            }
+        }
+
+        $rows    = array_sum($written);
+        $message = $failed === []
+            ? "Imported {$rows} rows and applied firewall, DNS and VRRP on the peer."
+            : "Imported {$rows} rows; apply failed for " . implode(', ', $failed) . '.';
+        log_message($failed === [] ? 'info' : 'warning', 'HA config sync received: {msg}', ['msg' => $message]);
+
+        return $this->response->setJSON(['ok' => $failed === [], 'message' => $message, 'rows' => $written]);
     }
 }

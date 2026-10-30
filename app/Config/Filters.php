@@ -86,6 +86,7 @@ class Filters extends BaseFilters
                 'hotspot-detect.html', 'canonical.html',
                 'generate_204', 'gen_204',
                 'connecttest.txt', 'success.txt', 'ncsi.txt',
+                'ha/sync/receive',
             ]],
             // Auth filter applied globally — excludes public auth, guest portal, CNA probes, and WPAD discovery routes.
             //
@@ -112,6 +113,9 @@ class Filters extends BaseFilters
                 'connecttest.txt', 'success.txt', 'ncsi.txt',
                 'wpad.dat', 'wpad.da', 'proxy.pac', 'wpad.pac',
                 '.well-known/acme-challenge/*',
+                // HA peer sync: HMAC-signed, encrypted, sender-address bound
+                // and replay-checked payload instead of a session.
+                'ha/sync/receive',
             ]],
         ],
         'after' => [

@@ -27,11 +27,16 @@ management interface, built to survive hard power loss at remote sites.
 - **Resilience**: A/B root slots with health-checked rollback, transactional
   configuration with revision history, and encrypted backups.
 
-## Preview features
+## High availability
 
-These ship in 1.0.0 but are not yet complete. Do not rely on them in production.
-
-- **High availability**: configuration is not yet synchronised to the peer.
+Two nodes share Virtual IPs over VRRP (keepalived) and replicate connection
+state (conntrackd). **Sync to Peer** copies the shared configuration (firewall
+rules, NAT, address and service objects, schedules, Virtual IPs, local DNS
+records, administrators and roles) to the peer, which imports and applies it.
+Interface addresses, HA role and priority, certificates, DHCP, routing and VPNs
+stay per node. The sync is encrypted and signed with the shared sync key, bound
+to the peer's address and refused if replayed. Test failover in a lab before
+relying on it.
 
 ## Installing
 

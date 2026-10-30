@@ -58,7 +58,7 @@ final class DocsTest extends CIUnitTestCase
             'threats'      => 'Assets &amp; Trust Boundaries',
             'install'      => 'Run the installer',
             'hardening'    => 'Management access',
-            'release-notes' => 'Preview features',
+            'release-notes' => 'Sync to Peer',
         ];
 
         foreach ($expectations as $slug => $needle) {

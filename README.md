@@ -151,7 +151,7 @@ Thank you from the bottom of my heart for reading this and trying Micron OS. I h
 
 Minimum hardware: 64-bit x86 CPU, 2 GB RAM, 32 GB disk, two NICs. Full walk-through: [`docs/INSTALL.md`](docs/INSTALL.md).
 
-> **Preview features:** High availability ships in 1.0 but does not yet synchronise configuration to the peer. See the [release notes](docs/RELEASE_NOTES_1.0.0.md).
+> **High availability:** VRRP failover, connection-state sync and encrypted configuration sync to the peer. See the [release notes](docs/RELEASE_NOTES_1.0.0.md#high-availability).
 
 ---
 

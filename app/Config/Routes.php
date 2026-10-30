@@ -776,6 +776,8 @@ $routes->group('multicast', ['filter' => 'permission:multicast.view'], function 
     $r->post('apply', 'Multicast::apply', ['filter' => 'permission:multicast.apply']);
 });
 
+// HA peer sync: authenticated by the sealed payload, not a session (HaConfigSync).
+$routes->post('ha/sync/receive', 'HighAvailability::receiveSync');
 $routes->group('ha', ['filter' => 'permission:ha.view'], function ($r) {
     $r->get('/', 'HighAvailability::index');
     $r->post('settings', 'HighAvailability::saveSettings', ['filter' => 'permission:ha.edit']);
