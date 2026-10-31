@@ -815,101 +815,122 @@ class Certificates extends BaseController
         return $path;
     }
 
-    private function seedInitialPki()
+    /**
+     * First visit on a fresh appliance: create the default Root CA and two
+     * certificates it signs (Web GUI and OpenVPN server). Everything is real,
+     * generated here; when OpenSSL cannot produce it nothing is stored, so the
+     * page never lists a CA or certificate that does not parse.
+     */
+    private function seedInitialPki(): void
     {
-        $sslConfig = $this->getOpenSslConfig();
-
-        $dn = [
-            "countryName"            => "US",
-            "stateOrProvinceName"    => "California",
-            "localityName"           => "San Jose",
-            "organizationName"       => "MicronOS Security Systems",
-            "commonName"             => "MicronOS Default Root CA",
-        ];
-
-        $privKeyArgs = [
-            "private_key_bits" => 2048,
-            "private_key_type" => OPENSSL_KEYTYPE_RSA,
-        ];
+        $sslConfig   = $this->getOpenSslConfig();
+        $privKeyArgs = ['private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA];
         if (isset($sslConfig['config'])) {
             $privKeyArgs['config'] = $sslConfig['config'];
         }
 
-        $caCert = '';
-        $caKey  = '';
+        $org = 'MicronOS Security Systems';
+        $ca  = $this->selfSignedCa(['organizationName' => $org, 'commonName' => 'MicronOS Default Root CA'], $privKeyArgs, $sslConfig);
+        if ($ca === null) {
+            log_message('error', 'Certificates: could not generate the default Root CA; nothing was seeded.');
 
-        try {
-            $privKey = openssl_pkey_new($privKeyArgs);
-            $csr = openssl_csr_new($dn, $privKey, $sslConfig);
-            $x509 = openssl_csr_sign($csr, null, $privKey, 3650, $sslConfig);
-            if ($x509) {
-                openssl_x509_export($x509, $caCert);
-                openssl_pkey_export($privKey, $caKey, null, $sslConfig);
-            }
-        } catch (\Throwable $e) {}
-
-        if (empty($caCert) || empty($caKey)) {
-            $caCert = "-----BEGIN CERTIFICATE-----\nMIIDXTCCAkWgAwIBAgIBATANBgkqhkiG9w0BAQsFADBLMQswCQYDVQQGEwJVUzET\nMBEGA1UECAwKQ2FsaWZvcm5pYTEhMB8GA1UECgwYTWljcm9uT1MgU2VjdXJpdHkg\nU3lzdGVtczENMAsGA1UEAwwEQ0ExMTAeFw0yNjEwMDIxMjAwMDBaFw0zNjEwMDIx\nMjAwMDBaMEsxCzAJBgNVBAYTAlVTMREwDwYDVQQIDAhTYW4gSm9zZTEhMB8GA1UE\nCgwYTWljcm9uT1MgU2VjdXJpdHkgU3lzdGVtczENMAsGA1UEAwwEQ0ExMTCCASIw\nDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAL0PqWb\n-----END CERTIFICATE-----";
-            $caKey = "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQC9D6lm+T62kS\n-----END PRIVATE KEY-----";
+            return;
         }
 
-        $now = date('Y-m-d H:i:s');
-        $validUntil = date('Y-m-d H:i:s', strtotime('+10 years'));
+        $leaves = [
+            ['server', 'Web GUI HTTPS Certificate', 'micronos.local', 'micronos.local', '127.0.0.1', '1001', 'System Default TLS Web Management Certificate'],
+            ['vpn', 'OpenVPN Server Authority Cert', 'vpn.micronos.local', 'vpn.micronos.local', '', '1002', 'OpenVPN Road Warrior Daemon Server Certificate'],
+        ];
+        $issued = [];
+        foreach ($leaves as [$type, $name, $cn, $sanDns, $sanIp, $serial, $desc]) {
+            $leaf = $this->signedLeaf($ca, ['organizationName' => $org, 'commonName' => $cn], $sanDns, $sanIp, (int) $serial, $privKeyArgs, $sslConfig);
+            if ($leaf === null) {
+                log_message('error', "Certificates: could not issue the default '{$name}'; nothing was seeded.");
 
-        $caId = $this->caModel->insert([
+                return;
+            }
+            $issued[] = [$type, $name, $cn, $sanDns, $sanIp, $serial, $desc, $leaf];
+        }
+
+        $now   = date('Y-m-d H:i:s');
+        $caId  = $this->caModel->insert([
             'name'          => 'MicronOS Root CA',
             'common_name'   => 'MicronOS Default Root CA',
-            'organization'  => 'MicronOS Security Systems',
-            'country'       => 'US',
-            'state'         => 'California',
-            'city'          => 'San Jose',
-            'certificate'   => $caCert,
-            'private_key'   => $caKey,
+            'organization'  => $org,
+            'country'       => '',
+            'state'         => '',
+            'city'          => '',
+            'certificate'   => $ca['cert'],
+            'private_key'   => $ca['key'],
             'serial_number' => '01',
             'valid_from'    => $now,
-            'valid_until'   => $validUntil,
+            'valid_until'   => date('Y-m-d H:i:s', strtotime('+3650 days')),
             'key_length'    => 2048,
             'digest'        => 'sha256',
             'is_default'    => 1,
         ]);
 
-        // Web GUI cert
-        $serverCert = "-----BEGIN CERTIFICATE-----\nMIIDXTCCAkWgAwIBAgIBATANBgkqhkiG9w0BAQsFADBLMQswCQYDVQQGEwJVUzET\nMBEGA1UECAwKQ2FsaWZvcm5pYTEhMB8GA1UECgwYTWljcm9uT1MgU2VjdXJpdHkg\nU3lzdGVtczENMAsGA1UEAwwEQ0ExMTAeFw0yNjEwMDIxMjAwMDBaFw0zNjEwMDIx\n-----END CERTIFICATE-----";
-        $serverKey = $caKey;
+        foreach ($issued as [$type, $name, $cn, $sanDns, $sanIp, $serial, $desc, $leaf]) {
+            $this->certModel->insert([
+                'ca_id'         => $caId,
+                'cert_type'     => $type,
+                'name'          => $name,
+                'common_name'   => $cn,
+                'organization'  => $org,
+                'san_dns'       => $sanDns,
+                'san_ip'        => $sanIp,
+                'certificate'   => $leaf['cert'],
+                'private_key'   => $leaf['key'],
+                'serial_number' => $serial,
+                'valid_from'    => $now,
+                'valid_until'   => date('Y-m-d H:i:s', strtotime('+825 days')),
+                'revoked'       => 0,
+                'description'   => $desc,
+            ]);
+        }
+    }
 
-        $this->certModel->insert([
-            'ca_id'         => $caId,
-            'cert_type'     => 'server',
-            'name'          => 'Web GUI HTTPS Certificate',
-            'common_name'   => 'micronos.local',
-            'organization'  => 'MicronOS Security Systems',
-            'san_dns'       => 'micronos.local, micronos.test, gateway.local',
-            'san_ip'        => '192.168.1.1, 10.0.0.1, 127.0.0.1',
-            'certificate'   => $serverCert,
-            'private_key'   => $serverKey,
-            'serial_number' => '1001',
-            'valid_from'    => $now,
-            'valid_until'   => date('Y-m-d H:i:s', strtotime('+825 days')),
-            'revoked'       => 0,
-            'description'   => 'System Default TLS Web Management Certificate',
-        ]);
+    /** @return array{cert: string, key: string, x509: \OpenSSLCertificate, pkey: \OpenSSLAsymmetricKey}|null */
+    private function selfSignedCa(array $dn, array $privKeyArgs, array $sslConfig): ?array
+    {
+        $pkey = @openssl_pkey_new($privKeyArgs);
+        $csr  = $pkey === false ? false : @openssl_csr_new($dn, $pkey, $sslConfig);
+        $x509 = $csr === false ? false : @openssl_csr_sign($csr, null, $pkey, 3650, $sslConfig + ['x509_extensions' => 'v3_ca'], 1);
+        if ($x509 === false && $csr !== false) {
+            // A config file without a [v3_ca] section: sign with its defaults.
+            $x509 = @openssl_csr_sign($csr, null, $pkey, 3650, $sslConfig, 1);
+        }
+        if ($x509 === false || ! @openssl_x509_export($x509, $cert) || ! @openssl_pkey_export($pkey, $key, null, $sslConfig)) {
+            return null;
+        }
 
-        // OpenVPN Server Certificate
-        $this->certModel->insert([
-            'ca_id'         => $caId,
-            'cert_type'     => 'vpn',
-            'name'          => 'OpenVPN Server Authority Cert',
-            'common_name'   => 'vpn.micronos.local',
-            'organization'  => 'MicronOS Security Systems',
-            'san_dns'       => 'vpn.micronos.local',
-            'san_ip'        => '',
-            'certificate'   => $serverCert,
-            'private_key'   => $serverKey,
-            'serial_number' => '1002',
-            'valid_from'    => $now,
-            'valid_until'   => date('Y-m-d H:i:s', strtotime('+825 days')),
-            'revoked'       => 0,
-            'description'   => 'OpenVPN Road Warrior Daemon Server Certificate',
-        ]);
+        return ['cert' => $cert, 'key' => $key, 'x509' => $x509, 'pkey' => $pkey];
+    }
+
+    /** @return array{cert: string, key: string}|null */
+    private function signedLeaf(array $ca, array $dn, string $sanDns, string $sanIp, int $serial, array $privKeyArgs, array $sslConfig): ?array
+    {
+        $pkey = @openssl_pkey_new($privKeyArgs);
+        if ($pkey === false) {
+            return null;
+        }
+        $cnf     = $this->buildCsrConfig(['CN' => $dn['commonName'], 'O' => $dn['organizationName']], $sanDns, $sanIp);
+        $options = ['digest_alg' => 'sha256'];
+        if ($cnf !== null) {
+            $options += ['config' => $cnf, 'req_extensions' => 'v3_req', 'x509_extensions' => 'v3_req'];
+        } elseif (isset($sslConfig['config'])) {
+            $options['config'] = $sslConfig['config'];
+        }
+        try {
+            $csr  = @openssl_csr_new($dn, $pkey, $options);
+            $x509 = $csr === false ? false : @openssl_csr_sign($csr, $ca['x509'], $ca['pkey'], 825, $options, $serial);
+            $ok   = $x509 !== false && @openssl_x509_export($x509, $cert) && @openssl_pkey_export($pkey, $key, null, $sslConfig);
+        } finally {
+            if ($cnf !== null) {
+                @unlink($cnf);
+            }
+        }
+
+        return $ok ? ['cert' => $cert, 'key' => $key] : null;
     }
 }

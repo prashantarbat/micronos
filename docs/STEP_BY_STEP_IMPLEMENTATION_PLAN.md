@@ -262,11 +262,11 @@ MicronOS implements a full Role-Based Access Control (RBAC) system with dynamic 
 | Field    | Value                               |
 | :------- | :---------------------------------- |
 | Username | `Ministrator` *(case-insensitive)*   |
-| Password | `M1Cr0N` or `M1Cr0N80` (Argon2id)   |
+| Password | Set during installation (factory `M1Cr0N` on the live ISO only; Argon2id) |
 | Role     | `SuperAdmin` — all 109 permissions  |
 
 > [!NOTE]
-> Case-insensitive login matches `LOWER(username) = strtolower($username)`. Dual password validation allows seamless administrator authentication using either `M1Cr0N` or `M1Cr0N80`.
+> Case-insensitive login matches `LOWER(username) = strtolower($username)`. Only the stored password is accepted; there is no alternate or built-in password.
 
 ### 4.5.3 Run RBAC Migrations & Seeder
 

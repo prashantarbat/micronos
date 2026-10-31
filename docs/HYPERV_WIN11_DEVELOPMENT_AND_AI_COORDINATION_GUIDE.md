@@ -267,10 +267,10 @@ Write-Host "Virtual Machine $vmName provisioned successfully!" -ForegroundColor 
 6. **Verified Operational Credentials (Unified Web & CLI Stack)**:
    - **Web GUI URL:** `http://<Appliance-IP>/` (dynamically bound to incoming IP; no localhost redirect)
    - **Web GUI Username:** `Ministrator` *(or `ministrator` — case-insensitive)*
-   - **Web GUI Password:** `M1Cr0N` (Full SuperAdmin, all 109 permissions)
-   - **SSH Console:** `ministrator` / `M1Cr0N` on port 22 (full `sudo` via `/etc/sudoers.d/99-ministrator`, `NOPASSWD: ALL`)
-   - **Direct Console:** `/dev/tty1` (Hyper-V Screen) with automated autologin as `ministrator` (`sudo -i` for root)
-   - **Native Root:** `root` / `M1Cr0N` (unified password matching Web and CLI)
+   - **Web GUI Password:** the administrator password chosen during installation (Full SuperAdmin). The factory `M1Cr0N` works only on the live ISO and forces a change.
+   - **SSH Console:** `ministrator` with the same password on port 22; `sudo` asks for it (`/etc/sudoers.d/99-ministrator`, `ALL=(ALL:ALL) ALL`)
+   - **Direct Console:** `/dev/tty1` (Hyper-V Screen) shows a login prompt on an installed system (autologin is only on the live ISO)
+   - **Native Root:** password login is disabled; use `sudo -i`. SSH as root accepts keys only (`PermitRootLogin prohibit-password`)
 
 ---
 
@@ -403,7 +403,7 @@ Because your Windows 11 host is connected to `MicronOS-LAN` at `192.168.1.100`, 
 │                    ANTIGRAVITY BROWSER AGENT LOOP                     │
 ├───────────────────────────────────────────────────────────────────────┤
 │ 1. Navigate:  https://192.168.1.1 (Accept self-signed certificate)   │
-│ 2. Login:     Input 'Ministrator' / 'M1Cr0N' and submit form          │
+│ 2. Login:     Input 'Ministrator' / <install password>, submit form   │
 │ 3. Navigate:  Visit target controller (e.g. /firewall or /webfilter)  │
 │ 4. Action:    Add firewall rule, click toggles, submit form           │
 │ 5. Audit:     Verify DOM response, check for errors, capture screens  │

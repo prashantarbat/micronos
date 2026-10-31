@@ -830,8 +830,10 @@ PART_STRATEGY="1"
 SLOT_SIZE="10G"
 
 # 5. Administrative Credentials
-# Unified password for Web GUI ('ministrator') and OS ('root', 'ministrator')
-ADMIN_PW="M1Cr0N"
+# Password for the Web GUI 'Ministrator' and the OS 'ministrator' account.
+# At least 8 characters; the factory password M1Cr0N is refused. Leave it
+# empty to have one generated into /etc/micron/initial-admin-password.
+ADMIN_PW=""
 
 # 6. Automatic Reboot Behavior
 # 'yes' = auto-reboot after install (5 s countdown); 'no' = stay on completion screen

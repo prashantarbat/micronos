@@ -281,11 +281,11 @@ MicronOS implements a **fully dynamic RBAC system** inspired by established fire
 | Field    | Value                              |
 | :------- | :--------------------------------- |
 | Username | `Ministrator`                      |
-| Password | `M1Cr0N`                           |
+| Password | Set during installation (`M1Cr0N` only on the live ISO, before install) |
 | Role     | `SuperAdmin` (all 90+ permissions) |
 | Source   | Local (SQLite database)            |
 
-> **Warning:** The `Ministrator` password must be changed immediately after first login. This account cannot be deleted and cannot have its role downgraded below `SuperAdmin`.
+> **Warning:** The installer refuses the factory password, and a login with it is sent straight to the password change page. This account cannot be deleted and cannot have its role downgraded below `SuperAdmin`.
 
 ---
 
