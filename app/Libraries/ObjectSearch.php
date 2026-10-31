@@ -215,12 +215,19 @@ final class ObjectSearch
         $builder = $db->table(self::TABLES[$kind]['table']);
 
         if ($q !== '') {
+            // The builder appends `ESCAPE '!'` but leaves the value itself
+            // alone, so the operator's `%`, `_` and `!` are escaped here.
+            // escapeLikeString() would also double quotes, which the bound
+            // value then has doubled a second time.
+            $esc     = $db->likeEscapeChar;
+            $literal = str_replace([$esc, '%', '_'], [$esc . $esc, $esc . '%', $esc . '_'], $q);
+
             $builder->groupStart();
 
             foreach (self::TABLES[$kind]['match'] as $index => $column) {
                 $index === 0
-                    ? $builder->like($column, $q, 'both', true)
-                    : $builder->orLike($column, $q, 'both', true);
+                    ? $builder->like($column, $literal, 'both', true)
+                    : $builder->orLike($column, $literal, 'both', true);
             }
 
             $builder->groupEnd();
