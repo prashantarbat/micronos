@@ -717,6 +717,28 @@ else
     echo -e "${GREEN}[OK] Administrative password configured.${NC}\n"
 fi
 
+# Install check-in disclosure: said before the disk is touched, so the choice is
+# made knowingly. Kickstart: INSTALL_CHECKIN="no" turns it off.
+echo -e "${BOLD}Install check-in${NC}"
+echo "  Once at boot and then daily, this appliance reports to micronos.microninfo.com:"
+echo "  its Micron Appliance ID, hostname, version, uptime, boot slot, active rule count,"
+echo "  last configuration save and basic hardware facts. The website records the public"
+echo "  IP it comes from and looks up the country and city. Rules, traffic, logs, users"
+echo "  and keys are never sent. Change it any time in System > Networking."
+if [ "$KICKSTART_MODE" -eq 1 ]; then
+    INSTALL_CHECKIN="${INSTALL_CHECKIN:-yes}"
+else
+    read -r -p "  Keep install check-in on? [Y/n]: " INSTALL_CHECKIN
+    INSTALL_CHECKIN=${INSTALL_CHECKIN:-Y}
+fi
+if [[ "$INSTALL_CHECKIN" =~ ^([nN]|[nN][oO]|0|false|FALSE)$ ]]; then
+    INSTALL_CHECKIN=no
+    echo -e "${YELLOW}[OK] Install check-in will be off.${NC}\n"
+else
+    INSTALL_CHECKIN=yes
+    echo -e "${GREEN}[OK] Install check-in stays on.${NC}\n"
+fi
+
 # ------------------------------------------------------------------------------
 # Step 5: Disk Partitioning, Image Deployment & Bootloader Setup
 # ------------------------------------------------------------------------------
@@ -1378,6 +1400,12 @@ EOF
         install -m 0644 "$mnt/usr/local/micron/system/micron-ready-beep.service" "$mnt/etc/systemd/system/micron-ready-beep.service"
         ln -sf /etc/systemd/system/micron-ready-beep.service "$mnt/etc/systemd/system/multi-user.target.wants/micron-ready-beep.service"
     fi
+    if [ -f "$mnt/usr/local/micron/system/micron-checkin.service" ] && [ -f "$mnt/usr/local/micron/system/micron-checkin.timer" ]; then
+        install -m 0644 "$mnt/usr/local/micron/system/micron-checkin.service" "$mnt/etc/systemd/system/micron-checkin.service"
+        install -m 0644 "$mnt/usr/local/micron/system/micron-checkin.timer" "$mnt/etc/systemd/system/micron-checkin.timer"
+        mkdir -p "$mnt/etc/systemd/system/timers.target.wants"
+        ln -sf /etc/systemd/system/micron-checkin.timer "$mnt/etc/systemd/system/timers.target.wants/micron-checkin.timer"
+    fi
     mkdir -p "$mnt/etc/modules-load.d"
     echo "pcspkr" > "$mnt/etc/modules-load.d/pcspkr.conf" 2>/dev/null || true
     # Regenerate /etc/os-release from the slot's own VERSION file rather than
@@ -1413,6 +1441,9 @@ done
 # Initialize SQLite database
 if [ -d "$TARGET_MNT/usr/local/micron" ]; then
     MICRON_ADMIN_PW="$ADMIN_PW" chroot "$TARGET_MNT" bash -c "cd /usr/local/micron && export MICRON_APPLIANCE=1 && php spark migrate --all && php spark db:seed InitialApplianceSeeder && php spark db:seed RolesPermissionsSeeder && php spark user:reset-admin --from-env && php spark micron:db-resilience --snapshot" || true
+    if [ "${INSTALL_CHECKIN:-yes}" = "no" ]; then
+        chroot "$TARGET_MNT" bash -c "cd /usr/local/micron && export MICRON_APPLIANCE=1 && php spark micron:checkin --disable" || true
+    fi
     chroot "$TARGET_MNT" chown -R www-data:www-data /usr/local/micron/writable || true
     chroot "$TARGET_MNT" chmod -R 777 /usr/local/micron/writable || true
 fi
@@ -1753,6 +1784,7 @@ echo -e "${GREEN}  MICRON FIREWALL OS (Micron OS) INSTALLATION COMPLETE!${NC}"
 echo -e "${CYAN}══════════════════════════════════════════════════════════════════════${NC}"
 echo -e "Active Boot Slot   : Slot A (Primary)"
 echo -e "Standby Slot       : Slot B (Healthy Failover)"
+echo -e "Install check-in   : $([ "${INSTALL_CHECKIN:-yes}" = "no" ] && echo "off" || echo "on (System > Networking to change)")"
 if [ "$ADMIN_PW_GENERATED" -eq 1 ]; then
     echo -e "\n${BOLD}${YELLOW}Generated administrator password: ${ADMIN_PW}${NC}"
     echo -e "Used for the Web GUI (Ministrator) and the console (ministrator, root)."

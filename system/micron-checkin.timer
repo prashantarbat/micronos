@@ -1,0 +1,11 @@
+[Unit]
+Description=Micron OS install check-in: at boot, then daily
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=1d
+RandomizedDelaySec=30min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

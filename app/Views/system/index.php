@@ -499,6 +499,41 @@ if (!function_exists('stickyColor')) {
         </div>
       </div>
     </div>
+
+    <?php $checkinOn = (int) sv('telemetry_enabled', $settings, 1) === 1 && config('Telemetry')->allowed; ?>
+    <div class="card card-glass" style="margin-bottom:20px;" id="install-checkin">
+      <div class="card-header">
+        <span class="card-title">
+          <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+          Install Check-in
+        </span>
+        <span class="badge <?= $checkinOn ? 'badge-success' : 'badge-info' ?>" style="font-size:0.68rem;"><?= $checkinOn ? 'On' : 'Off' ?></span>
+      </div>
+      <div class="card-body">
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label">Report this install to micronos.microninfo.com</label>
+          <div style="display:flex; align-items:center; gap:14px; padding:14px 16px; background:var(--color-surface-3); border:1px solid var(--color-border); border-radius:8px;">
+            <label class="toggle-switch" style="margin:0;">
+              <input type="checkbox" name="telemetry_enabled" id="telemetry_enabled" value="1" <?= $checkinOn ? 'checked' : '' ?> <?= config('Telemetry')->allowed ? '' : 'disabled' ?>>
+              <span class="toggle-slider"></span>
+            </label>
+            <div>
+              <div style="font-size:0.85rem; font-weight:600; color:var(--text-primary);"><?= $checkinOn ? 'Enabled' : 'Disabled' ?></div>
+              <div style="font-size:0.75rem; color:var(--text-muted);">Once a few minutes after boot, then once a day. Turn off to send nothing.</div>
+            </div>
+          </div>
+        </div>
+        <div style="margin-top:14px; font-size:0.78rem; color:var(--text-secondary); line-height:1.7;">
+          <strong style="color:var(--text-primary);">What is sent:</strong> Micron Appliance ID, hostname, Micron OS version, uptime, boot slot, number of active firewall rules, when the configuration was last saved, kernel, CPU model and cores, memory, disk size, number of network ports, timezone and whether it runs in a VM.
+          The website also records the <strong>public IP</strong> the report comes from and looks up its approximate country, city and ISP.
+          <strong style="color:var(--text-primary);">Never sent:</strong> firewall rules, traffic, logs, user names, passwords, keys or organisation details.
+          See exactly what would be sent with <code style="font-family:var(--font-mono);">php spark micron:checkin --show</code>.
+        </div>
+        <div style="margin-top:12px; padding:10px 14px; border-radius:8px; background:var(--color-surface-3); border:1px solid var(--color-border); font-size:0.75rem; color:var(--text-muted);">
+          Last sent: <?= esc(($settings['telemetry_last_at'] ?? '') ?: 'never') ?><?php if (! empty($settings['telemetry_last_status'])): ?> &bull; Last result: <?= esc($settings['telemetry_last_status']) ?><?php endif; ?>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- ══════════════════════════════════════════════

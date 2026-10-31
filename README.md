@@ -151,6 +151,8 @@ Thank you from the bottom of my heart for reading this and trying Micron OS. I h
 
 Minimum hardware: 64-bit x86 CPU, 2 GB RAM, 32 GB disk, two NICs. Full walk-through: [`docs/INSTALL.md`](docs/INSTALL.md).
 
+> **Install check-in:** once at boot and then daily, each appliance reports its Micron Appliance ID, hostname, version, uptime, boot slot, active rule count and basic hardware to micronos.microninfo.com, which records the public IP and its country and city. No rules, traffic, logs, users or keys. It is on by default; turn it off in **System > Networking** or with `php spark micron:checkin --disable`. Details: [`docs/INSTALL_CHECKIN.md`](docs/INSTALL_CHECKIN.md).
+
 > **High availability:** VRRP failover, connection-state sync and encrypted configuration sync to the peer. See the [release notes](docs/RELEASE_NOTES_1.0.0.md#high-availability).
 
 ---

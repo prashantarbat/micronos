@@ -384,6 +384,7 @@ class Dashboard extends BaseController
             'squidStatus'      => $squidStatus,
             'firewallRules'    => $firewallRules,
             'ruleCount'        => count($firewallRules),
+            'checkinOn'        => $this->safeCall(fn () => (new \App\Libraries\InstallCheckin())->enabled(), false),
             'haSettings'       => $haSettings,
             'haVips'           => $haVips,
             'haRole'           => $haRole,

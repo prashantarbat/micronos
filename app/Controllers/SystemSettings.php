@@ -142,7 +142,8 @@ class SystemSettings extends BaseController
         foreach (['ntp_enabled','webgui_redirect_http','ssh_enabled',
                   'webgui_login_banner_enabled','webgui_sticky_header_enabled',
                   'webgui_sticky_blink_enabled',
-                  'ssh_root_login','notif_email_enabled','ipv6_enabled'] as $checkbox) {
+                  'ssh_root_login','notif_email_enabled','ipv6_enabled',
+                  'telemetry_enabled'] as $checkbox) {
             $post[$checkbox] = isset($post[$checkbox]) ? 1 : 0;
         }
 

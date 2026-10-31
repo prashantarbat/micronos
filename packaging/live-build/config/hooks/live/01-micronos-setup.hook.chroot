@@ -169,6 +169,10 @@ fi
 if [ -f /usr/local/micron/system/micron-ready-beep ]; then
     install -m 0755 /usr/local/micron/system/micron-ready-beep /usr/local/bin/micron-ready-beep
 fi
+if [ -f /usr/local/micron/system/micron-checkin.service ] && [ -f /usr/local/micron/system/micron-checkin.timer ]; then
+    install -m 0644 /usr/local/micron/system/micron-checkin.service /etc/systemd/system/micron-checkin.service
+    install -m 0644 /usr/local/micron/system/micron-checkin.timer /etc/systemd/system/micron-checkin.timer
+fi
 # Ensure pcspkr is not blacklisted by Debian default modprobe configs
 for f in /etc/modprobe.d/blacklist.conf \
           /etc/modprobe.d/blacklist-oss.conf \
@@ -190,6 +194,7 @@ systemctl enable micron-db-check.service || true
 systemctl enable micron-terminald.service || true
 systemctl enable micron-guacd-bridge.service || true
 systemctl enable micron-ready-beep.service || true
+systemctl enable micron-checkin.timer || true
 
 # ---------------------------------------------------------------------------
 # Nginx must never fight Apache2 for port 80

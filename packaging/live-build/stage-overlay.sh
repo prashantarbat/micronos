@@ -152,6 +152,15 @@ if [ -f "${root}/system/micron-ready-beep.service" ]; then
     install -m 0644 "${root}/system/micron-ready-beep.service" "${out}/etc/systemd/system/micron-ready-beep.service"
 fi
 
+# Install check-in (micronos.microninfo.com): at boot, then daily. The
+# administrator turns it off in System > Networking; the timer then sends nothing.
+if [ -f "${root}/system/micron-checkin.service" ] && [ -f "${root}/system/micron-checkin.timer" ]; then
+    install -d "${out}/etc/systemd/system/timers.target.wants"
+    install -m 0644 "${root}/system/micron-checkin.service" "${out}/etc/systemd/system/micron-checkin.service"
+    install -m 0644 "${root}/system/micron-checkin.timer" "${out}/etc/systemd/system/micron-checkin.timer"
+    ln -sf /etc/systemd/system/micron-checkin.timer "${out}/etc/systemd/system/timers.target.wants/micron-checkin.timer"
+fi
+
 if [ -f "${root}/system/micron-sdwan-probe" ]; then
     install -m 0755 "${root}/system/micron-sdwan-probe" "${out}/usr/local/bin/micron-sdwan-probe"
 fi

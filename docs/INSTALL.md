@@ -59,6 +59,12 @@ Boot from the media and choose **Install Micron OS**. The installer has five ste
    ports on the console after the first boot (section 5). A kickstart file
    can set `WAN_IF` / `LAN_IF` instead.
 
+Before it partitions the disk, the installer also says what the **install
+check-in** sends (appliance ID, hostname, version, uptime, boot slot, rule
+count and hardware, plus the public IP it comes from) and asks whether to keep
+it on. See [INSTALL_CHECKIN.md](INSTALL_CHECKIN.md); kickstart uses
+`INSTALL_CHECKIN="no"` to turn it off.
+
 Remove the installer media when asked and reboot.
 
 Unattended installs for many branches are supported with a kickstart file; see
