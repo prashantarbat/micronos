@@ -61,6 +61,17 @@ ADMIN_PW=""
 REBOOT="yes"
 
 # ------------------------------------------------------------------------------
+# 6b. Install check-in
+# ------------------------------------------------------------------------------
+# 'yes': once at boot and then daily, report the Micron Appliance ID, hostname,
+#        version, uptime, boot slot, active rule count, last configuration save
+#        and basic hardware facts to micronos.microninfo.com (which also records
+#        the public IP and its country/city). Rules, traffic, logs, users and
+#        keys are never sent.
+# 'no' : send nothing. Can be changed later in System > Networking.
+INSTALL_CHECKIN="yes"
+
+# ------------------------------------------------------------------------------
 # 7. Optional Initial Network Configuration
 # ------------------------------------------------------------------------------
 # Leave empty to auto-assign physical NIC 1 as WAN and NIC 2 as LAN at boot.

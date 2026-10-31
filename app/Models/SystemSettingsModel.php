@@ -40,6 +40,8 @@ class SystemSettingsModel extends Model
         'notif_smtp_user', 'notif_smtp_pass', 'notif_smtp_from', 'notif_smtp_to',
         // Networking
         'ipv6_enabled',
+        // Install check-in (micron:checkin writes the last_* columns itself)
+        'telemetry_enabled',
         // Misc
         // console_speed (fixed 115200) and language (English only) are kept as
         // columns for older rows but are no longer writable from the Web UI.
@@ -109,6 +111,11 @@ class SystemSettingsModel extends Model
         'dns_default_servers' => '1.1.1.1, 8.8.8.8',
         // IPv6 is off until an administrator turns it on (System > Networking).
         'ipv6_enabled'        => 0,
+        // Install check-in to micronos.microninfo.com: on until turned off
+        // (System > Networking > Install check-in).
+        'telemetry_enabled'     => 1,
+        'telemetry_last_at'     => null,
+        'telemetry_last_status' => '',
         'theme'               => 'micronos',
         'language'            => 'en',
         'layout'              => 'topnav',

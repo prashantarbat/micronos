@@ -7,6 +7,14 @@ All notable changes to Micron OS are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- Install check-in: once after boot and then daily, the appliance reports its
+  Micron Appliance ID, hostname, version, uptime, boot slot, active rule count,
+  last config save and basic hardware to micronos.microninfo.com
+  (`micron-checkin.timer`, `php spark micron:checkin`). On by default; the
+  installer asks, and System > Networking turns it off. See
+  [docs/INSTALL_CHECKIN.md](docs/INSTALL_CHECKIN.md).
+
 ### Changed
 - Console **1) Assign Interfaces** follows the pfSense dialogue: optional
   VLANs, WAN (or `a` to auto-detect by link-up), LAN, OPT1..n, then an
