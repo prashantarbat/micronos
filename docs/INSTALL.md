@@ -55,8 +55,9 @@ Boot from the media and choose **Install Micron OS**. The installer has five ste
    factory password is refused. A kickstart install without `ADMIN_PW`
    generates a random password, shows it at the end and saves it to
    `/etc/micron/initial-admin-password` (delete that file after first sign-in).
-5. **Network.** Choose which NIC is WAN and which is LAN, or let the appliance
-   detect them on first boot.
+5. **Network.** Nothing is assigned by default. You choose the WAN and LAN
+   ports on the console after the first boot (section 5). A kickstart file
+   can set `WAN_IF` / `LAN_IF` instead.
 
 Remove the installer media when asked and reboot.
 
@@ -65,12 +66,27 @@ Unattended installs for many branches are supported with a kickstart file; see
 
 ## 5. First boot
 
-On first boot the appliance detects its network interfaces, applies the
-interface assignment and starts all services. The console shows a banner with
-the management address when it is ready. Sign in on the console as
-`ministrator` with your administrator password to reach the menu, where you
-can reassign interfaces, change the LAN address, ping, and reset the
-administrator password. `sudo` asks for the same password, and SSH does not
+Sign in on the console as `ministrator` with your administrator password.
+Because no interface is assigned yet, the console starts **1) Assign
+Interfaces** by itself (the same dialogue as pfSense):
+
+1. `Should VLANs be set up now [y|n]?` Answer `n` unless your ISP needs a VLAN
+   tag on the WAN port. With `y`, enter a parent port and a tag (1-4094) for
+   each VLAN, and press Enter when finished.
+2. Enter the **WAN** port name from the list (for example `enp1s0` or `igc0`),
+   or `a` to auto-detect it: plug in that port's cable when asked, and the
+   port whose link comes up is used.
+3. Enter the **LAN** port name, or press Enter for a WAN-only appliance.
+4. Enter **OPT1**, **OPT2** ... ports, or press Enter to skip them.
+5. Check the summary and answer `y` to apply it.
+
+The LAN gets the factory address 10.10.10.10/24 and the WAN asks for an
+address by DHCP. The console then shows the management address. The same
+dialogue runs again when an assigned port is missing (new hardware), and from
+option 1 or option 4 (factory reset) at any time. From the menu you can also
+change the LAN address, ping, and reset the administrator password. The Web
+GUI is not offered on WAN, so a WAN-only appliance is managed from the console
+until a LAN or OPT port is assigned. `sudo` asks for the same password, and SSH does not
 accept password logins as `root`: sign in as `ministrator` instead.
 
 ## 6. First login
