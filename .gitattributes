@@ -1,2 +1,31 @@
-# Auto detect text files and perform LF normalization
-* text=auto
+# Store text as LF and check it out as LF on every OS, Windows included.
+# The appliance is built from this tree on Linux (the ISO builder reads a
+# Windows checkout through /mnt/d), and a CRLF shell script fails there with
+# "set: pipefail\r: invalid option name".
+* text=auto eol=lf
+
+# Windows-only scripts keep CRLF.
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+*.ps1  text eol=crlf
+
+# Binary files: never convert.
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.webp  binary
+*.woff  binary
+*.woff2 binary
+*.ttf   binary
+*.otf   binary
+*.eot   binary
+*.pdf   binary
+*.zip   binary
+*.gz    binary
+*.tar   binary
+*.iso   binary
+*.db    binary
+*.sqlite binary
+*.mmdb  binary
