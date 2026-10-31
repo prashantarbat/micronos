@@ -10,7 +10,7 @@ and the daemon-unreachable path. Commands that would change the host
 
 Run: python3 tests/test_cli_daemon_integration.py
 """
-import json
+import asyncio
 import os
 import shutil
 import subprocess
@@ -31,8 +31,6 @@ def check(name, cond, detail=""):
     if not cond:
         failures.append(name)
 
-
-import asyncio
 
 if shutil.which("php") is None:
     print("SKIP php is not installed")

@@ -85,7 +85,7 @@ def load_presets():
     try:
         presets = strict_json_loads(proc.stdout)
     except json.JSONDecodeError as exc:
-        raise RuntimeError(f"php did not return JSON: {proc.stdout[:200]!r} ({exc})")
+        raise RuntimeError(f"php did not return JSON: {proc.stdout[:200]!r} ({exc})") from exc
 
     if not isinstance(presets, list):
         raise RuntimeError(f"the registry did not decode to a list: {type(presets).__name__}")

@@ -2,7 +2,9 @@
 """Lift each theme's --text-muted / --text-secondary until it clears WCAG AA
 (4.5:1) against that theme's background and its surfaces. Prints a report;
 with --write, rewrites public/css/micronos.css in place."""
-import colorsys, re, sys
+import colorsys
+import re
+import sys
 
 PATH = "public/css/micronos.css"
 
@@ -13,7 +15,8 @@ def hex_rgb(h):
     return tuple(int(h[i:i + 2], 16) / 255 for i in (0, 2, 4))
 
 def lum(rgb):
-    f = lambda c: c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+    def f(c):
+        return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
     r, g, b = map(f, rgb)
     return 0.2126 * r + 0.7152 * g + 0.0722 * b
 
@@ -41,11 +44,11 @@ for m in blocks:
         if worst >= 4.5:
             continue
         light_bg = lum(hex_rgb(bgs[0])) > 0.4
-        h, l, s = colorsys.rgb_to_hls(*rgb)
+        h, light, s = colorsys.rgb_to_hls(*rgb)
         new = rgb
         for _ in range(200):
-            l = max(0.0, l - 0.005) if light_bg else min(1.0, l + 0.005)
-            new = colorsys.hls_to_rgb(h, l, s)
+            light = max(0.0, light - 0.005) if light_bg else min(1.0, light + 0.005)
+            new = colorsys.hls_to_rgb(h, light, s)
             if min(contrast(new, hex_rgb(b)) for b in bgs) >= 4.6:
                 break
         changes.append((m.group(1), tok, tokens[tok], to_hex(new), round(worst, 2),
@@ -55,7 +58,7 @@ for sel, tok, old, new, before, after, *_ in changes:
     print(f"{sel:28s} {tok:16s} {old} -> {new}  ({before}:1 -> {after}:1)")
 if "--write" in sys.argv:
     out = css
-    for sel, tok, old, new, before, after, start, end in sorted(changes, key=lambda c: -c[6]):
+    for _sel, tok, old, new, _before, _after, start, end in sorted(changes, key=lambda c: -c[6]):
         body = out[start:end]
         body = re.sub(rf"({re.escape(tok)}:\s*){re.escape(old)}", rf"\g<1>{new}", body, count=1)
         out = out[:start] + body + out[end:]

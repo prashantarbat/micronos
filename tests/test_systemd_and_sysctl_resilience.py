@@ -13,7 +13,6 @@ Verifies that:
    the appliance filesystem.
 """
 import os
-import re
 import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

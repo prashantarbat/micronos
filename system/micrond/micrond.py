@@ -26,7 +26,6 @@ import socket
 import sqlite3
 import struct
 import subprocess
-import sys
 import tempfile
 import time
 import urllib.parse
@@ -1391,7 +1390,7 @@ class OpsMixin:
         ifaces = []
         for dev in sorted(os.listdir("/sys/class/net")) if os.path.isdir("/sys/class/net") else []:
             base = f"/sys/class/net/{dev}"
-            def num(name: str) -> Optional[int]:
+            def num(name: str, base: str = base) -> Optional[int]:
                 v = self._read_first(f"{base}/statistics/{name}")
                 return int(v) if v and v.isdigit() else None
             speed = self._read_first(f"{base}/speed")
@@ -1510,8 +1509,6 @@ class OpsMixin:
         if not db_path or not os.path.exists(db_path):
             return {"status": "skipped", "reason": "no_db"}
 
-        wal_path = f"{db_path}-wal"
-        wal_size = os.path.getsize(wal_path) if os.path.exists(wal_path) else 0
         try:
             con = sqlite3.connect(db_path, timeout=5.0)
             cur = con.cursor()
@@ -1814,7 +1811,7 @@ class OpsMixin:
             return {"success": False, "status": "error", "refused": refused,
                     "message": f"{len(refused)} cron line(s) were refused; nothing was changed"}
         result = self._apply_managed_config("cron", "\n".join(out_lines) + "\n")
-        result["jobs"] = sum(1 for l in out_lines if l and not l.startswith("#") and "=" not in l.split()[0])
+        result["jobs"] = sum(1 for line in out_lines if line and not line.startswith("#") and "=" not in line.split()[0])
         return result
 
     async def rpc_system_cron_run(self, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -1843,7 +1840,7 @@ class OpsMixin:
 
     async def rpc_system_cron_logs(self, params: Dict[str, Any]) -> Dict[str, Any]:
         text = self._journal("cron", self._lines_param(params))
-        logs = [l for l in text.splitlines() if l.strip() and not l.startswith("-- ")]
+        logs = [line for line in text.splitlines() if line.strip() and not line.startswith("-- ")]
         return {"success": True, "status": "ok", "logs": logs}
 
     # ---------------------------------------------------------- DNS
@@ -2193,7 +2190,7 @@ class OpsMixin:
     async def rpc_snmp_get_logs(self, params: Dict[str, Any]) -> Dict[str, Any]:
         text = self._journal("snmpd", self._lines_param(params, 40))
         return {"success": True, "status": "ok",
-                "logs": [l for l in text.splitlines() if l.strip() and not l.startswith("-- ")]}
+                "logs": [line for line in text.splitlines() if line.strip() and not line.startswith("-- ")]}
 
     async def rpc_snmp_test_query(self, params: Dict[str, Any]) -> Dict[str, Any]:
         oid = str(params.get("oid") or "1.3.6.1.2.1.1").strip()
@@ -2842,7 +2839,7 @@ class ToolkitMixin:
             argv.append("+short")
         argv += [name, qtype]
         res = self._run_bounded(argv, timeout=30)
-        answers = [l for l in res["output"].splitlines() if l and not l.startswith(";")]
+        answers = [line for line in res["output"].splitlines() if line and not line.startswith(";")]
         status = re.search(r"status: ([A-Z]+)", res["output"])
         return self._tk_result("dns", argv, res, {"rcode": status.group(1) if status else None,
                                                     "answers": answers[:50]})
@@ -9630,7 +9627,7 @@ class RpcHandler(NetworkMixin, OpsMixin, ToolkitMixin):
                 "status": "active",
                 "type": "dynamic",
             })
-        leases.sort(key=lambda l: tuple(int(o) for o in l["ip"].split(".")))
+        leases.sort(key=lambda lease: tuple(int(o) for o in lease["ip"].split(".")))
         return {"success": True, "status": "ok", "leases": leases[:limit], "count": len(leases),
                 "source": KEA_LEASES4_CSV if os.path.exists(KEA_LEASES4_CSV) else None}
 
@@ -9702,7 +9699,8 @@ class RpcHandler(NetworkMixin, OpsMixin, ToolkitMixin):
         # Write and apply nftables ruleset
         if nft_rules:
             try:
-                import tempfile, os
+                import tempfile
+                import os
                 with tempfile.NamedTemporaryFile(
                     mode="w", suffix=".nft", delete=False, prefix="/tmp/micron_sdwan_"
                 ) as tf:
@@ -9882,7 +9880,8 @@ class RpcHandler(NetworkMixin, OpsMixin, ToolkitMixin):
         ca_cert_path = "/etc/squid/ssl_cert/micron_ca.pem"
         ca_key_path = "/etc/squid/ssl_cert/micron_ca.key"
         try:
-            import os, subprocess
+            import os
+            import subprocess
             cert_exists = os.path.exists(ca_cert_path)
             key_exists = os.path.exists(ca_key_path)
             cn = "Micron OS Proxy Inspection CA"
@@ -9894,7 +9893,7 @@ class RpcHandler(NetworkMixin, OpsMixin, ToolkitMixin):
                         ["openssl", "x509", "-noout", "-subject", "-enddate", "-in", ca_cert_path],
                         capture_output=True, text=True, timeout=5
                     )
-                    subject_line = next((l for l in result.stdout.splitlines() if "subject" in l.lower()), "")
+                    subject_line = next((line for line in result.stdout.splitlines() if "subject" in line.lower()), "")
                     if "CN" in subject_line:
                         cn = subject_line.split("CN")[-1].lstrip(" =").split(",")[0].strip()
                 except Exception:
@@ -9924,7 +9923,8 @@ class RpcHandler(NetworkMixin, OpsMixin, ToolkitMixin):
         cache manager or /proc/net/nf_conntrack filtered for HTTPS (dport 443)."""
         sessions: list = []
         try:
-            import subprocess, re
+            import subprocess
+            import re
             # Query Squid's cache manager over HTTP. squidclient does not work
             # with Squid 6 (Debian 13), so use the manager URL on the plain
             # http_port, which squid.conf allows from localhost.
@@ -11094,7 +11094,7 @@ class RpcHandler(NetworkMixin, OpsMixin, ToolkitMixin):
                     fields[key] = value
             state = next((p for p in parts if p.isalpha() and p.isupper() and len(p) > 2), "")
 
-            def _number(key: str) -> int:
+            def _number(key: str, fields: Dict[str, str] = fields) -> int:
                 return int(fields[key]) if fields.get(key, "").isdigit() else 0
 
             iface = ""
@@ -11168,7 +11168,7 @@ class RpcHandler(NetworkMixin, OpsMixin, ToolkitMixin):
             # `FLAGS=` field.
             flags = [f for f in ("SYN", "ACK", "FIN", "RST", "PSH", "URG") if f in tokens]
 
-            def _number(key: str) -> int:
+            def _number(key: str, fields: Dict[str, str] = fields) -> int:
                 return int(fields[key]) if fields.get(key, "").isdigit() else 0
 
             events.append({
@@ -12285,7 +12285,6 @@ async def main():
 
     # Set socket permissions so www-data (PHP-FPM/Apache) can read and write
     try:
-        import shutil
         import grp
         os.chmod(SOCKET_PATH, 0o660)
         try:

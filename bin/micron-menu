@@ -27,7 +27,6 @@ export IN_MICRON_MENU=1
 
 # Ctrl+C / SIGTERM inside the menu must return to the menu, not kill the session.
 # (Defined after the main loop; see the bottom of this file.)
-MENU_QUIT=0
 
 # Terminal colors
 BOLD='\033[1m'
@@ -643,7 +642,7 @@ assign_interfaces_pfsense() {
     fi
     echo " done!"
     ensure_numlock
-    if ls "$SYS_NET" 2>/dev/null | grep -qE '\.[0-9]+$'; then
+    if compgen -G "$SYS_NET/*.[0-9]*" >/dev/null 2>&1; then
         echo -e "${YELLOW}Note: VLANs that are not assigned to an interface are not kept after a reboot.${NC}"
     fi
     pause
@@ -737,7 +736,11 @@ manage_bridges_menu() {
 
                 # Show available physical interfaces
                 echo "Available physical interfaces:"
-                local avail=($(ls -1 /sys/class/net 2>/dev/null | grep -E -v '^(lo|virbr|docker|veth|wg|tun|br)'))
+                local avail=() nic
+                for nic in /sys/class/net/*; do
+                    nic=${nic##*/}
+                    [[ "$nic" =~ ^(lo|virbr|docker|veth|wg|tun|br) ]] || avail+=("$nic")
+                done
                 echo "  ${avail[*]}"
                 echo ""
                 read -r -p "Enter member ports separated by spaces (e.g. eth1 eth2 eth3): " PORTS_IN
@@ -949,10 +952,12 @@ manage_dhcp_menu() {
         local lan_dev="$LAN_IF"
         local lan_cidr="10.10.10.10/24"
         [[ "$LAN_IP" =~ ^[0-9.]+/[0-9]+$ ]] && lan_cidr="$LAN_IP"
-        local lan_base=$(echo "$lan_cidr" | cut -d/ -f1)
-        local lan_prefix=$(echo "$lan_cidr" | cut -d/ -f2)
+        local lan_base lan_prefix
+        lan_base=$(echo "$lan_cidr" | cut -d/ -f1)
+        lan_prefix=$(echo "$lan_cidr" | cut -d/ -f2)
         lan_prefix=${lan_prefix:-24}
-        local lan_3oct=$(echo "$lan_base" | cut -d. -f1-3)
+        local lan_3oct
+        lan_3oct=$(echo "$lan_base" | cut -d. -f1-3)
 
         [ -n "$pool_from" ] || pool_from="${lan_3oct}.100"
         [ -n "$pool_to" ] || pool_to="${lan_3oct}.200"
@@ -1236,8 +1241,7 @@ while true; do
             CONFIRM_RESET=${CONFIRM_RESET:-Y}
             if [[ "$CONFIRM_RESET" =~ ^[yY] ]]; then
                 echo -e "${YELLOW}Restoring initial database seed...${NC}"
-                if [ -d "$app_root" ] && command -v php >/dev/null 2>&1; then
-                    cd "$app_root"
+                if [ -d "$app_root" ] && command -v php >/dev/null 2>&1 && cd "$app_root"; then
                     run_root php spark db:seed InitialApplianceSeeder || true
                     run_root php spark db:seed RolesPermissionsSeeder || true
                 fi
@@ -1295,8 +1299,6 @@ while true; do
             run_root chmod 666 /tmp/.micron_in_shell 2>/dev/null || true
             export MICRON_SHELL=1
             export IN_MICRON_MENU=1
-            ROOT_PS1='\[\033[01;31m\][MicronOS] \w # \[\033[00m\]'
-
             ensure_numlock
 
             RC_SCRIPT="${app_root}/system/micron-shell-rc"

@@ -234,7 +234,7 @@ class AcmeRenewCommand extends BaseCommand
     }
 
     /**
-     * @param array<string, mixed> $due
+     * @param list<array<string, mixed>> $due
      *
      * @return list<array<string, mixed>>
      */

@@ -8,7 +8,10 @@ mode answers. Prints drift so it is a build failure, not a support ticket.
 Usage: python3 tools/rpc_inventory.py [--json]
 Exit status: 0 = no unexplained drift, 1 = drift found.
 """
-import json, os, re, sys
+import json
+import os
+import re
+import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 

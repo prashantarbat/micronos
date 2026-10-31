@@ -71,7 +71,7 @@ def fake_run(*args, **kwargs) -> subprocess.CompletedProcess:
         uname = argv[-1]
         if os.path.exists(FAKE_PASSWD):
             with open(FAKE_PASSWD, "r", encoding="utf-8") as pf:
-                lines = [l for l in pf if not l.startswith(f"{uname}:")]
+                lines = [line for line in pf if not line.startswith(f"{uname}:")]
             with open(FAKE_PASSWD, "w", encoding="utf-8") as pf:
                 pf.writelines(lines)
     return subprocess.CompletedProcess(argv, 0, "", "")

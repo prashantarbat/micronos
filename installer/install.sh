@@ -447,8 +447,8 @@ select_target_disk_kickstart() {
     local candidate=""
     while IFS= read -r line; do
         [ -z "$line" ] && continue
-        local name size type model tran rota rm ro
-        read -r name size type model tran rota rm ro <<< "$line"
+        local name size _type model tran rota rm ro
+        read -r name size _type model tran rota rm ro <<< "$line"
 
         [[ "$name" =~ ^(loop|ram|sr|zram) ]] && continue
         [ "$ro" = "1" ] && continue
@@ -496,8 +496,8 @@ select_target_disk_interactive() {
 
     while IFS= read -r line; do
         [ -z "$line" ] && continue
-        local name size type model tran rota rm ro
-        read -r name size type model tran rota rm ro <<< "$line"
+        local name size _type model tran rota rm ro
+        read -r name size _type model tran rota rm ro <<< "$line"
         
         # Exclude loop, ram, optical, and read-only media
         [[ "$name" =~ ^(loop|ram|sr|zram) ]] && continue
@@ -796,14 +796,14 @@ udevadm settle 2>/dev/null || sleep 2
 # Resolve partition identifiers (handling nvme0n1p1, mmcblk0p1 vs sda1)
 if [[ "$TARGET_DISK" =~ [0-9]$ ]]; then
     P_EFI="${TARGET_DISK}p1"
-    P_BIOS_BOOT="${TARGET_DISK}p2"
+    # partition 2 is the BIOS boot partition (ef02): GRUB writes to it raw
     P_SWAP="${TARGET_DISK}p3"
     P_ROOT_A="${TARGET_DISK}p4"
     P_ROOT_B="${TARGET_DISK}p5"
     P_DATA="${TARGET_DISK}p6"
 else
     P_EFI="${TARGET_DISK}1"
-    P_BIOS_BOOT="${TARGET_DISK}2"
+    # partition 2 is the BIOS boot partition (ef02): GRUB writes to it raw
     P_SWAP="${TARGET_DISK}3"
     P_ROOT_A="${TARGET_DISK}4"
     P_ROOT_B="${TARGET_DISK}5"
@@ -820,7 +820,7 @@ done
 
 echo "Formatting filesystems..."
 mkfs.vfat -F32 -n "EFI"         "$P_EFI"
-# P_BIOS_BOOT (partition 2, type ef02) needs NO filesystem — GRUB writes directly to it
+# The BIOS boot partition (partition 2, type ef02) needs NO filesystem — GRUB writes directly to it
 mkswap    -L "SWAP"             "$P_SWAP"
 mkfs.ext4 -F -L "MICRON_ROOT_A" "$P_ROOT_A"
 mkfs.ext4 -F -L "MICRON_ROOT_B" "$P_ROOT_B"

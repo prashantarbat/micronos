@@ -19,6 +19,7 @@ the RPC boundary (Programme G6):
   * WireGuard: config written 0600, hooks refused, interface name validated;
   * conntrack kills: IP-only arguments, honest counts.
 """
+import time as _t
 import asyncio
 import importlib.util
 import os
@@ -301,7 +302,6 @@ check("hardware.nics is a read-class method", micrond.rpc_method_class("hardware
       if hasattr(micrond, "rpc_method_class") else "hardware.nics" in micrond.RPC_READ_METHODS)
 
 # --- DHCP leases from Kea's memfile CSV ------------------------------------
-import time as _t
 _lease_dir = tempfile.mkdtemp(prefix="micron-kea-")
 _lease_csv = os.path.join(_lease_dir, "kea-leases4.csv")
 _now = int(_t.time())
@@ -316,7 +316,7 @@ micrond.KEA_LEASES4_CSV = _lease_csv
 leases = result("dhcp.leases")
 micrond.KEA_LEASES4_CSV = _saved_csv
 check("dhcp.leases returns only current, default-state leases (newest record wins)",
-      leases["success"] and [l["ip"] for l in leases["leases"]] == ["192.168.1.101"]
+      leases["success"] and [lease["ip"] for lease in leases["leases"]] == ["192.168.1.101"]
       and leases["leases"][0]["hostname"] == "pc1-renewed" and leases["leases"][0]["mac"] == "aa:bb:cc:00:00:01", str(leases))
 micrond.KEA_LEASES4_CSV = os.path.join(_lease_dir, "absent.csv")
 leases = result("dhcp.leases")

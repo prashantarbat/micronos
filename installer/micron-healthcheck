@@ -225,7 +225,7 @@ main() {
         return 0
     fi
 
-    local name probe rc
+    local name rc
     log "checking slot '$("$SLOT_HELPER" active)' (mode=${MODE}${FORCE:+, force=${FORCE}})"
 
     if [ "$FORCE" = 'ok' ]; then

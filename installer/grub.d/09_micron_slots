@@ -1,4 +1,5 @@
 #!/bin/sh
+# shellcheck disable=SC3043  # local: supported by dash, which runs grub.d
 # ==============================================================================
 # MicronOS — GRUB A/B Boot Slot Selector (grub-mkconfig fragment)
 # ==============================================================================
