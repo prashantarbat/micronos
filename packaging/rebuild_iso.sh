@@ -152,6 +152,17 @@ command -v lb >/dev/null 2>&1 || { echo "ERROR: live-build (lb) is not installed
 
 mkdir -p "${BUILD_DIR}" "${OUTPUT_DIR}" "${TARGET_DIR}"
 
+# A Windows checkout can carry CRLF line endings (an old clone, an editor, a
+# tool that ignores .gitattributes). bash then fails with "set: pipefail\r" or
+# "/bin/bash^M: bad interpreter". Everything staged into the image comes from
+# these folders, so normalise them to LF before anything runs. The stored git
+# blobs are LF already, so git sees no change.
+crlf_files=$(cd "${REPO_DIR}" && grep -rlI $'\r' packaging installer system bin app/Commands spark 2>/dev/null | grep -vE '\.(ps1|bat|cmd)$' || true)
+if [ -n "${crlf_files}" ]; then
+    echo "=== 0. Converting $(printf '%s\n' "${crlf_files}" | wc -l) file(s) from CRLF to LF in ${REPO_DIR} ==="
+    (cd "${REPO_DIR}" && printf '%s\n' "${crlf_files}" | while IFS= read -r f; do sed -i 's/\r$//' "$f"; done)
+fi
+
 echo "=== 1. Syncing build configs, bootloaders, and templates from ${REPO_DIR} ==="
 mkdir -p "${BUILD_DIR}/config/bootloaders"
 cp -rf "${REPO_DIR}/packaging/live-build/config/bootloaders/"* "${BUILD_DIR}/config/bootloaders/"
