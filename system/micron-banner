@@ -7,94 +7,67 @@
 # ==============================================================================
 set -euo pipefail
 
-# 1. Detect WAN Interface and IP
-WAN_IF=""
-if command -v ip >/dev/null 2>&1; then
-    WAN_IF=$(ip route show default 2>/dev/null | awk '/default/ {print $5}' | head -n1 || true)
-fi
-
-if [ -z "$WAN_IF" ] && [ -d /sys/class/net ]; then
-    WAN_IF=$(ls -1 /sys/class/net 2>/dev/null | grep -E -v '^(lo|virbr|docker|veth|wg|tun)' | head -n1 || echo "eth0")
-fi
-[ -n "$WAN_IF" ] || WAN_IF="eth0"
-
-WAN_IP=""
-if command -v ip >/dev/null 2>&1; then
-    for _ in 1 2 3; do
-        WAN_IP=$(ip -4 addr show dev "$WAN_IF" 2>/dev/null | awk '/inet / && !/169\.254/ {print $2}' | cut -d/ -f1 | head -n1 || true)
-        [ -n "$WAN_IP" ] && break
-        sleep 1
-    done
-fi
-
-if [ -n "$WAN_IP" ]; then
-    WAN_DESC="${WAN_IF} (${WAN_IP})"
-else
-    WAN_DESC="${WAN_IF} (DHCP Client - Acquiring)"
-fi
-
-# 2. Detect LAN Interface and IP
-LAN_IF=""
-if [ -d /sys/class/net ]; then
-    LAN_IF=$(ls -1 /sys/class/net 2>/dev/null | grep -E -v '^(lo|virbr|docker|veth|wg|tun)' | grep -v "^${WAN_IF}$" | head -n1 || true)
-fi
-if [ -z "$LAN_IF" ]; then
-    LAN_IF="$WAN_IF"
-fi
-
-LAN_IP=""
-if command -v ip >/dev/null 2>&1; then
-    LAN_IP=$(ip -4 addr show dev "$LAN_IF" 2>/dev/null | awk '/inet / && !/169\.254/ {print $2}' | cut -d/ -f1 | head -n1 || true)
-fi
-
-# If LAN has no IP, check DB mode
-DB_LAN_MODE="static"
-if [ -f "/usr/local/micron/writable/micron_config.db" ] && command -v sqlite3 >/dev/null 2>&1; then
-    DB_LAN_MODE=$(sqlite3 /usr/local/micron/writable/micron_config.db "SELECT ip_assignment_type FROM interfaces WHERE id='lan' AND enabled=1;" 2>/dev/null || echo "static")
-fi
-
-if [ -z "$LAN_IP" ]; then
-    if [ "$DB_LAN_MODE" = "dhcp" ]; then
-        for _ in 1 2 3; do
-            LAN_IP=$(ip -4 addr show dev "$LAN_IF" 2>/dev/null | awk '/inet / && !/169\.254/ {print $2}' | cut -d/ -f1 | head -n1 || true)
-            [ -n "$LAN_IP" ] && break
-            sleep 1
-        done
-    else
-        DB_LAN_IP=""
-        if [ -f "/usr/local/micron/writable/micron_config.db" ] && command -v sqlite3 >/dev/null 2>&1; then
-            DB_LAN_IP=$(sqlite3 /usr/local/micron/writable/micron_config.db "SELECT ipv4_address FROM interfaces WHERE id='lan' AND enabled=1;" 2>/dev/null || true)
-        fi
-        [ -n "$DB_LAN_IP" ] || DB_LAN_IP="10.10.10.10"
-
-        if [ "$LAN_IF" != "$WAN_IF" ] && [ "${EUID:-$(id -u)}" -eq 0 ]; then
-            LL_ADDR=$(ip -4 addr show dev "$LAN_IF" 2>/dev/null | awk '/inet 169\.254/ {print $2}' | head -n1 || true)
-            [ -z "$LL_ADDR" ] || ip addr del "$LL_ADDR" dev "$LAN_IF" 2>/dev/null || true
-            ip addr add "${DB_LAN_IP}/24" dev "$LAN_IF" 2>/dev/null || true
-            ip link set dev "$LAN_IF" up 2>/dev/null || true
-            LAN_IP=$(ip -4 addr show dev "$LAN_IF" 2>/dev/null | awk '/inet / && !/169\.254/ {print $2}' | cut -d/ -f1 | head -n1 || echo "$DB_LAN_IP")
-        else
-            LAN_IP="$DB_LAN_IP"
-        fi
+# 1-2. WAN / LAN roles as the operator assigned them (console option 1).
+# The banner only reports: it never guesses a port and never adds an address.
+DB_PATH="/usr/local/micron/writable/micron_config.db"
+role_dev() { # <wan|lan>
+    local d=""
+    if [ -f "$DB_PATH" ] && command -v sqlite3 >/dev/null 2>&1; then
+        d=$(sqlite3 "$DB_PATH" "SELECT physical_device FROM interfaces WHERE id='$1' AND enabled=1;" 2>/dev/null || true)
     fi
-fi
+    if [ -z "$d" ] && [ -f /etc/micron/network_init.json ]; then
+        d=$(grep -o "\"$1_interface\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" /etc/micron/network_init.json 2>/dev/null | cut -d'"' -f4 || true)
+    fi
+    printf '%s' "$d"
+}
+role_ip() { # <device>
+    [ -n "$1" ] || return 0
+    ip -4 addr show dev "$1" 2>/dev/null | awk '/inet / && !/169\.254/ {print $2}' | cut -d/ -f1 | head -n1 || true
+}
+role_desc() { # <device> <ip> <db-mode>
+    if [ -z "$1" ]; then
+        echo "not assigned (console option 1: Assign Interfaces)"
+    elif [ ! -d "/sys/class/net/$1" ]; then
+        echo "$1 (not present - reassign with console option 1)"
+    elif [ -n "$2" ]; then
+        echo "$1 ($2)"
+    elif [ "$3" = "dhcp" ]; then
+        echo "$1 (DHCP Client - Acquiring)"
+    else
+        echo "$1 (no IPv4 address)"
+    fi
+}
 
-if [ -n "$LAN_IP" ]; then
-    LAN_DESC="${LAN_IF} (${LAN_IP})"
-elif [ "$DB_LAN_MODE" = "dhcp" ]; then
-    LAN_DESC="${LAN_IF} (DHCP Client - Acquiring)"
-else
-    LAN_DESC="${LAN_IF} (10.10.10.10/24)"
+WAN_IF=$(role_dev wan)
+LAN_IF=$(role_dev lan)
+WAN_IP=""
+for _ in 1 2 3; do
+    WAN_IP=$(role_ip "$WAN_IF")
+    [ -n "$WAN_IP" ] || [ -z "$WAN_IF" ] && break
+    sleep 1
+done
+LAN_IP=$(role_ip "$LAN_IF")
+
+DB_WAN_MODE="dhcp"; DB_LAN_MODE="static"
+if [ -f "$DB_PATH" ] && command -v sqlite3 >/dev/null 2>&1; then
+    DB_WAN_MODE=$(sqlite3 "$DB_PATH" "SELECT ip_assignment_type FROM interfaces WHERE id='wan' AND enabled=1;" 2>/dev/null || echo "dhcp")
+    DB_LAN_MODE=$(sqlite3 "$DB_PATH" "SELECT ip_assignment_type FROM interfaces WHERE id='lan' AND enabled=1;" 2>/dev/null || echo "static")
 fi
+WAN_DESC=$(role_desc "$WAN_IF" "$WAN_IP" "$DB_WAN_MODE")
+LAN_DESC=$(role_desc "$LAN_IF" "$LAN_IP" "$DB_LAN_MODE")
 
 # 3. Determine Management Web IP
 MGMT_IP=""
-if [ -n "$LAN_IP" ] && [[ ! "$LAN_IP" =~ ^169\.254 ]]; then
+if [ -n "$LAN_IP" ]; then
     MGMT_IP="$LAN_IP"
-elif [ -n "$WAN_IP" ] && [[ ! "$WAN_IP" =~ ^169\.254 ]]; then
+elif [ -n "$WAN_IP" ]; then
     MGMT_IP="$WAN_IP"
 fi
-[ -n "$MGMT_IP" ] || MGMT_IP="192.168.1.1"
+if [ -n "$MGMT_IP" ]; then
+    MGMT_DESC="http://${MGMT_IP}/ (Port 80)"
+else
+    MGMT_DESC="unavailable until interfaces are assigned"
+fi
 
 # 4. Detect Active Slot
 #
@@ -144,13 +117,13 @@ cat << 'EOF' > "$BANNER_FILE"
  WAN Interface : @WAN_DESC@
  LAN Interface : @LAN_DESC@
 
- Management Web GUI : http://@MGMT_IP@/ (Port 80)
+ Management Web GUI : @MGMT_DESC@
 EOF
 
 # Substitute parameters
 sed -i "s|@WAN_DESC@|${WAN_DESC}|g" "$BANNER_FILE"
 sed -i "s|@LAN_DESC@|${LAN_DESC}|g" "$BANNER_FILE"
-sed -i "s|@MGMT_IP@|${MGMT_IP}|g" "$BANNER_FILE"
+sed -i "s|@MGMT_DESC@|${MGMT_DESC}|g" "$BANNER_FILE"
 
 if [ -n "$SLOT_INFO" ]; then
     echo "$SLOT_INFO" >> "$BANNER_FILE"

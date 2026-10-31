@@ -694,7 +694,8 @@ class NftablesCompiler
         // Manual/Disabled outbound modes).
         if ($autoMasq) {
             foreach ($interfaces as $iface) {
-                $dev = !empty($iface['physical_device']) ? $iface['physical_device'] : ($iface['name'] ?? '');
+                // A WAN role not assigned to a port yet has no device to NAT on.
+                $dev = trim((string) ($iface['physical_device'] ?? ''));
                 if (str_contains(strtoupper($iface['id'] ?? ''), 'WAN') && $dev !== '') {
                     $lines[] = "        oifname \"{$dev}\" masquerade comment \"WAN Outbound NAT ({$dev})\"";
                 }
@@ -1511,7 +1512,7 @@ class NftablesCompiler
     {
         $devs = [];
         foreach ($interfaces as $iface) {
-            $dev = !empty($iface['physical_device']) ? $iface['physical_device'] : ($iface['name'] ?? '');
+            $dev = trim((string) ($iface['physical_device'] ?? '')); // unassigned roles have none
             if ($dev === '' || $dev === $excludeDev) {
                 continue;
             }

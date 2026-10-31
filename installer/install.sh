@@ -987,7 +987,7 @@ EOF
     # leaves networking.service in a failed state on every boot, on every machine
     # whose NIC names differ from the kickstart file. Resolve each requested name
     # against the devices actually present and emit a stanza only for those.
-    # micron-network owns the data plane anyway and auto-assigns the rest.
+    # Anything not resolved here stays unassigned for console option 1.
     micron_resolve_if() { # <requested-name> -> resolved device name, or empty
         local want="${1:-}"
         [ -n "$want" ] || return 0
@@ -1013,10 +1013,10 @@ EOF
     WAN_IF_DEV="$(micron_resolve_if "${WAN_IF:-}")"
     LAN_IF_DEV="$(micron_resolve_if "${LAN_IF:-}")"
     if [ -n "${WAN_IF:-}" ] && [ -z "$WAN_IF_DEV" ]; then
-        echo -e "${YELLOW}[Kickstart] WAN interface '${WAN_IF}' is not present on this hardware; leaving WAN to micron-network auto-detection.${NC}"
+        echo -e "${YELLOW}[Kickstart] WAN interface '${WAN_IF}' is not present on this hardware; leaving WAN unassigned (assign it from console option 1).${NC}"
     fi
     if [ -n "${LAN_IF:-}" ] && [ -z "$LAN_IF_DEV" ]; then
-        echo -e "${YELLOW}[Kickstart] LAN interface '${LAN_IF}' is not present on this hardware; leaving LAN to micron-network auto-detection.${NC}"
+        echo -e "${YELLOW}[Kickstart] LAN interface '${LAN_IF}' is not present on this hardware; leaving LAN unassigned (assign it from console option 1).${NC}"
     fi
 
     if [ "$KICKSTART_MODE" -eq 1 ] && [ -n "$WAN_IF_DEV" ]; then
@@ -1039,14 +1039,15 @@ iface $LAN_IF_DEV inet static
     address $LAN_IP_ADDR
     netmask $LAN_NM
 EOF
-            cat << EOF > "$mnt/etc/micron/network_init.json"
+        fi
+        # micron-network adopts this choice on first boot (WAN-only included).
+        cat << EOF > "$mnt/etc/micron/network_init.json"
 {
   "wan_interface": "$WAN_IF_DEV",
   "lan_interface": "$LAN_IF_DEV",
   "configured": true
 }
 EOF
-        fi
     else
         cat << 'EOF' > "$mnt/etc/network/interfaces"
 auto lo

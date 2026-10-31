@@ -35,6 +35,9 @@ class KeaDhcpCompiler
 
         foreach ($interfaces as $iface) {
             $ifId = $iface['id'] ?? $iface['name'] ?? 'lan';
+            if (trim((string) ($iface['physical_device'] ?? '')) === '') {
+                continue; // Role not assigned to a port yet (console option 1)
+            }
             $setting = $this->db->table('dhcp_server_settings')->where('interface_id', $ifId)->get()->getRowArray();
             if ($setting && empty($setting['enabled'])) {
                 continue; // Interface DHCP is disabled

@@ -55,6 +55,23 @@ network_command() {
     run_root bash -c 'cd "$1" && shift && php spark network "$@"' _ "$app_root" "$@"
 }
 
+SYS_NET="${MICRON_SYS_NET:-/sys/class/net}"
+
+# The device an interface role (wan/lan) is assigned to, or nothing. The
+# configuration database is the authority; network_init.json is only read
+# when the database cannot be.
+assigned_role_device() {
+    local db="/usr/local/micron/writable/micron_config.db" d=""
+    [ -f "$db" ] || db="$app_root/writable/micron_config.db"
+    if [ -f "$db" ] && command -v sqlite3 >/dev/null 2>&1; then
+        d=$(run_root sqlite3 "$db" "SELECT physical_device FROM interfaces WHERE id='$1' AND enabled=1;" 2>/dev/null || true)
+    elif [ -f /etc/micron/network_init.json ]; then
+        d=$(grep -o "\"$1_interface\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" /etc/micron/network_init.json 2>/dev/null | cut -d'"' -f4 || true)
+    fi
+    [[ "$d" =~ ^[A-Za-z0-9][A-Za-z0-9_.:@-]{0,14}$ ]] && printf '%s' "$d"
+    return 0
+}
+
 # ------------------------------------------------------------------------------
 # NUM LOCK Enforcement Helper (Always ON at CLI layer)
 # ------------------------------------------------------------------------------
@@ -80,107 +97,58 @@ get_network_info() {
         run_root bash -c 'echo "micron-os" > /etc/hostname' 2>/dev/null || true
     fi
 
-    # 1. Detect WAN Interface
-    WAN_IF=""
+    # 1-2. WAN / LAN as the operator assigned them (option 1). Nothing is
+    # guessed and no address is added here: an unassigned role stays empty and
+    # the header says so, exactly like an unassigned pfSense console.
     local network_db="/usr/local/micron/writable/micron_config.db"
     [ -f "$network_db" ] || network_db="$app_root/writable/micron_config.db"
-    if [ -f "$network_db" ] && command -v sqlite3 >/dev/null 2>&1; then
-        WAN_IF=$(run_root sqlite3 "$network_db" "SELECT physical_device FROM interfaces WHERE id='wan' AND enabled=1;" 2>/dev/null || true)
-    fi
-    if [ -z "$WAN_IF" ] && [ -f /etc/micron/network_init.json ]; then
-        WAN_IF=$(grep -o '"wan_interface"[[:space:]]*:[[:space:]]*"[^"]*"' /etc/micron/network_init.json 2>/dev/null | cut -d'"' -f4 || true)
-    fi
-    if [ -z "$WAN_IF" ] || [ ! -d "/sys/class/net/$WAN_IF" ]; then
-        WAN_IF=$(ip route show default 2>/dev/null | awk '/default/ {print $5}' | head -n1 || true)
-    fi
-    if [ -z "$WAN_IF" ] && [ -d /sys/class/net ]; then
-        WAN_IF=$(ls -1 /sys/class/net 2>/dev/null | grep -E -v '^(lo|virbr|docker|veth|wg|tun)' | head -n1 || echo "eth0")
-    fi
-    [ -n "$WAN_IF" ] || WAN_IF="eth0"
+    WAN_IF=$(assigned_role_device wan)
+    LAN_IF=$(assigned_role_device lan)
 
-    # 2. Detect LAN Interface
-    LAN_IF=""
-    if [ -f "$network_db" ] && command -v sqlite3 >/dev/null 2>&1; then
-        LAN_IF=$(run_root sqlite3 "$network_db" "SELECT physical_device FROM interfaces WHERE id='lan' AND enabled=1;" 2>/dev/null || true)
-    fi
-    if [ -z "$LAN_IF" ] && [ -f /etc/micron/network_init.json ]; then
-        LAN_IF=$(grep -o '"lan_interface"[[:space:]]*:[[:space:]]*"[^"]*"' /etc/micron/network_init.json 2>/dev/null | cut -d'"' -f4 || true)
-    fi
-    if [ -z "$LAN_IF" ] || [ ! -d "/sys/class/net/$LAN_IF" ]; then
-        if [ -d /sys/class/net ]; then
-            LAN_IF=$(ls -1 /sys/class/net 2>/dev/null | grep -E -v '^(lo|virbr|docker|veth|wg|tun)' | grep -v "^${WAN_IF}$" | head -n1 || true)
-        fi
-    fi
-    [ -n "$LAN_IF" ] || LAN_IF="$WAN_IF"
-
-    # 3. Resolve WAN IP (filter 169.254, settle for up to 3s if DHCP in flight)
-    WAN_IP=$(ip -4 addr show dev "$WAN_IF" 2>/dev/null | awk '/inet / && !/169\.254/ {print $2}' | head -n1 || true)
-    if [ -z "$WAN_IP" ]; then
+    # 3-4. Addresses as the kernel has them (filter 169.254; settle for up to
+    # 3s while a DHCP lease is in flight).
+    role_ipv4() { [ -n "$1" ] && ip -4 addr show dev "$1" 2>/dev/null | awk '/inet / && !/169\.254/ {print $2}' | head -n1 || true; }
+    WAN_IP=$(role_ipv4 "$WAN_IF")
+    if [ -z "$WAN_IP" ] && [ -n "$WAN_IF" ] && [ -d "$SYS_NET/$WAN_IF" ]; then
         for _ in 1 2 3; do
             sleep 1
-            WAN_IP=$(ip -4 addr show dev "$WAN_IF" 2>/dev/null | awk '/inet / && !/169\.254/ {print $2}' | head -n1 || true)
+            WAN_IP=$(role_ipv4 "$WAN_IF")
             [ -n "$WAN_IP" ] && break
         done
     fi
-    [ -n "$WAN_IP" ] || WAN_IP="DHCP (Requesting...)"
-
-    # 4. Resolve LAN IP
-    LAN_IP=$(ip -4 addr show dev "$LAN_IF" 2>/dev/null | awk '/inet / && !/169\.254/ {print $2}' | head -n1 || true)
+    LAN_IP=$(role_ipv4 "$LAN_IF")
     DB_LAN_MODE="static"
-    if [ -f "/usr/local/micron/writable/micron_config.db" ] && command -v sqlite3 >/dev/null 2>&1; then
-        DB_LAN_MODE=$(sqlite3 /usr/local/micron/writable/micron_config.db "SELECT ip_assignment_type FROM interfaces WHERE id='lan' AND enabled=1;" 2>/dev/null || echo "static")
+    if [ -f "$network_db" ] && command -v sqlite3 >/dev/null 2>&1; then
+        DB_LAN_MODE=$(run_root sqlite3 "$network_db" "SELECT ip_assignment_type FROM interfaces WHERE id='lan' AND enabled=1;" 2>/dev/null || echo "static")
     fi
-
-    if [ -z "$LAN_IP" ]; then
-        if [ "$DB_LAN_MODE" = "dhcp" ]; then
-            for _ in 1 2 3; do
-                sleep 1
-                LAN_IP=$(ip -4 addr show dev "$LAN_IF" 2>/dev/null | awk '/inet / && !/169\.254/ {print $2}' | head -n1 || true)
-                [ -n "$LAN_IP" ] && break
-            done
-            [ -n "$LAN_IP" ] || LAN_IP="DHCP (Requesting...)"
-        else
-            DB_LAN_IP=""
-            if [ -f "/usr/local/micron/writable/micron_config.db" ] && command -v sqlite3 >/dev/null 2>&1; then
-                DB_LAN_IP=$(sqlite3 /usr/local/micron/writable/micron_config.db "SELECT ipv4_address || '/' || ipv4_netmask FROM interfaces WHERE id='lan' AND enabled=1;" 2>/dev/null || true)
-            fi
-            if [ -n "$DB_LAN_IP" ] && [ "$DB_LAN_IP" != "/" ]; then
-                TARGET_LAN_IP="$DB_LAN_IP"
-            else
-                TARGET_LAN_IP="10.10.10.10/24"
-            fi
-
-            if [ "$LAN_IF" != "$WAN_IF" ]; then
-                LL_ADDR=$(ip -4 addr show dev "$LAN_IF" 2>/dev/null | awk '/inet 169\.254/ {print $2}' | head -n1 || true)
-                if [ -n "$LL_ADDR" ]; then
-                    run_root ip addr del "$LL_ADDR" dev "$LAN_IF" 2>/dev/null || true
-                fi
-                # De-conflict: ensure TARGET_LAN_IP is not lingering on another interface
-                for other_path in /sys/class/net/*; do
-                    [ -d "$other_path" ] || continue
-                    other_dev=$(basename "$other_path")
-                    [ "$other_dev" != "$LAN_IF" ] || continue
-                    [[ "$other_dev" =~ ^(lo|virbr|docker|veth|wg|tun) ]] && continue
-                    if ip -o -4 addr show dev "$other_dev" 2>/dev/null | grep -qw "$TARGET_LAN_IP"; then
-                        run_root ip addr del "$TARGET_LAN_IP" dev "$other_dev" 2>/dev/null || true
-                    fi
-                done
-                run_root ip addr add "$TARGET_LAN_IP" dev "$LAN_IF" 2>/dev/null || true
-                run_root ip link set dev "$LAN_IF" up 2>/dev/null || true
-                LAN_IP=$(ip -4 addr show dev "$LAN_IF" 2>/dev/null | awk '/inet / && !/169\.254/ {print $2}' | head -n1 || echo "$TARGET_LAN_IP")
-            else
-                LAN_IP="$TARGET_LAN_IP"
-            fi
-        fi
+    if [ -z "$WAN_IF" ]; then
+        WAN_IP="not assigned"
+    elif [ ! -d "$SYS_NET/$WAN_IF" ]; then
+        WAN_IP="port not present"
+    elif [ -z "$WAN_IP" ]; then
+        WAN_IP="DHCP (Requesting...)"
+    fi
+    if [ -z "$LAN_IF" ]; then
+        LAN_IP="not assigned"
+    elif [ ! -d "$SYS_NET/$LAN_IF" ]; then
+        LAN_IP="port not present"
+    elif [ -z "$LAN_IP" ] && [ "$DB_LAN_MODE" = "dhcp" ]; then
+        LAN_IP="DHCP (Requesting...)"
+    elif [ -z "$LAN_IP" ]; then
+        LAN_IP="no IPv4 address"
     fi
 
     # 5. Carrier Link Status
     WAN_LINK="UP"
-    if [ -f "/sys/class/net/$WAN_IF/carrier" ] && [ "$(cat "/sys/class/net/$WAN_IF/carrier" 2>/dev/null)" = "0" ]; then
+    if [ -z "$WAN_IF" ]; then
+        WAN_LINK="UNASSIGNED"
+    elif [ ! -d "$SYS_NET/$WAN_IF" ] || [ "$(cat "$SYS_NET/$WAN_IF/carrier" 2>/dev/null)" = "0" ]; then
         WAN_LINK="NO LINK"
     fi
     LAN_LINK="UP"
-    if [ -f "/sys/class/net/$LAN_IF/carrier" ] && [ "$(cat "/sys/class/net/$LAN_IF/carrier" 2>/dev/null)" = "0" ]; then
+    if [ -z "$LAN_IF" ]; then
+        LAN_LINK="UNASSIGNED"
+    elif [ ! -d "$SYS_NET/$LAN_IF" ] || [ "$(cat "$SYS_NET/$LAN_IF/carrier" 2>/dev/null)" = "0" ]; then
         LAN_LINK="NO LINK"
     fi
 
@@ -189,12 +157,11 @@ get_network_info() {
     LAN_CLEAN=$(echo "$LAN_IP" | cut -d/ -f1)
     WAN_CLEAN=$(echo "$WAN_IP" | cut -d/ -f1)
 
-    if [ -n "$LAN_CLEAN" ] && [[ ! "$LAN_CLEAN" =~ ^(169\.254|DHCP) ]]; then
+    if [[ "$LAN_CLEAN" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
         MGMT_IP="$LAN_CLEAN"
-    elif [ -n "$WAN_CLEAN" ] && [[ ! "$WAN_CLEAN" =~ ^(169\.254|DHCP) ]]; then
+    elif [[ "$WAN_CLEAN" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
         MGMT_IP="$WAN_CLEAN"
     fi
-    [ -n "$MGMT_IP" ] || MGMT_IP="10.10.10.10"
 
     # 7. Slot Info (resolve from the volume label of the mounted root)
     #
@@ -311,17 +278,21 @@ print_interface_status() {
             fi
         done <<< "$interface_rows"
     else
-        if [ "$WAN_LINK" = "NO LINK" ]; then
-            printf "  %-16s -> %-10s ${RED}[NO CARRIER]${NC} -> %s\n" "WAN (wan)" "$WAN_IF" "v4: $WAN_IP"
+        local role role_if role_ip role_link
+        for role in WAN LAN; do
+            if [ "$role" = WAN ]; then role_if="$WAN_IF"; role_ip="$WAN_IP"; role_link="$WAN_LINK"
+            else role_if="$LAN_IF"; role_ip="$LAN_IP"; role_link="$LAN_LINK"; fi
+            case "$role_link" in
+                UNASSIGNED) printf "  %-16s -> %-10s ${YELLOW}[UNASSIGNED]${NC}\n" "$role (${role,,})" "-" ;;
+                "NO LINK")  printf "  %-16s -> %-10s ${RED}[NO CARRIER]${NC} -> %s\n" "$role (${role,,})" "$role_if" "v4: $role_ip" ;;
+                *)          printf "  %-16s -> %-10s ${GREEN}[LINK UP]${NC}   -> %s\n" "$role (${role,,})" "$role_if" "v4: $role_ip" ;;
+            esac
+        done
+        if [ -n "$MGMT_IP" ]; then
+            printf "  %-16s -> %s\n" "Web Management" "http://${MGMT_IP}/ (Port 80)"
         else
-            printf "  %-16s -> %-10s ${GREEN}[LINK UP]${NC}   -> %s\n" "WAN (wan)" "$WAN_IF" "v4: $WAN_IP"
+            printf "  %-16s -> %s\n" "Web Management" "available after option 1) Assign Interfaces"
         fi
-        if [ "$LAN_LINK" = "NO LINK" ]; then
-            printf "  %-16s -> %-10s ${RED}[NO CARRIER]${NC} -> %s\n" "LAN (lan)" "$LAN_IF" "v4: $LAN_IP"
-        else
-            printf "  %-16s -> %-10s ${GREEN}[LINK UP]${NC}   -> %s\n" "LAN (lan)" "$LAN_IF" "v4: $LAN_IP"
-        fi
-        printf "  %-16s -> %s\n" "Web Management" "http://${MGMT_IP}/ (Port 80)"
     fi
 }
 
@@ -408,208 +379,287 @@ menu_poweroff() {
 # ------------------------------------------------------------------------------
 # Option 1: pfSense-Style Interface Assignment Handler
 # ------------------------------------------------------------------------------
-assign_interfaces_pfsense() {
-    echo -e "\n${BOLD}=== 1) Assign Interfaces (pfSense-Style) ===${NC}\n"
+# The same dialogue as the pfSense console: optional VLANs first, then WAN,
+# LAN and OPT1..n by name (or 'a' to auto-detect by plugging a cable in), a
+# summary, and an explicit y/n. Nothing is pre-selected and nothing is
+# assigned behind the operator's back. The result goes through
+# `php spark network assign`, the same transaction the Web UI and boot use.
 
-    # Enumerate physical & VLAN network interfaces
-    get_interfaces_table() {
-        echo -e "${BOLD}Valid network interfaces:${NC}"
-        printf "%-10s %-19s %-8s %-14s %s\n" "Interface" "MAC Address" "Link" "Speed" "Driver / Type"
-        echo "--------------------------------------------------------------------------------"
-        
-        for ifpath in /sys/class/net/*; do
-            [ -d "$ifpath" ] || continue
-            local dev
-            dev=$(basename "$ifpath")
-            [[ "$dev" =~ ^(lo|virbr|docker|veth|wg|tun) ]] && continue
-            
-            local mac="00:00:00:00:00:00"
-            [ -f "$ifpath/address" ] && mac=$(cat "$ifpath/address" 2>/dev/null || echo "00:00:00:00:00:00")
-            
-            local oper="DOWN"
-            oper=$(ip -br link show dev "$dev" 2>/dev/null | awk '{print $2}' || echo "UNKNOWN")
-            
-            local spd="Auto / Virtual"
-            if [ -f "$ifpath/speed" ]; then
-                local s
-                s=$(cat "$ifpath/speed" 2>/dev/null || echo "-1")
-                if [ -n "$s" ] && [ "$s" -gt 0 ] 2>/dev/null; then
-                    spd="${s} Mbps"
-                fi
-            fi
-            
-            local drv="Virtual / Generic"
-            if [ -d "$ifpath/device/driver" ]; then
-                drv=$(basename "$(readlink -f "$ifpath/device/driver" 2>/dev/null)" 2>/dev/null || echo "Generic")
-            elif [[ "$dev" =~ \.[0-9]+$ ]]; then
-                drv="802.1Q VLAN"
-            elif [ -d "$ifpath/bridge" ]; then
-                drv="Layer 2 Bridge"
-            fi
-
-            printf "%-10s %-19s %-8s %-14s %s\n" "$dev" "$mac" "$oper" "$spd" "$drv"
-        done
-        echo ""
-    }
-
-    get_interfaces_table
-
-    # Step 1: Optional VLAN Setup
-    read -r -p "Should VLANs be configured now [y/N]? " DO_VLAN
-    if [ "$DO_VLAN" = "y" ] || [ "$DO_VLAN" = "Y" ]; then
-        read -r -p "Enter parent interface for VLAN (e.g. eth0): " VLAN_PARENT
-        if [ -n "$VLAN_PARENT" ] && [ -d "/sys/class/net/$VLAN_PARENT" ]; then
-            read -r -p "Enter 802.1Q VLAN Tag (1-4094): " VLAN_ID
-            if [[ "$VLAN_ID" =~ ^[0-9]+$ ]] && [ "$VLAN_ID" -ge 1 ] && [ "$VLAN_ID" -le 4094 ]; then
-                VLAN_DEV="${VLAN_PARENT}.${VLAN_ID}"
-                run_root ip link add link "$VLAN_PARENT" name "$VLAN_DEV" type vlan id "$VLAN_ID" 2>/dev/null || true
-                run_root ip link set dev "$VLAN_DEV" up 2>/dev/null || true
-                echo -e "${GREEN}[OK] Created VLAN interface: ${VLAN_DEV}${NC}\n"
-                get_interfaces_table
-            else
-                echo -e "${RED}Invalid VLAN tag. Skipping VLAN creation.${NC}"
-            fi
-        else
-            echo -e "${RED}Parent interface not found. Skipping VLAN creation.${NC}"
-        fi
-    fi
-
-    # Discover physical NICs only; VLANs are not physical-port defaults.
-    available_nics=()
-    for ifpath in /sys/class/net/*; do
+# Ports that can carry an interface role: physical NICs, 802.1Q VLANs, bonds
+# and bridges. Members of a bridge/bond (they have a master) are not
+# assignable on their own.
+assignable_interfaces() {
+    local ifpath dev
+    for ifpath in "$SYS_NET"/*; do
         [ -d "$ifpath" ] || continue
         dev=$(basename "$ifpath")
-        [[ "$dev" =~ ^(lo|virbr|docker|veth|wg|tun|br|bond) ]] && continue
-        if [ -e "$ifpath/device" ]; then
-            available_nics+=("$dev")
+        [[ "$dev" =~ ^(lo|virbr|docker|veth|wg|tun|tap|ifb|sit|ip6tnl|gre|ppp|dummy) ]] && continue
+        [ -e "$ifpath/master" ] && continue
+        if [ -e "$ifpath/device" ] || [ -d "$ifpath/bridge" ] || [ -d "$ifpath/bonding" ] \
+            || [ -e "/proc/net/vlan/$dev" ] || [[ "$dev" =~ ^[A-Za-z0-9_-]+\.[0-9]{1,4}$ ]]; then
+            echo "$dev"
         fi
     done
+}
 
-    if [ "${#available_nics[@]}" -lt 2 ]; then
-        echo -e "${RED}[ERROR] At least two physical interfaces are required for WAN and LAN assignment.${NC}"
-        pause
-        return 1
-    fi
-
-    has_nic() {
-        local candidate
-        for candidate in "${available_nics[@]}"; do
-            [ "$candidate" = "$1" ] && return 0
-        done
-        return 1
-    }
-
-    local menu_db="/usr/local/micron/writable/micron_config.db"
-    [ -f "$menu_db" ] || menu_db="$app_root/writable/micron_config.db"
-    CURRENT_DB_WAN=""
-    CURRENT_DB_LAN=""
-    if [ -f "$menu_db" ] && command -v sqlite3 >/dev/null 2>&1; then
-        CURRENT_DB_WAN=$(run_root sqlite3 "$menu_db" "SELECT physical_device FROM interfaces WHERE id='wan' AND enabled=1;" 2>/dev/null || true)
-        CURRENT_DB_LAN=$(run_root sqlite3 "$menu_db" "SELECT physical_device FROM interfaces WHERE id='lan' AND enabled=1;" 2>/dev/null || true)
-    fi
-
-    DEFAULT_WAN=""
-    if [ -n "$CURRENT_DB_WAN" ] && has_nic "$CURRENT_DB_WAN"; then
-        DEFAULT_WAN="$CURRENT_DB_WAN"
-    else
-        DEFAULT_WAN="${available_nics[0]}"
-    fi
-
-    DEFAULT_LAN="${available_nics[1]}"
-    if [ -n "$CURRENT_DB_LAN" ] && has_nic "$CURRENT_DB_LAN" && [ "$CURRENT_DB_LAN" != "$DEFAULT_WAN" ]; then
-        DEFAULT_LAN="$CURRENT_DB_LAN"
-    else
-        for cand in "${available_nics[@]}"; do
-            if [ "$cand" != "$DEFAULT_WAN" ]; then
-                DEFAULT_LAN="$cand"
-                break
-            fi
-        done
-        [ -n "$DEFAULT_LAN" ] || DEFAULT_LAN="${available_nics[1]}"
-    fi
-
-    echo -e "${CYAN}--- Independent Physical Interface Assignment ---${NC}"
-    echo -e "Physical interfaces found: ${BOLD}${available_nics[*]}${NC}"
-    echo "Current / Default: WAN=${DEFAULT_WAN}, LAN=${DEFAULT_LAN}; remaining ports configured as separate interfaces."
-    read -r -p "WAN interface [${DEFAULT_WAN}]: " NEW_WAN
-    NEW_WAN=${NEW_WAN:-$DEFAULT_WAN}
-    read -r -p "LAN interface [${DEFAULT_LAN}]: " NEW_LAN
-    NEW_LAN=${NEW_LAN:-$DEFAULT_LAN}
-    valid_assignment=1
-    has_nic "$NEW_WAN" || valid_assignment=0
-    [ "$NEW_WAN" != "$NEW_LAN" ] || valid_assignment=0
-    has_nic "$NEW_LAN" || valid_assignment=0
-    if [ "$valid_assignment" -ne 1 ]; then
-        echo -e "${RED}[ERROR] WAN and LAN must be different detected interfaces.${NC}"
-        pause
-        return 1
-    fi
-
-    OPT_ASSIGNMENTS=()
-    opt_index=1
-    for cand in "${available_nics[@]}"; do
-        [ "$cand" = "$NEW_WAN" ] && continue
-        [ "$cand" = "$NEW_LAN" ] && continue
-        OPT_ASSIGNMENTS+=("opt${opt_index}=${cand}")
-        opt_index=$((opt_index + 1))
+# Physical ports only: the parents a VLAN can be created on.
+vlan_capable_interfaces() {
+    local ifpath
+    for ifpath in "$SYS_NET"/*; do
+        [ -e "$ifpath/device" ] || continue
+        [ -e "$ifpath/master" ] && continue
+        basename "$ifpath"
     done
+}
 
-    # Step 5: Summary & Confirmation
-    echo -e "\n${BOLD}The interfaces will be assigned as follows:${NC}"
-    echo "  WAN  -> ${NEW_WAN} (DHCP)"
-    echo "  LAN  -> ${NEW_LAN} (10.10.10.10/24)"
-    for assignment in "${OPT_ASSIGNMENTS[@]}"; do
-        echo "  ${assignment%%=*} -> ${assignment#*=} (separate interface)"
+print_valid_interfaces() {
+    local dev ifpath mac link desc
+    echo -e "${BOLD}Valid interfaces are:${NC}\n"
+    for dev in "$@"; do
+        ifpath="$SYS_NET/$dev"
+        mac=$(cat "$ifpath/address" 2>/dev/null || echo "00:00:00:00:00:00")
+        link="(down)"
+        [ "$(cat "$ifpath/carrier" 2>/dev/null)" = "1" ] && link="(up)"
+        if [ -e "/proc/net/vlan/$dev" ] || [[ "$dev" =~ \.[0-9]+$ ]]; then
+            desc="802.1Q VLAN on ${dev%.*}"
+        elif [ -d "$ifpath/bridge" ]; then
+            desc="Bridge"
+        elif [ -d "$ifpath/bonding" ]; then
+            desc="Bond / LAGG"
+        else
+            desc="Ethernet"
+            [ -e "$ifpath/device/driver" ] && desc=$(basename "$(readlink -f "$ifpath/device/driver")")
+        fi
+        printf "%-12s %-19s %-7s %s\n" "$dev" "$mac" "$link" "$desc"
     done
     echo ""
-    read -r -p "Do you want to proceed [Y/n]? " CONFIRM_ASSIGN
-    if [ "$CONFIRM_ASSIGN" = "n" ] || [ "$CONFIRM_ASSIGN" = "N" ]; then
-        echo "Interface assignment aborted."
-        pause
-        return
+}
+
+# 'a' in a prompt: the operator plugs the cable of the port they mean, and the
+# port whose link comes up is the answer. Prints the device, or nothing.
+autodetect_interface() {
+    local role="$1"; shift
+    local cands=("$@") dev before=() i waited=0
+    [ "${#cands[@]}" -gt 0 ] || return 0
+    for dev in "${cands[@]}"; do
+        run_root ip link set dev "$dev" up 2>/dev/null || true
+    done
+    sleep 2
+    for dev in "${cands[@]}"; do
+        before+=("$(cat "$SYS_NET/$dev/carrier" 2>/dev/null || echo 0)")
+    done
+    echo "" >&2
+    read -r -p "Connect the ${role} interface now and make sure that it is up, then press [Enter]: " _ || return 0
+    echo -n "Detecting link-up" >&2
+    while [ "$waited" -lt "${MENU_AUTODETECT_SECONDS:-30}" ]; do
+        for i in "${!cands[@]}"; do
+            if [ "${before[$i]}" != "1" ] && [ "$(cat "$SYS_NET/${cands[$i]}/carrier" 2>/dev/null)" = "1" ]; then
+                echo " found ${cands[$i]}" >&2
+                echo "${cands[$i]}"
+                return 0
+            fi
+        done
+        echo -n "." >&2
+        sleep 1
+        waited=$((waited + 1))
+    done
+    echo " no link-up detected." >&2
+    return 0
+}
+
+# Prompt for one role until the answer is a free assignable port, 'a', or
+# (when allowed) nothing. Prints the chosen device, or nothing when skipped.
+prompt_interface_role() {
+    local role="$1" optional="$2" note="$3"; shift 3
+    local free=("$@") answer cand ok
+    [ "${#free[@]}" -gt 0 ] || return 0
+    while true; do
+        echo "" >&2
+        echo "Enter the ${role} interface name or 'a' for auto-detection" >&2
+        [ -n "$note" ] && echo "$note" >&2
+        if [ "$optional" = "1" ]; then
+            read -r -p "(${free[*]} a or nothing if finished): " answer || return 0
+        else
+            read -r -p "(${free[*]} or a): " answer || return 0
+        fi
+        answer="${answer//[[:space:]]/}"
+        if [ -z "$answer" ]; then
+            [ "$optional" = "1" ] && return 0
+            echo -e "${RED}The ${role} interface is required.${NC}" >&2
+            continue
+        fi
+        if [ "$answer" = "a" ] || [ "$answer" = "A" ]; then
+            answer=$(autodetect_interface "$role" "${free[@]}")
+            [ -n "$answer" ] || continue
+        fi
+        ok=0
+        for cand in "${free[@]}"; do
+            [ "$cand" = "$answer" ] && ok=1
+        done
+        if [ "$ok" -eq 1 ]; then
+            echo "$answer"
+            return 0
+        fi
+        echo -e "${RED}Invalid interface name '${answer}' (not present, or already assigned).${NC}" >&2
+    done
+}
+
+setup_vlans_console() {
+    local parents=() parent tag vdev cand ok
+    mapfile -t parents < <(vlan_capable_interfaces)
+    if [ "${#parents[@]}" -eq 0 ]; then
+        echo -e "${YELLOW}No VLAN capable interfaces detected.${NC}"
+        return 0
     fi
+    echo -e "\n${BOLD}VLAN Capable interfaces:${NC}\n"
+    print_valid_interfaces "${parents[@]}"
+    while true; do
+        read -r -p "Enter the parent interface name for the new VLAN (or nothing if finished): " parent || return 0
+        parent="${parent//[[:space:]]/}"
+        [ -n "$parent" ] || return 0
+        ok=0
+        for cand in "${parents[@]}"; do
+            [ "$cand" = "$parent" ] && ok=1
+        done
+        if [ "$ok" -ne 1 ]; then
+            echo -e "${RED}Invalid interface name '${parent}'.${NC}"
+            continue
+        fi
+        read -r -p "Enter the VLAN tag (1-4094): " tag || return 0
+        if ! [[ "$tag" =~ ^[0-9]{1,4}$ ]] || [ "$tag" -lt 1 ] || [ "$tag" -gt 4094 ]; then
+            echo -e "${RED}Invalid VLAN tag '${tag}'.${NC}"
+            continue
+        fi
+        tag=$((10#$tag))
+        vdev="${parent}.${tag}"
+        if [ ${#vdev} -gt 15 ]; then
+            echo -e "${RED}'${vdev}' is longer than the kernel's 15-character interface name limit.${NC}"
+            continue
+        fi
+        if [ -d "$SYS_NET/$vdev" ]; then
+            echo -e "${YELLOW}VLAN ${vdev} already exists.${NC}"
+            continue
+        fi
+        if run_root ip link add link "$parent" name "$vdev" type vlan id "$tag" 2>/dev/null; then
+            run_root ip link set dev "$parent" up 2>/dev/null || true
+            run_root ip link set dev "$vdev" up 2>/dev/null || true
+            echo -e "${GREEN}Created VLAN ${vdev} (tag ${tag} on ${parent}).${NC}"
+        else
+            echo -e "${RED}Could not create VLAN ${vdev}.${NC}"
+        fi
+    done
+}
 
-    echo -e "\n${YELLOW}Applying interface assignment...${NC}"
+assign_interfaces_pfsense() {
+    # Extra arguments (e.g. --factory-reset) are passed on to `network assign`.
+    local extra=("$@") all=() free=() opts=() NEW_WAN="" NEW_LAN="" dev pick n confirm
+    echo -e "\n${BOLD}=== 1) Assign Interfaces ===${NC}\n"
 
-    # Apply the selected roles and their generated firewall/DHCP configuration
-    # through the same transaction used by the Web UI and boot-time networking.
-    if ! network_command assign "$NEW_WAN" "$NEW_LAN" "${OPT_ASSIGNMENTS[@]}"; then
-        echo -e "${RED}[ERROR] Network assignment could not be applied; the configuration was not committed.${NC}"
+    mapfile -t all < <(assignable_interfaces)
+    if [ "${#all[@]}" -eq 0 ]; then
+        echo -e "${RED}[ERROR] No network interfaces were detected on this machine.${NC}"
         pause
         return 1
     fi
+    print_valid_interfaces "${all[@]}"
 
-    for assignment in "${OPT_ASSIGNMENTS[@]}"; do
-        opt_dev="${assignment#*=}"
-        if [ -n "$opt_dev" ] && [ "$opt_dev" != "$NEW_LAN" ] && [ "$opt_dev" != "$NEW_WAN" ]; then
-            run_root ip -4 addr flush dev "$opt_dev" 2>/dev/null || true
-        fi
+    # Step 1: VLANs (optional, normally 'n')
+    echo "Do VLANs need to be set up first?"
+    echo "If VLANs will not be used, or only for optional interfaces, it is typical"
+    echo "to say no here and use the Web GUI to configure VLANs later, if required."
+    echo ""
+    while true; do
+        read -r -p "Should VLANs be set up now [y|n]? " confirm || return 0
+        case "$confirm" in
+            y|Y) setup_vlans_console
+                 mapfile -t all < <(assignable_interfaces)
+                 echo ""
+                 print_valid_interfaces "${all[@]}"
+                 break ;;
+            n|N) break ;;
+        esac
     done
 
-    run_root mkdir -p /etc/micron
-    run_root bash -c "cat << EOF > /etc/micron/network_init.json
-{
-  \"wan_interface\": \"$NEW_WAN\",
-  \"lan_interface\": \"$NEW_LAN\",
-  \"configured\": true
-}
-EOF"
+    echo "If the names of the interfaces are not known, auto-detection can be used"
+    echo "instead. To use auto-detection, disconnect all interfaces before pressing"
+    echo "'a' to begin the process."
 
-    # Refresh banner
+    # Step 2: WAN (required)
+    NEW_WAN=$(prompt_interface_role "WAN" 0 "" "${all[@]}")
+    [ -n "$NEW_WAN" ] || { echo ""; echo "Interface assignment aborted."; pause; return 0; }
+
+    # Step 3: LAN (optional; without it the appliance runs WAN-only)
+    free=()
+    for dev in "${all[@]}"; do [ "$dev" != "$NEW_WAN" ] && free+=("$dev"); done
+    NEW_LAN=$(prompt_interface_role "LAN" 1 "NOTE: this enables full Firewalling/NAT mode." "${free[@]}")
+
+    # Step 4: OPT1..n until the operator presses Enter or no port is left
+    n=1
+    while [ -n "$NEW_LAN" ]; do
+        free=()
+        for dev in "${all[@]}"; do
+            [ "$dev" = "$NEW_WAN" ] || [ "$dev" = "$NEW_LAN" ] && continue
+            for pick in "${opts[@]}"; do [ "$dev" = "${pick#*=}" ] && continue 2; done
+            free+=("$dev")
+        done
+        [ "${#free[@]}" -gt 0 ] || break
+        pick=$(prompt_interface_role "Optional ${n}" 1 "" "${free[@]}")
+        [ -n "$pick" ] || break
+        opts+=("opt${n}=${pick}")
+        n=$((n + 1))
+    done
+
+    # Step 5: summary and explicit confirmation
+    echo -e "\n${BOLD}The interfaces will be assigned as follows:${NC}\n"
+    echo "WAN  -> ${NEW_WAN}"
+    [ -n "$NEW_LAN" ] && echo "LAN  -> ${NEW_LAN}"
+    for pick in "${opts[@]}"; do
+        printf '%-4s -> %s\n' "$(echo "${pick%%=*}" | tr '[:lower:]' '[:upper:]')" "${pick#*=}"
+    done
+    echo ""
+    while true; do
+        read -r -p "Do you want to proceed [y|n]? " confirm || return 0
+        case "$confirm" in
+            y|Y) break ;;
+            n|N) echo "Interface assignment aborted; nothing was changed."; pause; return 0 ;;
+        esac
+    done
+
+    # Step 6: write and reload through the shared network transaction
+    echo ""
+    echo -n "Writing configuration..."
+    if ! network_command assign "$NEW_WAN" "${NEW_LAN:-none}" "${opts[@]}" "${extra[@]}"; then
+        echo -e "\n${RED}[ERROR] The assignment could not be applied; the previous configuration was kept.${NC}"
+        pause
+        return 1
+    fi
+    echo "done."
+    echo -n "One moment while the settings are reloading..."
+    for pick in "${opts[@]}"; do
+        run_root ip -4 addr flush dev "${pick#*=}" 2>/dev/null || true
+    done
     if [ -x /usr/local/bin/micron-banner ]; then
-        run_root /usr/local/bin/micron-banner || true
+        run_root /usr/local/bin/micron-banner >/dev/null 2>&1 || true
     fi
-
+    echo " done!"
     ensure_numlock
-    echo -e "${GREEN}[OK] Interface assignment applied successfully!${NC}"
-    echo -e "WAN -> ${NEW_WAN} (DHCP requested)"
-    if [ -n "$NEW_LAN" ] && [ "$NEW_LAN" != "none" ]; then
-        echo -e "LAN -> ${NEW_LAN} (10.10.10.10/24)"
+    if ls "$SYS_NET" 2>/dev/null | grep -qE '\.[0-9]+$'; then
+        echo -e "${YELLOW}Note: VLANs that are not assigned to an interface are not kept after a reboot.${NC}"
     fi
-    for assignment in "${OPT_ASSIGNMENTS[@]}"; do
-        echo -e "${assignment%%=*} -> ${assignment#*=} (independent port)"
-    done
     pause
+}
+
+# pfSense behaviour on first boot and after a hardware change: when WAN/LAN are
+# not assigned, or point at a port this machine does not have, the console
+# starts with the assignment dialogue instead of a menu that cannot work.
+interfaces_need_assignment() {
+    local wan lan
+    wan=$(assigned_role_device wan)
+    lan=$(assigned_role_device lan)
+    [ -z "$wan" ] && [ -z "$lan" ] && return 0
+    [ -n "$wan" ] && [ ! -d "$SYS_NET/$wan" ] && return 0
+    [ -n "$lan" ] && [ ! -d "$SYS_NET/$lan" ] && return 0
+    return 1
 }
 
 # ------------------------------------------------------------------------------
@@ -891,8 +941,14 @@ manage_dhcp_menu() {
 
         # 5. Determine current LAN device & subnet
         get_network_info
-        local lan_dev="${LAN_IF:-eth1}"
-        local lan_cidr="${LAN_IP:-10.10.10.10/24}"
+        if [ -z "$LAN_IF" ]; then
+            echo -e "${RED}No LAN interface is assigned. Use option 1) Assign Interfaces first.${NC}"
+            pause
+            return 0
+        fi
+        local lan_dev="$LAN_IF"
+        local lan_cidr="10.10.10.10/24"
+        [[ "$LAN_IP" =~ ^[0-9.]+/[0-9]+$ ]] && lan_cidr="$LAN_IP"
         local lan_base=$(echo "$lan_cidr" | cut -d/ -f1)
         local lan_prefix=$(echo "$lan_cidr" | cut -d/ -f2)
         lan_prefix=${lan_prefix:-24}
@@ -1029,6 +1085,13 @@ EOF"
 # ------------------------------------------------------------------------------
 # Return to the menu on interrupt instead of tearing down the console session.
 trap 'menu_on_interrupt' INT TERM
+
+if [ -t 0 ] && interfaces_need_assignment; then
+    clear 2>/dev/null || true
+    echo -e "${YELLOW}Network interfaces are not assigned, or an assigned interface is missing."
+    echo -e "Running the interface assignment option.${NC}"
+    assign_interfaces_pfsense || true
+fi
 
 while true; do
     print_header
@@ -1178,36 +1241,12 @@ while true; do
                     run_root php spark db:seed InitialApplianceSeeder || true
                     run_root php spark db:seed RolesPermissionsSeeder || true
                 fi
-                reset_nics=()
-                for ifpath in /sys/class/net/*; do
-                    [ -e "$ifpath/device" ] || continue
-                    dev=$(basename "$ifpath")
-                    [[ "$dev" =~ ^(lo|virbr|docker|veth|wg|tun|br|bond) ]] && continue
-                    reset_nics+=("$dev")
-                done
-                if [ "${#reset_nics[@]}" -ge 2 ]; then
-                    reset_opt_args=()
-                    opt_index=1
-                    for dev in "${reset_nics[@]:2}"; do
-                        reset_opt_args+=("opt${opt_index}=${dev}")
-                        opt_index=$((opt_index + 1))
-                    done
-                    if network_command assign "${reset_nics[0]}" "${reset_nics[1]}" "${reset_opt_args[@]}" --factory-reset; then
-                                                run_root mkdir -p /etc/micron
-                                                run_root bash -c "cat << EOF > /etc/micron/network_init.json
-{
-    \"wan_interface\": \"${reset_nics[0]}\",
-    \"lan_interface\": \"${reset_nics[1]}\",
-    \"configured\": true
-}
-EOF"
-                        echo -e "${GREEN}[OK] Network reset: WAN=${reset_nics[0]}, LAN=${reset_nics[1]}, remaining ports separate.${NC}"
-                    else
-                        echo -e "${RED}[ERROR] Factory network defaults could not be applied.${NC}"
-                    fi
-                else
-                    echo -e "${YELLOW}[i] Fewer than two physical NICs detected; network role defaults were left unchanged.${NC}"
-                fi
+                # No port is picked for the operator: the reset continues with
+                # the same pfSense-style assignment as option 1, and
+                # --factory-reset restores the factory addressing for the
+                # roles chosen there (and removes console-created bridges).
+                echo -e "${YELLOW}Assign the interfaces for the factory configuration.${NC}"
+                assign_interfaces_pfsense --factory-reset || true
                 if [ -x /usr/local/bin/microctl ]; then
                     run_root /usr/local/bin/microctl firewall reset || true
                 fi

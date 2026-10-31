@@ -37,13 +37,18 @@ class InitialApplianceSeeder extends Seeder
         }
 
         // 2. Seed Default Network Interfaces (WAN and LAN)
+        // The roles are created unassigned: a NIC name cannot be known before the
+        // appliance sees its own hardware (eth0 on one box is enp1s0 or igc0 on
+        // the next). The operator binds them from the console, pfSense style
+        // (micron-menu option 1, `php spark network assign`), and micron-network
+        // never guesses. The addressing below is what each role gets once bound.
         if ($db->table('interfaces')->countAllResults() === 0) {
             $ifBuilder = $db->table('interfaces');
             $ifBuilder->insertBatch([
                 [
                     'id'                 => 'wan',
                     'name'               => 'WAN',
-                    'physical_device'    => 'eth0',
+                    'physical_device'    => '',
                     'enabled'            => 1,
                     'ip_assignment_type' => 'dhcp',
                     'ipv4_address'       => null,
@@ -56,7 +61,7 @@ class InitialApplianceSeeder extends Seeder
                 [
                     'id'                 => 'lan',
                     'name'               => 'LAN',
-                    'physical_device'    => 'eth1',
+                    'physical_device'    => '',
                     'enabled'            => 1,
                     'ip_assignment_type' => 'static',
                     'ipv4_address'       => '10.10.10.10',

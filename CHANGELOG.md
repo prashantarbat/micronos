@@ -7,6 +7,18 @@ All notable changes to Micron OS are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- Console **1) Assign Interfaces** follows the pfSense dialogue: optional
+  VLANs, WAN (or `a` to auto-detect by link-up), LAN, OPT1..n, then an
+  explicit `y|n`. Factory reset (option 4) uses the same dialogue.
+- WAN and LAN are no longer bound to `eth0`/`eth1` or guessed at boot. A fresh
+  install starts unassigned and the console opens the assignment on first
+  login. It also opens when an assigned port is missing. Kickstart
+  `WAN_IF`/`LAN_IF` choices, including WAN-only, are still honoured.
+- Assigned 802.1Q VLANs are re-created on every boot.
+- The login banner and console header no longer put 10.10.10.10 on a guessed
+  port. The firewall and DHCP compilers skip roles with no port.
+
 ## [1.0.0-rc.1] - not yet released
 
 First public release candidate under the Apache License 2.0.

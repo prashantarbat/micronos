@@ -5,8 +5,9 @@
 # Makes the kernel match the committed network configuration on every boot,
 # using the same pieces the Web UI and the CLI use at run time:
 #
-#   1. bind the configured WAN/LAN roles to NICs that actually exist (first
-#      boot on new hardware: real names such as enp1s0 / eno1);
+#   1. read the WAN/LAN roles the operator assigned (console option 1, or a
+#      kickstart file) and re-create assigned 802.1Q VLANs. Nothing is guessed:
+#      an unassigned appliance stays unassigned until the operator chooses;
 #   2. `php spark network boot-files` builds, from the configuration database,
 #      the network plan, the nftables ruleset and the Kea DHCPv4 config — the
 #      very same NetworkPlan / NftablesCompiler / KeaDhcpCompiler the Web UI
@@ -63,47 +64,68 @@ safe_dev() { [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9_.:@-]{0,14}$ ]]; }
 
 WAN_IF=""; LAN_IF=""
 if [ "$have_db" -eq 1 ]; then
-    WAN_IF=$(sqlq "SELECT physical_device FROM interfaces WHERE id='wan' LIMIT 1;")
-    LAN_IF=$(sqlq "SELECT physical_device FROM interfaces WHERE id='lan' LIMIT 1;")
+    WAN_IF=$(sqlq "SELECT physical_device FROM interfaces WHERE id='wan' AND enabled=1 LIMIT 1;")
+    LAN_IF=$(sqlq "SELECT physical_device FROM interfaces WHERE id='lan' AND enabled=1 LIMIT 1;")
 fi
-if [ "${#avail_nics[@]}" -eq 1 ]; then
-    # One port only: it must be the management LAN, or nobody can reach the
-    # appliance. A WAN on that same port cannot coexist with it (the plan
-    # refuses one device for two interfaces), and a WAN on a port this machine
-    # does not have (the factory eth0 when the port is enp1s0) cannot work, so
-    # either is disabled.
-    dev_ok "$LAN_IF" || LAN_IF="${avail_nics[0]}"
-    if [ "$WAN_IF" = "$LAN_IF" ] || ! dev_ok "$WAN_IF"; then
-        WAN_IF=""
+
+# Roles are never guessed (pfSense model). A fresh install leaves WAN and LAN
+# unassigned and the console runs "1) Assign Interfaces" on first login. The
+# only other source is an explicit installer choice (kickstart WAN_IF/LAN_IF),
+# which install.sh records in network_init.json; it is adopted once, while the
+# database still has no assignment of its own.
+init_role() { # <wan|lan> -> device recorded by the installer, if any
+    [ -f /etc/micron/network_init.json ] || return 0
+    grep -o "\"$1_interface\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" /etc/micron/network_init.json 2>/dev/null | cut -d'"' -f4 || true
+}
+if [ "$have_db" -eq 1 ] && [ -z "$WAN_IF" ] && [ -z "$LAN_IF" ]; then
+    ks_wan=$(init_role wan); ks_lan=$(init_role lan)
+    [ "$ks_wan" = "$ks_lan" ] && ks_lan=""
+    if dev_ok "$ks_wan" && safe_dev "$ks_wan"; then
+        WAN_IF="$ks_wan"
+        sqlq "UPDATE interfaces SET physical_device='$WAN_IF', enabled=1 WHERE id='wan';"
     fi
-    if [ "$have_db" -eq 1 ] && safe_dev "$LAN_IF"; then
-        sqlq "UPDATE interfaces SET physical_device='$LAN_IF' WHERE id='lan';"
-        [ -z "$WAN_IF" ] && sqlq "UPDATE interfaces SET enabled=0 WHERE id='wan';"
-    fi
-elif [ "${#avail_nics[@]}" -gt 1 ]; then
-    if ! dev_ok "$WAN_IF"; then
-        WAN_IF=""
-        for cand in "${avail_nics[@]}"; do
-            [ "$cand" != "$LAN_IF" ] && { WAN_IF="$cand"; break; }
-        done
-    fi
-    if ! dev_ok "$LAN_IF" || [ "$LAN_IF" = "$WAN_IF" ]; then
-        LAN_IF=""
-        for cand in "${avail_nics[@]}"; do
-            [ "$cand" != "$WAN_IF" ] && { LAN_IF="$cand"; break; }
-        done
-    fi
-    if [ "$have_db" -eq 1 ] && safe_dev "$WAN_IF" && safe_dev "$LAN_IF"; then
-        sqlq "UPDATE interfaces SET physical_device='$WAN_IF' WHERE id='wan';"
-        sqlq "UPDATE interfaces SET physical_device='$LAN_IF' WHERE id='lan';"
+    if dev_ok "$ks_lan" && safe_dev "$ks_lan"; then
+        LAN_IF="$ks_lan"
+        sqlq "UPDATE interfaces SET physical_device='$LAN_IF', enabled=1 WHERE id='lan';"
     fi
 fi
+
+# 802.1Q sub-interfaces (parent.tag) are re-created before the plan is applied:
+# the kernel forgets them on reboot, the assignment does not.
+if [ "$have_db" -eq 1 ]; then
+    while IFS= read -r vdev; do
+        [[ "$vdev" =~ ^([A-Za-z0-9][A-Za-z0-9_-]{0,9})\.([0-9]{1,4})$ ]] || continue
+        vparent="${BASH_REMATCH[1]}"; vtag="${BASH_REMATCH[2]}"
+        [ "$vtag" -ge 1 ] && [ "$vtag" -le 4094 ] || continue
+        dev_ok "$vdev" && continue
+        dev_ok "$vparent" || { log "warning: VLAN $vdev: parent $vparent is not present"; continue; }
+        if ip link add link "$vparent" name "$vdev" type vlan id "$vtag" 2>/dev/null; then
+            log "created VLAN $vdev"
+        else
+            log "warning: could not create VLAN $vdev"
+        fi
+        ip link set dev "$vparent" up 2>/dev/null || true
+        ip link set dev "$vdev" up 2>/dev/null || true
+    done < <(sqlq "SELECT physical_device FROM interfaces WHERE enabled=1 AND physical_device LIKE '%.%';")
+fi
+
+# An assignment that names a port this machine does not have (new hardware,
+# a restored backup) is reported, not silently remapped onto another port.
+ASSIGNED=0
+for role in WAN LAN; do
+    dev="$WAN_IF"; [ "$role" = LAN ] && dev="$LAN_IF"
+    [ -n "$dev" ] || continue
+    ASSIGNED=1
+    dev_ok "$dev" || log "WARNING: $role is assigned to $dev, which is not present; run console option 1) Assign Interfaces"
+done
+[ "$ASSIGNED" -eq 1 ] || log "interfaces are not assigned yet; run console option 1) Assign Interfaces"
+
 mkdir -p /etc/micron
 cat > /etc/micron/network_init.json <<EOF
 {
   "wan_interface": "$WAN_IF",
   "lan_interface": "$LAN_IF",
-  "configured": true
+  "configured": $([ "$ASSIGNED" -eq 1 ] && echo true || echo false)
 }
 EOF
 log "roles: WAN=${WAN_IF:-none} LAN=${LAN_IF:-none}"
