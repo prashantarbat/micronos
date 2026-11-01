@@ -198,6 +198,19 @@ class SystemSettings extends BaseController
 
         $this->model->saveSettings($post);
 
+        // Hostname or organisation changed: tell micronos.microninfo.com now,
+        // not at the next daily check-in.
+        foreach (\App\Libraries\InstallCheckin::SYNCED_SETTINGS as $field) {
+            if (array_key_exists($field, $post) && (string) $post[$field] !== (string) ($previous[$field] ?? '')) {
+                try {
+                    (new \App\Libraries\InstallCheckin())->sendSoon();
+                } catch (\Throwable $e) {
+                    log_message('warning', 'Install check-in after save not started: {msg}', ['msg' => $e->getMessage()]);
+                }
+                break;
+            }
+        }
+
         // Apply SSH daemon settings (port, authentication, root login)
         $applier = $this->applier();
         $applier->ssh($post);

@@ -10,8 +10,9 @@ use Config\Telemetry;
  * What is sent is exactly payload(): identity of the appliance (Micron
  * Appliance ID, hostname), what it runs (version, kernel, boot slot), how it is
  * doing (uptime, active rule count, last configuration save) and the size of
- * the box (CPU, memory, disk, NIC count, VM or not). Never rules, traffic,
- * logs, users, keys or organisation details. The website adds the public IP
+ * the box (CPU, memory, disk, NIC count, VM or not), and who runs it (the
+ * organisation / client details from System > Organisation, when filled in).
+ * Never rules, traffic, logs, users or keys. The website adds the public IP
  * the request came from and looks up its country and city.
  *
  * Every reading is best effort: a value the appliance cannot read is sent as
@@ -100,7 +101,52 @@ class InstallCheckin
             'interfaces'      => $this->physicalInterfaces(),
             'virtual'         => $this->virtualisation(),
             'timezone'        => (string) ($settings['timezone'] ?? date_default_timezone_get()),
+            'organisation'    => $this->organisation($settings),
         ];
+    }
+
+    /** Settings that, when changed, are worth sending straight away. */
+    public const SYNCED_SETTINGS = [
+        'hostname', 'timezone', 'micron_id', 'org_name', 'org_contact_name', 'org_email', 'org_phone',
+        'org_address', 'org_city', 'org_state', 'org_country', 'org_latitude', 'org_longitude',
+    ];
+
+    /**
+     * System > Organisation, or null when none of it is filled in (the website
+     * then clears what it holds for this appliance).
+     *
+     * @return array<string, float|string|null>|null
+     */
+    public function organisation(array $settings): ?array
+    {
+        $out = [];
+        foreach (['name', 'contact_name', 'email', 'phone', 'address', 'city', 'state', 'country'] as $k) {
+            $v       = trim((string) ($settings['org_' . $k] ?? ''));
+            $out[$k] = $v === '' ? null : $v;
+        }
+        foreach (['latitude', 'longitude'] as $k) {
+            $v       = $settings['org_' . $k] ?? null;
+            $out[$k] = is_numeric($v) && (float) $v != 0 ? (float) $v : null;
+        }
+
+        return array_filter($out, static fn ($v) => $v !== null) === [] ? null : $out;
+    }
+
+    /**
+     * Sends a check-in in the background, without holding up the request that
+     * asked for it (used after System settings are saved, so a new hostname or
+     * organisation shows on the website in a minute rather than a day).
+     * Only on the appliance (Linux); returns whether a send was started.
+     */
+    public function sendSoon(): bool
+    {
+        if (PHP_OS_FAMILY !== 'Linux' || ! function_exists('exec') || ! $this->enabled()) {
+            return false;
+        }
+        $php = is_executable('/usr/bin/php') ? '/usr/bin/php' : 'php';
+        @exec('nohup ' . escapeshellarg($php) . ' ' . escapeshellarg(ROOTPATH . 'spark') . ' micron:checkin --event=manual > /dev/null 2>&1 &');
+
+        return true;
     }
 
     /**

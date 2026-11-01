@@ -2,7 +2,7 @@
 Description=Micron OS install check-in (micronos.microninfo.com)
 Documentation=file:///usr/local/micron/docs/INSTALL_CHECKIN.md
 # Sends the appliance ID, hostname, version, uptime, boot slot, active rule
-# count and basic hardware facts. Turn it off in System > Networking >
+# count, basic hardware facts and the System > Organisation details. Turn it off in System > Networking >
 # Install check-in, or: php /usr/local/micron/spark micron:checkin --disable
 After=network-online.target micrond.service
 Wants=network-online.target
