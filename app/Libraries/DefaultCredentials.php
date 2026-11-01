@@ -64,6 +64,6 @@ final class DefaultCredentials
     {
         $path = trim($path, '/');
 
-        return in_array($path, ['profile', 'profile/password', 'auth/logout', 'logout'], true);
+        return in_array($path, ['profile', 'profile/password', 'auth/logout', 'logout', 'eula', 'eula/accept', 'eula/decline'], true);
     }
 }

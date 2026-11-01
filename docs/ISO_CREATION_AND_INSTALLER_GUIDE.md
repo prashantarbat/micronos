@@ -823,6 +823,10 @@ TIMEZONE="Asia/Kolkata"
 # Or explicit device: /dev/sda, /dev/nvme0n1, /dev/vda
 TARGET_DISK="auto"
 
+# 0. Licence agreement (required for unattended installs)
+# Read EULA.txt first; anything other than "yes" stops the installer.
+ACCEPT_EULA="yes"
+
 # 4. Storage Partitioning Strategy
 # PART_STRATEGY=1 : Guided A/B Dual Slot (ESP + Swap + Root A + Root B + Data)
 # SLOT_SIZE       : Size of each Root Slot partition (Slot A & Slot B)

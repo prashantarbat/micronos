@@ -222,6 +222,48 @@ if [ "$KICKSTART_MODE" -eq 1 ]; then
 fi
 
 # ------------------------------------------------------------------------------
+# Licence agreement: shown before any question is asked or any disk is touched.
+# Decline stops the installer with nothing changed. Kickstart installs must say
+# ACCEPT_EULA="yes" in the answer file.
+# ------------------------------------------------------------------------------
+EULA_FILE="${SCRIPT_DIR}/../EULA.txt"
+EULA_VERSION=$(sed -n 's/^Version \([0-9][0-9.]*\)$/\1/p' "$EULA_FILE" 2>/dev/null | head -n1)
+EULA_VERSION=${EULA_VERSION:-1.0}
+if [ ! -f "$EULA_FILE" ]; then
+    echo -e "${RED}[ERROR] The licence agreement (EULA.txt) is missing from the installer.${NC}"
+    exit 1
+fi
+if [ "$KICKSTART_MODE" -eq 1 ]; then
+    if [[ ! "${ACCEPT_EULA:-}" =~ ^([yY][eE][sS]|[yY]|1|true|TRUE)$ ]]; then
+        echo -e "${RED}[Kickstart] The Micron OS Licence Agreement was not accepted.${NC}"
+        echo "  Read ${EULA_FILE} and set ACCEPT_EULA=\"yes\" in the Kickstart file to install."
+        exit 1
+    fi
+    echo -e "${GREEN}[Kickstart] Micron OS Licence Agreement v${EULA_VERSION} accepted (ACCEPT_EULA=yes).${NC}\n"
+elif command -v whiptail >/dev/null 2>&1 && [ -t 0 ] && [ -t 1 ]; then
+    rows=$(tput lines 2>/dev/null || echo 24); cols=$(tput cols 2>/dev/null || echo 80)
+    [ "$rows" -gt 40 ] && rows=40; [ "$cols" -gt 90 ] && cols=90
+    if ! whiptail --title " Micron OS Licence Agreement " --backtitle "Micron OS Installer $(cat "${SCRIPT_DIR}/../VERSION" 2>/dev/null)" \
+        --scrolltext --yes-button "Accept" --no-button "Decline" \
+        --yesno "$(cat "$EULA_FILE")" "$((rows - 4))" "$((cols - 6))"; then
+        clear
+        echo -e "${YELLOW}The licence agreement was declined. Nothing was installed and no disk was changed.${NC}"
+        exit 0
+    fi
+    clear
+    echo -e "${GREEN}[OK] Micron OS Licence Agreement v${EULA_VERSION} accepted.${NC}\n"
+else
+    if [ -t 0 ] && [ -t 1 ]; then more "$EULA_FILE"; else cat "$EULA_FILE"; fi
+    echo ""
+    read -r -p "Type ACCEPT to accept the Micron OS Licence Agreement, anything else to quit: " EULA_ANSWER
+    if [ "${EULA_ANSWER^^}" != "ACCEPT" ]; then
+        echo -e "${YELLOW}The licence agreement was declined. Nothing was installed and no disk was changed.${NC}"
+        exit 0
+    fi
+    echo -e "${GREEN}[OK] Micron OS Licence Agreement v${EULA_VERSION} accepted.${NC}\n"
+fi
+
+# ------------------------------------------------------------------------------
 # Step 1: Global Keyboard Layout Selection
 # ------------------------------------------------------------------------------
 echo -e "${BOLD}[Step 1/5] Global Keyboard Layout Selection${NC}"
@@ -1117,6 +1159,12 @@ PrintMotd yes
 SSHEOF
     fi
 done
+# Record the installer's licence acceptance on the installed system.
+if [ -d "$TARGET_MNT/etc/micron" ]; then
+    printf 'version=%s\naccepted_at=%s\nmethod=%s\n' "$EULA_VERSION" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        "$([ "$KICKSTART_MODE" -eq 1 ] && echo kickstart || echo installer)" > "$TARGET_MNT/etc/micron/eula-accepted"
+fi
+
 if [ "$ADMIN_PW_GENERATED" -eq 1 ] && [ -d "$TARGET_MNT/etc/micron" ]; then
     ( umask 077; printf '%s\n' "$ADMIN_PW" > "$TARGET_MNT/etc/micron/initial-admin-password" )
 fi

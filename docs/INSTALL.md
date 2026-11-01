@@ -40,7 +40,10 @@ For a virtual machine, attach the ISO as a virtual DVD instead.
 
 ## 4. Run the installer
 
-Boot from the media and choose **Install Micron OS**. The installer has five steps:
+Boot from the media and choose **Install Micron OS**. The installer first
+shows the **Micron OS Licence Agreement** (`EULA.txt`). Choose **Accept** to
+continue; **Decline** stops the installer before any disk is touched. A
+kickstart install must set `ACCEPT_EULA="yes"`. Then come five steps:
 
 1. **Welcome and keyboard.**
 2. **Time zone.**
@@ -102,7 +105,11 @@ accept password logins as `root`: sign in as `ministrator` instead.
    appliance uses a self-signed certificate until you install your own, so
    your browser will warn once.
 3. Sign in as `Ministrator` with the password you set during installation.
-4. Then, in this order:
+4. The first sign-in opens the **licence agreement**. An administrator ticks
+   *I have read and accept* and chooses **Accept**; until then no other page
+   opens. It is asked once per appliance, and again only when a release ships
+   a new version of the agreement.
+5. Then, in this order:
    - Enable two-step verification for your account (`/profile`).
    - Set the hostname, DNS servers and time zone (System Settings, `/system`).
    - Install a trusted certificate for the web UI (Certificates, `/certificates`).

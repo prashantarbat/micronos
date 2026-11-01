@@ -16,6 +16,14 @@
 # ==============================================================================
 
 # ------------------------------------------------------------------------------
+# 0. Licence agreement (required)
+# ------------------------------------------------------------------------------
+# An unattended install does not show the Micron OS Licence Agreement, so the
+# answer file accepts it. Read EULA.txt on the installation media first; any
+# value other than "yes" stops the installer before a disk is touched.
+ACCEPT_EULA="no"
+
+# ------------------------------------------------------------------------------
 # 1. Keyboard Layout & Localization
 # ------------------------------------------------------------------------------
 # Supported values: us, uk, de, fr, es, it, br, jp, pl, ru, se

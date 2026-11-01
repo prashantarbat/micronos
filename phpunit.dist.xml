@@ -48,6 +48,8 @@
         <!-- Always use the development IPC client in tests, even on a host where
              micrond is running (see App\Libraries\IpcClient::__construct). -->
         <env name="MICRON_IPC_MOCK" value="1" force="true"/>
+        <!-- Feature tests sign in directly; the licence page has its own tests (EulaTest). -->
+        <env name="MICRON_EULA_ASSUME_ACCEPTED" value="1" force="true"/>
         <!-- A fixed test key: appliances derive theirs from /etc/micron/secrets.key
              (Config\Encryption), and a developer's .env must not be needed to run tests. -->
         <env name="encryption.key" value="hex2bin:5f1c0e8a3b7d2946c1a0e5f7b38d4c2a9e6f1b0d7c3a58e2f4b6d9c1e0a7f3b5"/>

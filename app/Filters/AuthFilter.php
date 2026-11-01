@@ -3,6 +3,7 @@
 namespace App\Filters;
 
 use App\Libraries\DefaultCredentials;
+use App\Libraries\Eula;
 use App\Libraries\IntendedUrl;
 use CodeIgniter\Filters\FilterInterface;
 use CodeIgniter\HTTP\RequestInterface;
@@ -32,6 +33,18 @@ class AuthFilter implements FilterInterface
             // Remember where to resume, never a POST-only address.
             IntendedUrl::remember($request, $session);
             return redirect()->to(base_url('auth/login'))->with('info', 'Please log in to continue.');
+        }
+
+        // The licence agreement comes first: until an administrator accepts
+        // the current version, only the agreement page is open.
+        if (Eula::enforced() && $session->get(Eula::SESSION_FLAG) !== Eula::VERSION) {
+            if (Eula::isAccepted((new \App\Models\SystemSettingsModel())->getSettings())) {
+                $session->set(Eula::SESSION_FLAG, Eula::VERSION);
+            } elseif (! Eula::isOpenWhilePending(uri_string())) {
+                IntendedUrl::remember($request, $session);
+
+                return redirect()->to(base_url('eula'));
+            }
         }
 
         // Signed in with the factory password: only the password change is open.

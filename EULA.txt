@@ -1,0 +1,100 @@
+MICRON OS LICENCE AGREEMENT
+Version 1.0
+
+Please read this agreement before you install or use Micron OS. Choosing
+Accept means you agree to it. If you do not agree, choose Decline: the
+installer stops without changing any disk, and the web interface signs
+you out.
+
+
+1. Copyright
+
+Micron OS is Copyright (c) 2026 Prashant Arbat and the Micron OS
+contributors. Project home: https://github.com/prashantarbat/micronos
+
+
+2. Your licence to use Micron OS
+
+Micron OS is open source software. You may use, copy, modify and
+distribute it, for private or commercial purposes, under the Apache
+License, Version 2.0. The full licence text is in the LICENSE file
+shipped with Micron OS and at https://www.apache.org/licenses/LICENSE-2.0
+
+Nothing in this agreement takes away a right the Apache License gives
+you. Where the two differ, the Apache License applies.
+
+
+3. The Micron OS name and logo
+
+"Micron OS" and the Micron OS logo identify this project. The Apache
+License does not let you use them for a modified or redistributed
+version (section 6 of that licence). If you ship a changed version,
+give it a different name and logo. You may still say truthfully that it
+is based on Micron OS.
+
+
+4. Other software in the appliance
+
+The appliance image also contains software from other projects,
+including the Linux kernel and Debian GNU/Linux packages (FRRouting,
+nftables, strongSwan, WireGuard tools, nginx, Apache httpd, PHP, Python
+and others). Each keeps its own licence, some of them the GNU General
+Public License. They are listed in THIRD_PARTY_LICENSES.md and NOTICE,
+which also say where to obtain their source code.
+
+
+5. Information the appliance sends
+
+Micron OS does not send your firewall rules, traffic, logs, users,
+passwords or keys anywhere.
+
+If install check-in is left on, the appliance reports once at boot and
+then daily to micronos.microninfo.com: its Micron Appliance ID,
+hostname, version, uptime, boot slot, active rule count, last
+configuration save and basic hardware facts. The website records the
+public IP address the report comes from and looks up its country and
+city. You can turn this off during installation or at any time in
+System > Networking.
+
+Update checks and package downloads contact the update servers you
+configure.
+
+
+6. No warranty
+
+Micron OS is provided "AS IS", without warranty of any kind, express or
+implied, including the warranties of merchantability, fitness for a
+particular purpose and non-infringement. You are responsible for
+deciding whether it suits your network, for testing it, and for keeping
+backups of your configuration.
+
+
+7. Limitation of liability
+
+To the extent the law allows, the authors and contributors are not
+liable for any direct, indirect, incidental, special or consequential
+damages, including loss of data, loss of service, security incidents or
+lost profits, arising from the use of, or the inability to use, Micron
+OS, even if advised of the possibility of such damages.
+
+
+8. Security and lawful use
+
+A firewall is part of your security, not all of it. Keep Micron OS
+updated, change the factory password, and limit who can reach the
+management interface. You are responsible for using Micron OS in line
+with the laws that apply to you, including laws on monitoring traffic,
+inspecting encrypted connections and exporting encryption software.
+
+
+9. Support
+
+Community help is available through the project's GitHub page. Paid
+support, if you buy it, is covered by its own agreement.
+
+
+10. Changes to this agreement
+
+A later release may come with a new version of this agreement. The web
+interface then asks an administrator to accept it again before the
+appliance can be managed.

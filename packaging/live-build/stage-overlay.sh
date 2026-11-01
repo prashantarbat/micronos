@@ -230,6 +230,7 @@ shipped=(
     composer.lock
     env
     VERSION
+    EULA.txt
     LICENSE
     README.md
 )

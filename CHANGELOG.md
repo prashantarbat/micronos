@@ -8,6 +8,11 @@ All notable changes to Micron OS are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- Micron OS Licence Agreement (`EULA.txt`, version 1.0). The installer shows
+  it before any step with **Accept** / **Decline** (Decline stops before any
+  disk is touched; kickstart needs `ACCEPT_EULA="yes"`), and the web interface
+  opens it after sign-in, before any other page, until an administrator
+  accepts it for the appliance.
 - Install check-in: once after boot and then daily, the appliance reports its
   Micron Appliance ID, hostname, version, uptime, boot slot, active rule count,
   last config save and basic hardware to micronos.microninfo.com

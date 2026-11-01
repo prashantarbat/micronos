@@ -42,6 +42,8 @@ class SystemSettingsModel extends Model
         'ipv6_enabled',
         // Install check-in (micron:checkin writes the last_* columns itself)
         'telemetry_enabled',
+        // Licence agreement acceptance (Eula controller)
+        'eula_version', 'eula_accepted_at', 'eula_accepted_by',
         // Misc
         // console_speed (fixed 115200) and language (English only) are kept as
         // columns for older rows but are no longer writable from the Web UI.
@@ -116,6 +118,10 @@ class SystemSettingsModel extends Model
         'telemetry_enabled'     => 1,
         'telemetry_last_at'     => null,
         'telemetry_last_status' => '',
+        // Licence agreement: not accepted until an administrator does so.
+        'eula_version'          => '',
+        'eula_accepted_at'      => null,
+        'eula_accepted_by'      => '',
         'theme'               => 'micronos',
         'language'            => 'en',
         'layout'              => 'topnav',

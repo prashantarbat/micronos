@@ -764,6 +764,9 @@ $routes->group('terminal', ['filter' => 'permission:terminal.access'], function 
 
 // ---- Profile (own account management — no role check needed) ----
 $routes->get('profile', 'Profile::index');
+$routes->get('eula', 'Eula::index');
+$routes->post('eula/accept', 'Eula::accept');
+$routes->post('eula/decline', 'Eula::decline');
 $routes->post('profile/save', 'Profile::save');
 $routes->post('profile/totp', 'Profile::setupTotp');
 $routes->post('profile/password', 'Profile::changePassword');
