@@ -144,7 +144,7 @@ Thank you from the bottom of my heart for reading this and trying Micron OS. I h
 
 ## 📦 Download & Install
 
-1. Download `micronos-<version>-amd64.hybrid.iso` and `SHA256SUMS` from the [Releases](https://github.com/prashantarbat/micronos/releases) page and verify the checksum.
+1. Download `micronos-<version>-amd64.hybrid.iso` and its checksum file from **[micronos.microninfo.com/download](https://micronos.microninfo.com/download)** (free account required) and verify the checksum. ISO images are published only there, not on GitHub Releases.
 2. Write the ISO to a USB drive (or attach it to a VM) and boot it.
 3. Follow the five-step installer. **Set your own administrator password** at step 4.
 4. Browse to the LAN address shown on the console and sign in as `Ministrator`.
