@@ -209,8 +209,24 @@ echo "=== 4. Running lb config ==="
 MICRONOS_SRC="${REPO_DIR}" auto/config
 
 echo "=== 5. Running lb build (log: ${BUILD_LOG}) ==="
+# Debian mirrors are briefly inconsistent while they sync ("Hash Sum
+# mismatch") and networks drop downloads. Those are retried with fresh package
+# lists; any other failure stops the build at once.
 set -o pipefail
-lb build 2>&1 | tee "${BUILD_LOG}"
+attempts="${MICRONOS_BUILD_ATTEMPTS:-4}"
+attempt=1
+until lb build 2>&1 | tee "${BUILD_LOG}"; do
+    if [ "${attempt}" -ge "${attempts}" ] \
+        || ! grep -qE 'Hash Sum mismatch|Failed to fetch|Temporary failure resolving|Could not (connect|resolve)|Connection (failed|timed out|reset)|File has unexpected size' "${BUILD_LOG}"; then
+        echo "ERROR: lb build failed (attempt ${attempt}/${attempts}); see ${BUILD_LOG}" >&2
+        exit 1
+    fi
+    wait_s=$((attempt * 120))
+    echo "=== Debian download problem (attempt ${attempt}/${attempts}); retrying in ${wait_s} s with fresh package lists ==="
+    rm -rf "${BUILD_DIR}/chroot/var/lib/apt/lists/"* 2>/dev/null || true
+    sleep "${wait_s}"
+    attempt=$((attempt + 1))
+done
 
 echo "=== 6. Outputting ISO to ${TARGET_DIR} ==="
 if [ ! -f "${BUILD_DIR}/live-image-amd64.hybrid.iso" ]; then
@@ -218,6 +234,13 @@ if [ ! -f "${BUILD_DIR}/live-image-amd64.hybrid.iso" ]; then
     exit 1
 fi
 
+# An ISO already built for this version is kept, never overwritten: it is
+# moved aside first (it may be the one uploaded or under test).
+if [ -f "${ISO_DEST}" ]; then
+    previous="${TARGET_DIR}.previous-$(date +%Y%m%d-%H%M%S)"
+    echo "=== Keeping the earlier ${ISO_NAME} in ${previous} ==="
+    mv "${TARGET_DIR}" "${previous}"
+fi
 mkdir -p "${TARGET_DIR}"
 cp -f "${BUILD_DIR}/live-image-amd64.hybrid.iso" "${ISO_DEST}"
 

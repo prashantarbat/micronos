@@ -1111,30 +1111,30 @@ The script is located at `packaging/rebuild_iso.sh` in the repository and synced
 Usage: sudo packaging/rebuild_iso.sh [--bump | --no-bump | --version <version>]
 ```
 
-- **Default (no flags)**: `auto` mode. Reads current version from `VERSION`. If an ISO for that version already exists in the output directory, it automatically increments the patch version (e.g. `0.1.42` → `0.1.43`). If not, it builds with the current version.
-- **`--bump`**: Forces an immediate patch version bump in `VERSION` and `system/os-release` before building.
-- **`--no-bump`**: Forces building with the exact version in `VERSION` without incrementing, even if an ISO already exists.
+- **Default (no flags)**: `auto` mode. Reads current version from `VERSION`. If an ISO for that version already exists in the output directory, it moves to the next version: the patch for a release (`0.1.42` → `0.1.43`), the pre-release number for a release candidate (`1.0.0-rc.1` → `1.0.0-rc.2`). If not, it builds with the current version.
+- **`--bump`**: Forces an immediate version bump in `VERSION` and `system/os-release` before building.
+- **`--no-bump`**: Builds the exact version in `VERSION`. An ISO already built for it is moved to `<folder>.previous-<date>`, never overwritten.
 - **`--version <ver>`**: Explicitly sets the build version (e.g. `--version 0.2.0`), updating `VERSION` and `system/os-release`.
 
-#### Execution from Windows PowerShell:
-You can invoke the build pipeline directly from PowerShell on your Windows host:
+#### Building from Windows
+
+Double-click **`tools\build-iso.cmd`** in the repository, or run it from a
+command prompt (`tools\build-iso.cmd --no-bump`). It finds the repository in
+WSL by itself and runs the build in the `kali-linux` distribution (set
+`MICRONOS_WSL_DISTRO` for another). The same from PowerShell:
 
 ```powershell
-# 1. Full rebuild with auto-versioning:
-wsl -d kali-linux -u root -- bash /root/micronos-builder/rebuild_iso.sh
-
-# 2. Force bump patch version:
-wsl -d kali-linux -u root -- bash /root/micronos-builder/rebuild_iso.sh --bump
-
-# 3. Build current version without bumping:
-wsl -d kali-linux -u root -- bash /root/micronos-builder/rebuild_iso.sh --no-bump
-
-# 4. Fast finalize if ISO was already compiled:
-wsl -d kali-linux -u root -- bash /root/micronos-builder/finalize_iso.sh
+wsl -d kali-linux -u root -- bash /mnt/d/laragon/www/micronos/micronos/packaging/rebuild_iso.sh
+wsl -d kali-linux -u root -- bash /mnt/d/laragon/www/micronos/micronos/packaging/rebuild_iso.sh --no-bump
 ```
 
+Paste only the commands into PowerShell, never build output: PowerShell runs
+every pasted line, and a line such as `Del <package>` is its delete command.
+
 #### Key Architecture Safeguards in `rebuild_iso.sh`:
-- **Self-Overwrite Protection**: When executed as `/root/micronos-builder/rebuild_iso.sh`, the script guards against overwriting itself in Step 1 using `realpath "$0"`, preventing file offset corruption during live Bash execution.
+- **Always the current script**: the builder's copy, `/root/micronos-builder/rebuild_iso.sh`, replaces itself with the repository's `packaging/rebuild_iso.sh` (as LF) whenever they differ and runs that, so a fix in the repository is never left out of a build.
+- **Download problems are retried**: a Debian mirror caught mid-sync ("Hash Sum mismatch") or a dropped connection makes `lb build` retry up to 4 times (`MICRONOS_BUILD_ATTEMPTS`), 2, 4 and 6 minutes apart, with fresh package lists. Source and translation indexes are not downloaded at all, and apt retries each file 5 times.
+- **Line endings**: files checked out with Windows (CRLF) endings are converted to LF before anything runs.
 - **Single Source of Truth**: Synchronizes `VERSION` and `system/os-release` consistently.
 - **Clean Artifact Staging**: Purges stale ISO files in the repository directory to avoid deploying unversioned or stale images.
 - **Cryptographic Hash Manifest**: Writes a consolidated, human-readable and machine-verifiable `*.checksums.txt` file containing MD5, SHA1, SHA256, and SHA512.
