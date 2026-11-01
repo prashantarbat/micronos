@@ -40,6 +40,20 @@ if [ ! -f "${REPO_DIR}/bin/micron-menu" ] || [ ! -d "${REPO_DIR}/packaging/live-
     exit 1
 fi
 
+# The builder keeps its own copy (/root/micronos-builder/rebuild_iso.sh), and
+# that copy is what people run. Without this it never picked up a fix made in
+# the repository: when the repository's script differs, install it over this
+# copy (as LF) and run it instead.
+self_path="$(realpath "${BASH_SOURCE[0]}")"
+repo_script="${REPO_DIR}/packaging/rebuild_iso.sh"
+if [ -z "${MICRONOS_REBUILD_REEXEC:-}" ] && [ -f "${repo_script}" ] \
+    && [ "${self_path}" != "$(realpath "${repo_script}")" ] \
+    && ! tr -d '\r' < "${repo_script}" | cmp -s - "${self_path}"; then
+    echo "=== Updating ${self_path} from ${repo_script} ==="
+    tr -d '\r' < "${repo_script}" > "${self_path}.new" && chmod 0755 "${self_path}.new" && mv -f "${self_path}.new" "${self_path}"
+    MICRONOS_REBUILD_REEXEC=1 exec bash "${self_path}" "$@"
+fi
+
 bump_mode="${MICRONOS_AUTO_BUMP:-auto}" # 'auto', 'always', 'never'
 explicit_version=""
 
@@ -75,15 +89,18 @@ while [ $# -gt 0 ]; do
     esac
 done
 
+# 0.1.41 -> 0.1.42; a pre-release counts up its own number instead:
+# 1.0.0-rc.1 -> 1.0.0-rc.2. Anything else is refused, so a rebuild can never
+# reuse a version and overwrite the ISO already built for it.
 bump_version() {
     local v="$1"
-    local major minor patch
-    IFS='.' read -r major minor patch <<< "$v"
-    if [[ "${patch:-}" =~ ^[0-9]+$ ]]; then
-        patch=$((patch + 1))
-        echo "${major}.${minor}.${patch}"
+    if [[ "$v" =~ ^([0-9]+\.[0-9]+\.[0-9]+-[0-9A-Za-z-]+\.)([0-9]+)$ ]]; then
+        echo "${BASH_REMATCH[1]}$((BASH_REMATCH[2] + 1))"
+    elif [[ "$v" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+        echo "${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.$((BASH_REMATCH[3] + 1))"
     else
-        echo "$v"
+        echo "ERROR: cannot work out the next version after '${v}'; use --version or --no-bump" >&2
+        return 1
     fi
 }
 
