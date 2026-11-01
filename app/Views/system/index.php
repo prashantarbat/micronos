@@ -524,9 +524,9 @@ if (!function_exists('stickyColor')) {
           </div>
         </div>
         <div style="margin-top:14px; font-size:0.78rem; color:var(--text-secondary); line-height:1.7;">
-          <strong style="color:var(--text-primary);">What is sent:</strong> Micron Appliance ID, hostname, Micron OS version, uptime, boot slot, number of active firewall rules, when the configuration was last saved, kernel, CPU model and cores, memory, disk size, number of network ports, timezone and whether it runs in a VM.
+          <strong style="color:var(--text-primary);">What is sent:</strong> Micron Appliance ID, hostname, Micron OS version, uptime, boot slot, number of active firewall rules, when the configuration was last saved, kernel, CPU model and cores, memory, disk size, number of network ports, timezone and whether it runs in a VM, plus the <strong>organisation details</strong> from the Organisation tab (organisation / client name, primary contact name, email, phone, address, city, state, country and coordinates) when they are filled in. Saving a new hostname or organisation details sends a check-in straight away.
           The website also records the <strong>public IP</strong> the report comes from and looks up its approximate country, city and ISP.
-          <strong style="color:var(--text-primary);">Never sent:</strong> firewall rules, traffic, logs, user names, passwords, keys or organisation details.
+          <strong style="color:var(--text-primary);">Never sent:</strong> firewall rules, traffic, logs, user names, passwords or keys.
           See exactly what would be sent with <code style="font-family:var(--font-mono);">php spark micron:checkin --show</code>.
         </div>
         <div style="margin-top:12px; padding:10px 14px; border-radius:8px; background:var(--color-surface-3); border:1px solid var(--color-border); font-size:0.75rem; color:var(--text-muted);">

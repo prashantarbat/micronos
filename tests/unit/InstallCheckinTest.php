@@ -39,8 +39,14 @@ final class InstallCheckinTest extends CIUnitTestCase
             'updated_at'        => '2026-10-18 14:30:00',
             'telemetry_enabled' => 1,
             'telemetry_last_at' => '2026-10-30 10:00:00',
-            'org_name'          => 'Secret Corp',
+            'org_name'          => 'Acme Pvt Ltd',
+            'org_contact_name'  => 'R. Sharma',
             'org_email'         => 'admin@example.com',
+            'org_phone'         => '+91 712 555 0100',
+            'org_address'       => '',
+            'org_city'          => 'Nagpur',
+            'org_latitude'      => null,
+            'admin_password'    => 'Secret-Pass-1',
         ];
     }
 
@@ -67,7 +73,7 @@ final class InstallCheckinTest extends CIUnitTestCase
         };
     }
 
-    public function testPayloadCarriesTheDashboardFactsAndNothingPrivate(): void
+    public function testPayloadCarriesTheDashboardFactsAndOrganisation(): void
     {
         $p = $this->checkin($this->settings())->payload('auto', $this->settings());
 
@@ -82,9 +88,22 @@ final class InstallCheckinTest extends CIUnitTestCase
         $this->assertSame('kvm', $p['virtual']);
         $this->assertMatchesRegularExpression('/^2026-10-18T\d\d:30:00Z$/', $p['config_saved_at']);
 
-        $json = json_encode($p);
-        $this->assertStringNotContainsString('Secret Corp', $json);
-        $this->assertStringNotContainsString('admin@example.com', $json);
+        $this->assertSame([
+            'name' => 'Acme Pvt Ltd', 'contact_name' => 'R. Sharma', 'email' => 'admin@example.com',
+            'phone' => '+91 712 555 0100', 'address' => null, 'city' => 'Nagpur', 'state' => null,
+            'country' => null, 'latitude' => null, 'longitude' => null,
+        ], $p['organisation']);
+
+        $this->assertStringNotContainsString('Secret-Pass-1', json_encode($p));
+    }
+
+    public function testNoOrganisationIsSentAsNull(): void
+    {
+        $s = $this->settings(['org_name' => '', 'org_contact_name' => ' ', 'org_email' => '', 'org_phone' => '', 'org_city' => '']);
+        $p = $this->checkin($s)->payload('auto', $s);
+
+        $this->assertArrayHasKey('organisation', $p);
+        $this->assertNull($p['organisation'], 'null tells the website to clear what it holds');
     }
 
     public function testFirstEverRunIsTheInstallEvent(): void

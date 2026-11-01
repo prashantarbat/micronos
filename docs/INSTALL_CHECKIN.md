@@ -29,13 +29,17 @@ One HTTPS POST of JSON to `https://micronos.microninfo.com/api/v1/checkin`:
 | `interfaces` | `4` | physical network ports |
 | `virtual` | `none`, `kvm`, `vmware`, `hyper-v` ... | DMI / CPU flags |
 | `timezone` | `Asia/Kolkata` | System > General |
+| `organisation` | `{"name": "Acme Pvt Ltd", "contact_name": "R. Sharma", "email": "it@acme.example", "phone": "+91 712 555 0100", "address": "Plot 4, MIDC", "city": "Nagpur", "state": "Maharashtra", "country": "IN", "latitude": 21.14, "longitude": 79.08}` | System > Organisation; `null` when none of it is filled in |
 
 The website also records the **public IP address** the request arrives from,
 and looks up its approximate **country, region, city and ISP**.
 
 **Never sent:** firewall rules or objects, traffic or connection data, logs,
-user names, passwords, keys, certificates, VPN peers, or the organisation details
-in System > General.
+user names, passwords, keys, certificates or VPN peers.
+
+Organisation details are part of every check-in (there is no separate switch).
+When they are cleared on the appliance, the next check-in sends
+`"organisation": null` and the website deletes what it held.
 
 See the exact JSON for your appliance, without sending it:
 
@@ -59,7 +63,9 @@ sent and the last result. The same is shown under System > Networking.
 `micron-checkin.timer` starts `micron-checkin.service` 5 minutes after boot and
 then every 24 hours (with up to 30 minutes of random delay, so a site that
 powers on many appliances at once does not send them all in the same second).
-The service runs `php spark micron:checkin` as `www-data`. A failed send (no
+Saving System settings with a changed hostname, timezone or any organisation
+field also starts a check-in in the background straight away, so the website
+is up to date within a minute. The service runs `php spark micron:checkin` as `www-data`. A failed send (no
 internet, site down) is logged and retried at the next run; it never marks the
 unit as failed.
 

@@ -14,6 +14,10 @@ All notable changes to Micron OS are documented here. The format follows
   (`micron-checkin.timer`, `php spark micron:checkin`). On by default; the
   installer asks, and System > Networking turns it off. See
   [docs/INSTALL_CHECKIN.md](docs/INSTALL_CHECKIN.md).
+- The install check-in also carries the System > Organisation details
+  (organisation / client name, primary contact, email, phone, address, city,
+  state, country, coordinates), and saving a changed hostname or organisation
+  sends a check-in straight away instead of waiting for the daily run.
 
 ### Changed
 - Console **1) Assign Interfaces** follows the pfSense dialogue: optional

@@ -32,7 +32,7 @@
       </div>
       <?php if (! empty($checkinOn)): ?>
       <div style="font-size:0.68rem; color:var(--text-muted); margin-top:2px;" id="install-checkin-note">
-        Install check-in is on: this appliance reports its ID, version, uptime and hardware, with its public IP, to micronos.microninfo.com once a day.
+        Install check-in is on: this appliance reports its ID, version, uptime, hardware and organisation details, with its public IP, to micronos.microninfo.com once a day.
         <a href="<?= base_url('system') ?>#network" style="color:var(--color-cyan);">Change</a>
       </div>
       <?php endif; ?>

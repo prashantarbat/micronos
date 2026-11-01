@@ -722,9 +722,10 @@ fi
 echo -e "${BOLD}Install check-in${NC}"
 echo "  Once at boot and then daily, this appliance reports to micronos.microninfo.com:"
 echo "  its Micron Appliance ID, hostname, version, uptime, boot slot, active rule count,"
-echo "  last configuration save and basic hardware facts. The website records the public"
-echo "  IP it comes from and looks up the country and city. Rules, traffic, logs, users"
-echo "  and keys are never sent. Change it any time in System > Networking."
+echo "  last configuration save, basic hardware facts and the organisation / contact"
+echo "  details set in System > Organisation. The website records the public IP it comes"
+echo "  from and looks up the country and city. Rules, traffic, logs, users and keys are"
+echo "  never sent. Change it any time in System > Networking."
 if [ "$KICKSTART_MODE" -eq 1 ]; then
     INSTALL_CHECKIN="${INSTALL_CHECKIN:-yes}"
 else
