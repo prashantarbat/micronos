@@ -18,8 +18,9 @@ Boot off) and KVM/QEMU. Give the VM at least two network adapters.
 
 ## 2. Download and verify
 
-Download `micronos-<version>-amd64.hybrid.iso` and `SHA256SUMS` from the
-project's GitHub **Releases** page, then verify the image:
+Sign in at https://micronos.microninfo.com/download (a free account) and
+download `micronos-<version>-amd64.hybrid.iso` with its `SHA256SUMS` (or the
+full checksum file with MD5, SHA-1, SHA-256 and SHA-512), then verify the image:
 
 ```bash
 sha256sum -c SHA256SUMS --ignore-missing
