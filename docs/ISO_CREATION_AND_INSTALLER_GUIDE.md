@@ -1124,8 +1124,8 @@ WSL by itself and runs the build in the `kali-linux` distribution (set
 `MICRONOS_WSL_DISTRO` for another). The same from PowerShell:
 
 ```powershell
-wsl -d kali-linux -u root -- bash /mnt/d/laragon/www/micronos/micronos/packaging/rebuild_iso.sh
-wsl -d kali-linux -u root -- bash /mnt/d/laragon/www/micronos/micronos/packaging/rebuild_iso.sh --no-bump
+wsl -d kali-linux -u root -- bash /mnt/d/<your clone>/packaging/rebuild_iso.sh
+wsl -d kali-linux -u root -- bash /mnt/d/<your clone>/packaging/rebuild_iso.sh --no-bump
 ```
 
 Paste only the commands into PowerShell, never build output: PowerShell runs
